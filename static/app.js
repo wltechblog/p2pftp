@@ -267,16 +267,29 @@ function initiatePeerConnection(isInitiator) {
     console.debug('[WebRTC] Initiating peer connection...');
 
     // Create peer connection with optimized configuration for cross-browser compatibility
+    // Use multiple STUN servers and public TURN servers for better NAT traversal
     const config = {
         iceServers: [
-            { urls: 'stun:stun.l.google.com:19302' },  // Primary STUN
-            { urls: 'stun:stun1.l.google.com:19302' }, // Fallback STUN
+            // Primary STUN servers
+            { urls: 'stun:stun.l.google.com:19302' },
+            { urls: 'stun:stun1.l.google.com:19302' },
+            // Public TURN servers for NAT traversal with TCP fallback
+            {
+                urls: [
+                    'turn:openrelay.metered.ca:80',
+                    'turn:openrelay.metered.ca:443',
+                    'turn:openrelay.metered.ca:443?transport=tcp'
+                ],
+                username: 'openrelayproject',
+                credential: 'openrelayproject'
+            }
         ],
         iceTransportPolicy: 'all',
         bundlePolicy: 'max-bundle',
         rtcpMuxPolicy: 'require',
-        iceCandidatePoolSize: 1,  // Reduced to speed up gathering
-        sdpSemantics: 'unified-plan'
+        iceCandidatePoolSize: 2,
+        sdpSemantics: 'unified-plan',
+        iceServersPolicy: 'all'  // Try all servers, not just the first working one
     };
 
     console.debug('[WebRTC] Creating peer connection with config:', config);
@@ -297,19 +310,55 @@ function initiatePeerConnection(isInitiator) {
         handler(); // Log initial state
     });
 
-    // Set up ICE candidate handling
+    // Set up ICE candidate handling with extended gathering time
+    let gatheringTimeoutId = null;
+    const MAX_GATHERING_TIME = 8000; // 8 seconds max for gathering
+
     peerConnection.onicecandidate = (event) => {
         if (event.candidate) {
-            console.debug('[WebRTC] New ICE candidate:', event.candidate.candidate);
+            // Clear any existing timeout since we're still receiving candidates
+            if (gatheringTimeoutId) {
+                clearTimeout(gatheringTimeoutId);
+            }
+
+            console.debug('[WebRTC] New ICE candidate:', {
+                type: event.candidate.type,
+                protocol: event.candidate.protocol,
+                address: event.candidate.address,
+                candidate: event.candidate.candidate
+            });
+
+            // Set new timeout for gathering completion
+            gatheringTimeoutId = setTimeout(() => {
+                if (peerConnection.iceGatheringState !== 'complete') {
+                    console.debug('[WebRTC] Forcing ICE gathering completion after timeout');
+                    const duration = Date.now() - startTime;
+                    console.debug(`[WebRTC] Setup time: ${duration}ms`);
+                }
+            }, MAX_GATHERING_TIME);
+
             sendSignalingMessage({
                 type: 'ice',
                 peerToken: peerToken,
                 ice: JSON.stringify(event.candidate)
             });
         } else {
-            console.debug('[WebRTC] ICE gathering complete');
+            console.debug('[WebRTC] ICE gathering complete naturally');
+            if (gatheringTimeoutId) {
+                clearTimeout(gatheringTimeoutId);
+            }
             const duration = Date.now() - startTime;
             console.debug(`[WebRTC] Setup time: ${duration}ms`);
+        }
+    };
+
+    // Add ICE gathering state monitoring
+    peerConnection.onicegatheringstatechange = () => {
+        console.debug(`[WebRTC] ICE gathering state: ${peerConnection.iceGatheringState}`);
+        if (peerConnection.iceGatheringState === 'complete') {
+            if (gatheringTimeoutId) {
+                clearTimeout(gatheringTimeoutId);
+            }
         }
     };
 
