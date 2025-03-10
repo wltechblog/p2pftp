@@ -15,7 +15,7 @@ A simple peer-to-peer file transfer tool with a Go backend.
 
 - A fully anonymous tool, unless you're using through a vpn, tor, etc. webrtc signaling reveals the public IPs of both endpoints.
 - A robust chat app with emojis and such
-- 
+- Cheese
 
 ## Requirements
 
@@ -25,22 +25,15 @@ A simple peer-to-peer file transfer tool with a Go backend.
 
 ## Installation
 
-1. Clone the repository:
-   ```
-   git clone https://github.com/yourusername/p2pftp.git
-   cd p2pftp
-   ```
-
-2. Install dependencies:
-   ```
-   go mod download
-   ```
+```
+go install github.com/wltechblog/p2pftp@latest
+```
 
 ## Usage
 
 1. Run the Go executable to start the server:
    ```
-   go run main.go
+   p2pftp
    ```
 
    Optional command line arguments:
@@ -49,14 +42,14 @@ A simple peer-to-peer file transfer tool with a Go backend.
 
    Example with custom address and port:
    ```
-   go run main.go -addr 0.0.0.0 -port 9000
+   p2pftp -addr 0.0.0.0 -port 9000
    ```
 
-2. Open your web browser and navigate to `http://localhost:8089` (or your custom address/port)
+2. Use a https proxy such as Caddy, nginx, etc to provide a secure connection.
 
-3. Share your token with the person you want to connect with, or use the "Copy Link" to give them a URL that directly connects to you.
+3. Open your browser to your URL, share your token with the person you want to connect with, or use the "Copy Link" to give them a URL that directly connects to you.
 
-4. Enter their token in the "Connect to Peer" field and click "Connect"
+4. When they attempt to connect, authorize the connection request to hook up.
 
 5. Once the connection is established, you can start chatting and sending files
 
