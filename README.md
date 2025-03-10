@@ -7,14 +7,20 @@ A simple peer-to-peer file transfer tool with a Go backend.
 - Peer-to-peer file transfer over WebRTC data channels
 - Secure token-based authentication
 - Text chat between peers
-- Mobile-first responsive design
+- Mobile-first responsive design (NOTE: Android browsers tend to kill webrtc connections when you switch away, so may not be reliable there!)
 - Real-time transfer progress indication
-- Direct peer-to-peer communication (no server involvement once connected)
+- Direct end-to-end encrypted, peer-to-peer communication (no server involvement once connected)
+
+## What it isn't
+
+- A fully anonymous tool, unless you're using through a vpn, tor, etc. webrtc signaling reveals the public IPs of both endpoints.
+- A robust chat app with emojis and such
+- 
 
 ## Requirements
 
-- Go 1.18 or higher
-- Modern web browser with WebRTC support
+- Go 1.24.1 or higher
+- Modern web browsers with WebRTC support
 - https reverse proxy such as Caddy or nginx
 
 ## Installation
@@ -48,18 +54,20 @@ A simple peer-to-peer file transfer tool with a Go backend.
 
 2. Open your web browser and navigate to `http://localhost:8089` (or your custom address/port)
 
-3. Share your token with the person you want to connect with
+3. Share your token with the person you want to connect with, or use the "Copy Link" to give them a URL that directly connects to you.
 
 4. Enter their token in the "Connect to Peer" field and click "Connect"
 
 5. Once the connection is established, you can start chatting and sending files
+
+6. When done, close the tab and your session is gone forever.
 
 ## How It Works
 
 1. When users load the page, they establish a WebSocket connection to the server
 2. Each user is assigned a unique, secure token
 3. To connect, one user enters the other's token and initiates the connection
-4. The receiving user is notified and can accept or reject the connection
+4. The receiving user is notified and can accept or reject the connection, and can validate the peer token
 5. When accepted, WebRTC signaling occurs through the server
 6. After the WebRTC connection is established, all communication happens directly between peers
 7. No file data passes through the server, ensuring privacy and reducing server load
