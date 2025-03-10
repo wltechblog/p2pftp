@@ -263,12 +263,19 @@ function showConnectionRequest(token) {
 
 // Initialize WebRTC peer connection
 function initiatePeerConnection(isInitiator) {
-    // Create peer connection
+    // Create peer connection with expanded STUN servers for better Firefox compatibility
     peerConnection = new RTCPeerConnection({
         iceServers: [
             { urls: 'stun:stun.l.google.com:19302' },
-            { urls: 'stun:stun1.l.google.com:19302' }
-        ]
+            { urls: 'stun:stun1.l.google.com:19302' },
+            { urls: 'stun:stun2.l.google.com:19302' },
+            { urls: 'stun:stun3.l.google.com:19302' },
+            { urls: 'stun:stun4.l.google.com:19302' },
+            { urls: 'stun:stun.stunprotocol.org:3478' }
+        ],
+        iceTransportPolicy: 'all',
+        bundlePolicy: 'max-bundle',
+        rtcpMuxPolicy: 'require'
     });
 
     // Set up ICE candidate handling
@@ -282,9 +289,24 @@ function initiatePeerConnection(isInitiator) {
         }
     };
 
+    // Monitor ICE connection state
+    peerConnection.oniceconnectionstatechange = () => {
+        const state = peerConnection.iceConnectionState;
+        addSystemMessage(`ICE Connection State: ${state}`);
+        if (state === 'failed' || state === 'disconnected') {
+            addSystemMessage('Attempting to restart ICE...');
+            peerConnection.restartIce();
+        }
+    };
+
     // Monitor connection state
     peerConnection.onconnectionstatechange = () => {
-        updateStatus(`WebRTC: ${peerConnection.connectionState}`);
+        const state = peerConnection.connectionState;
+        updateStatus(`WebRTC: ${state}`);
+        if (state === 'failed') {
+            addSystemMessage('Connection failed. You may need to reconnect.');
+            disconnectFromPeer();
+        }
     };
 
     // Create data channel if initiator, or prepare to receive it
