@@ -15,6 +15,7 @@ A simple peer-to-peer file transfer tool with a Go backend.
 
 - Go 1.18 or higher
 - Modern web browser with WebRTC support
+- https reverse proxy such as Caddy or nginx
 
 ## Installation
 
