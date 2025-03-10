@@ -1,6 +1,6 @@
 # p2pftp
 
-A simple peer-to-peer file transfer tool with a Go backend.
+A service providing secure and reliable P2P file transfers and chat
 
 ## Features
 
@@ -13,9 +13,16 @@ A simple peer-to-peer file transfer tool with a Go backend.
 
 ## What it isn't
 
-- A fully anonymous tool, unless you're using through a vpn, tor, etc. webrtc signaling reveals the public IPs of both endpoints.
+- A fully anonymous tool, unless you're using through a vpn, tor, etc that makes all your traffic anonymous. webrtc signaling reveals the public IPs of both endpoints.
 - A robust chat app with emojis and such
-- Cheese
+- Gluten free
+
+## Motivations
+
+Email is a terrible way to send files, and has small size limits. File storage products like Dropbox or Google Drive
+are great if you're sharing one file to many people, but not if you're sharing one file to one person. Cutting out the
+middle-man and sending data directly to the intended recipient is ideal in many cases, and doing so with full end-to-end
+encryption is a must.
 
 ## Requirements
 
