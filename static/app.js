@@ -90,6 +90,20 @@ function setupEventListeners() {
             });
     });
 
+    // Share URL button
+    const shareUrlBtn = document.getElementById('share-url');
+    shareUrlBtn.addEventListener('click', () => {
+        const currentUrl = window.location.href.split('?')[0];
+        const fullUrl = `${currentUrl}?token=${encodeURIComponent(myToken)}`;
+        navigator.clipboard.writeText(fullUrl)
+            .then(() => {
+                shareUrlBtn.textContent = 'Copied!';
+                setTimeout(() => {
+                    shareUrlBtn.textContent = 'Share Link';
+                }, 2000);
+            })
+            .catch(err => console.error('Copy failed:', err));
+    });
     // Connect/Disconnect button
     connectBtn.addEventListener('click', () => {
         if (dataChannel && dataChannel.readyState === 'open') {
@@ -174,6 +188,14 @@ function handleSignalingMessage(message) {
             myToken = message.token;
             myTokenInput.value = myToken;
             addSystemMessage(`Your token: ${myToken}`);
+
+            // Handle URL parameter for peer token
+            const urlParams = new URLSearchParams(window.location.search);
+            const peerTokenFromUrl = urlParams.get('token');
+            if (peerTokenFromUrl && peerTokenFromUrl !== myToken) {
+                peerTokenInput.value = peerTokenFromUrl;
+                connectBtn.click();
+            }
             break;
             
         case 'request':
