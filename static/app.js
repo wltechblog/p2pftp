@@ -486,12 +486,12 @@ function receiveFile() {
     
     // Create message with download link
     const messageElement = document.createElement('div');
-    messageElement.className = 'system-message text-sm py-1';
+    messageElement.className = 'text-gray-500 dark:text-gray-400 text-sm py-1 italic';
     
     const downloadLink = document.createElement('a');
     downloadLink.href = URL.createObjectURL(received);
     downloadLink.download = fileReceiveInfo.name;
-    downloadLink.className = 'text-blue-500 hover:text-blue-700 underline';
+    downloadLink.className = 'text-blue-500 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 underline';
     downloadLink.textContent = `Download ${fileReceiveInfo.name} (${formatBytes(fileReceiveInfo.size)})`;
     
     // Clean up Blob URL after download starts
@@ -516,7 +516,7 @@ function receiveFile() {
 // Add system message to chat
 function addSystemMessage(message) {
     const messageElement = document.createElement('div');
-    messageElement.className = 'system-message text-sm py-1';
+    messageElement.className = 'text-gray-500 dark:text-gray-400 text-sm py-1 italic';
     messageElement.textContent = message;
     messagesContainer.appendChild(messageElement);
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
@@ -525,7 +525,7 @@ function addSystemMessage(message) {
 // Add peer message to chat
 function addPeerMessage(message) {
     const messageElement = document.createElement('div');
-    messageElement.className = 'peer-message p-2 rounded-lg max-w-[80%]';
+    messageElement.className = 'bg-gray-100 dark:bg-gray-700 p-2 rounded-lg max-w-[80%]';
     messageElement.textContent = message;
     messagesContainer.appendChild(messageElement);
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
@@ -534,7 +534,7 @@ function addPeerMessage(message) {
 // Add my message to chat
 function addMyMessage(message) {
     const messageElement = document.createElement('div');
-    messageElement.className = 'my-message p-2 rounded-lg max-w-[80%]';
+    messageElement.className = 'bg-blue-100 dark:bg-blue-900 p-2 rounded-lg max-w-[80%] ml-auto';
     messageElement.textContent = message;
     messagesContainer.appendChild(messageElement);
     messagesContainer.scrollTop = messagesContainer.scrollHeight;
