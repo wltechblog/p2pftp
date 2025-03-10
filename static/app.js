@@ -266,20 +266,27 @@ function initiatePeerConnection(isInitiator) {
     const startTime = Date.now();
     console.debug('[WebRTC] Initiating peer connection...');
 
-    // Create peer connection with IPv4 STUN servers for Firefox compatibility
-    peerConnection = new RTCPeerConnection({
+    // Create peer connection with optimized configuration for cross-browser compatibility
+    const config = {
         iceServers: [
-            { urls: 'stun:64.233.163.127:19302' },  // Google STUN IPv4
-            { urls: 'stun:64.233.189.127:19302' },  // Google STUN IPv4
-            { urls: 'stun:stun.1.google.com:19302' },
-            { urls: 'stun:stun.services.mozilla.com:3478' },  // Mozilla's STUN
-            { urls: 'stun:stun.counterpath.net:3478' }  // CounterPath's STUN
+            { urls: 'stun:stun.l.google.com:19302' },  // Primary STUN
+            { urls: 'stun:stun1.l.google.com:19302' }, // Fallback STUN
         ],
         iceTransportPolicy: 'all',
         bundlePolicy: 'max-bundle',
         rtcpMuxPolicy: 'require',
-        iceCandidatePoolSize: 10
-    });
+        iceCandidatePoolSize: 1,  // Reduced to speed up gathering
+        sdpSemantics: 'unified-plan'
+    };
+
+    console.debug('[WebRTC] Creating peer connection with config:', config);
+    peerConnection = new RTCPeerConnection(config);
+
+    // Set common WebRTC options for consistency
+    const dataChannelConfig = {
+        ordered: true,
+        maxRetransmits: 3
+    };
 
     // Log RTCPeerConnection state changes
     ['connectionState', 'iceConnectionState', 'iceGatheringState', 'signalingState'].forEach(prop => {
@@ -323,13 +330,28 @@ function initiatePeerConnection(isInitiator) {
                 setupTime: duration
             });
             
-            // Attempt ICE restart
-            addSystemMessage('Attempting to restart ICE...');
-            try {
-                peerConnection.restartIce();
-                console.debug('[WebRTC] ICE restart initiated');
-            } catch (error) {
-                console.error('[WebRTC] ICE restart failed:', error);
+            // On failure, try to recover or cleanly disconnect
+            addSystemMessage('Connection problems detected, attempting recovery...');
+            
+            // Only attempt recovery if we still have a valid connection
+            if (peerConnection && !isConnectionDead()) {
+                try {
+                    console.debug('[WebRTC] Attempting connection recovery');
+                    peerConnection.restartIce();
+                    
+                    // Set a timeout for the recovery attempt
+                    setTimeout(() => {
+                        if (peerConnection && peerConnection.iceConnectionState === 'failed') {
+                            console.debug('[WebRTC] Recovery timeout, disconnecting');
+                            disconnectFromPeer();
+                        }
+                    }, 5000);  // 5 second timeout for recovery
+                } catch (error) {
+                    console.error('[WebRTC] Recovery failed:', error);
+                    disconnectFromPeer();
+                }
+            } else {
+                console.debug('[WebRTC] Connection is dead, disconnecting');
                 disconnectFromPeer();
             }
         }
@@ -389,7 +411,7 @@ function initiatePeerConnection(isInitiator) {
 
     // Create data channel if initiator, or prepare to receive it
     if (isInitiator) {
-        setupDataChannel(peerConnection.createDataChannel('p2pftp'));
+        setupDataChannel(peerConnection.createDataChannel('p2pftp', dataChannelConfig));
         
         // Create and send offer
         peerConnection.createOffer()
@@ -778,16 +800,41 @@ function hideChatAndFileInterface() {
 }
 
 // Disconnect from peer
+// Helper to check if connection is irrecoverable
+function isConnectionDead() {
+    return !peerConnection || 
+           peerConnection.signalingState === 'closed' ||
+           (peerConnection.iceConnectionState === 'failed' && 
+            peerConnection.connectionState === 'failed');
+}
+
 function disconnectFromPeer() {
+    console.debug('[WebRTC] Initiating disconnect');
+    
+    // Clean up data channel
     if (dataChannel) {
-        dataChannel.close();
+        try {
+            dataChannel.close();
+        } catch (error) {
+            console.warn('[WebRTC] Error closing data channel:', error);
+        }
+        dataChannel = null;
     }
+
+    // Clean up peer connection
     if (peerConnection) {
-        peerConnection.close();
+        try {
+            peerConnection.close();
+        } catch (error) {
+            console.warn('[WebRTC] Error closing peer connection:', error);
+        }
+        peerConnection = null;
     }
-    peerConnection = null;
-    dataChannel = null;
+
+    // Reset state
     peerToken = '';
+    updateStatus('Disconnected');
+    addSystemMessage('Disconnected from peer');
 }
 
 // Format bytes to human-readable format
