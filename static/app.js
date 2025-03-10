@@ -36,6 +36,7 @@ let selectedFile = null;
 let receiveBuffer = [];
 let receivedSize = 0;
 let fileReceiveInfo = null;
+let isConnecting = false;
 
 // Constants
 const CHUNK_SIZE = 16384; // 16KB chunks
@@ -89,18 +90,28 @@ function setupEventListeners() {
             });
     });
 
-    // Connect button
+    // Connect/Disconnect button
     connectBtn.addEventListener('click', () => {
-        const token = peerTokenInput.value.trim();
-        if (token && token !== myToken) {
-            peerToken = token;
-            sendSignalingMessage({
-                type: 'connect',
-                peerToken: token
-            });
-            addSystemMessage(`Connection request sent to peer: ${token}`);
-        } else {
-            addSystemMessage('Please enter a valid peer token');
+        if (dataChannel && dataChannel.readyState === 'open') {
+            // Disconnect if connected
+            disconnectFromPeer();
+        } else if (!isConnecting) {
+            // Connect if not already connecting
+            const token = peerTokenInput.value.trim();
+            if (token && token !== myToken) {
+                isConnecting = true;
+                peerToken = token;
+                connectBtn.textContent = 'Connecting...';
+                connectBtn.classList.remove('bg-green-500', 'hover:bg-green-600');
+                connectBtn.classList.add('bg-yellow-500', 'hover:bg-yellow-600');
+                sendSignalingMessage({
+                    type: 'connect',
+                    peerToken: token
+                });
+                addSystemMessage(`Connection request sent to peer: ${token}`);
+            } else {
+                addSystemMessage('Please enter a valid peer token');
+            }
         }
     });
 
@@ -258,15 +269,21 @@ function setupDataChannel(channel) {
     dataChannel = channel;
     
     dataChannel.onopen = () => {
+        isConnecting = false;
         addSystemMessage('Peer connection established');
         updateStatus('Connected to peer');
         showChatAndFileInterface();
+        connectBtn.textContent = 'Connected - Disconnect?';
+        connectBtn.classList.remove('bg-yellow-500', 'hover:bg-yellow-600');
+        connectBtn.classList.add('bg-red-500', 'hover:bg-red-600');
+        peerTokenInput.disabled = true;
     };
     
     dataChannel.onclose = () => {
         addSystemMessage('Peer connection closed');
         updateStatus('Disconnected from peer');
         hideChatAndFileInterface();
+        resetConnectionUI();
     };
     
     dataChannel.onerror = (error) => {
@@ -527,10 +544,45 @@ function showChatAndFileInterface() {
     filePanel.classList.remove('hidden');
 }
 
+// Reset connection UI elements
+function resetConnectionUI() {
+    connectBtn.textContent = 'Connect';
+    connectBtn.classList.remove('bg-yellow-500', 'hover:bg-yellow-600', 'bg-red-500', 'hover:bg-red-600');
+    connectBtn.classList.add('bg-green-500', 'hover:bg-green-600');
+    peerTokenInput.disabled = false;
+    isConnecting = false;
+    
+    // Reset file transfer UI if active
+    if (selectedFile || fileReceiveInfo) {
+        transferProgress.classList.add('hidden');
+        fileInfo.classList.add('hidden');
+        fileInput.value = '';
+        selectedFile = null;
+        fileReceiveInfo = null;
+        receiveBuffer = [];
+        receivedSize = 0;
+        sendFileBtn.disabled = true;
+        sendFileBtn.classList.add('opacity-50');
+    }
+}
+
 // Hide chat and file interface when disconnected
 function hideChatAndFileInterface() {
     chatWindow.classList.add('hidden');
     filePanel.classList.add('hidden');
+}
+
+// Disconnect from peer
+function disconnectFromPeer() {
+    if (dataChannel) {
+        dataChannel.close();
+    }
+    if (peerConnection) {
+        peerConnection.close();
+    }
+    peerConnection = null;
+    dataChannel = null;
+    peerToken = '';
 }
 
 // Format bytes to human-readable format
