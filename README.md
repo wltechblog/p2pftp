@@ -1,0 +1,80 @@
+# p2pftp
+
+A simple peer-to-peer file transfer tool with a Go backend.
+
+## Features
+
+- Peer-to-peer file transfer over WebRTC data channels
+- Secure token-based authentication
+- Text chat between peers
+- Mobile-first responsive design
+- Real-time transfer progress indication
+- Direct peer-to-peer communication (no server involvement once connected)
+
+## Requirements
+
+- Go 1.18 or higher
+- Modern web browser with WebRTC support
+
+## Installation
+
+1. Clone the repository:
+   ```
+   git clone https://github.com/yourusername/p2pftp.git
+   cd p2pftp
+   ```
+
+2. Install dependencies:
+   ```
+   go mod download
+   ```
+
+## Usage
+
+1. Run the Go executable to start the server:
+   ```
+   go run main.go
+   ```
+
+   Optional command line arguments:
+   - `-addr`: Listen address (default: localhost)
+   - `-port`: Listen port (default: 8089)
+
+   Example with custom address and port:
+   ```
+   go run main.go -addr 0.0.0.0 -port 9000
+   ```
+
+2. Open your web browser and navigate to `http://localhost:8089` (or your custom address/port)
+
+3. Share your token with the person you want to connect with
+
+4. Enter their token in the "Connect to Peer" field and click "Connect"
+
+5. Once the connection is established, you can start chatting and sending files
+
+## How It Works
+
+1. When users load the page, they establish a WebSocket connection to the server
+2. Each user is assigned a unique, secure token
+3. To connect, one user enters the other's token and initiates the connection
+4. The receiving user is notified and can accept or reject the connection
+5. When accepted, WebRTC signaling occurs through the server
+6. After the WebRTC connection is established, all communication happens directly between peers
+7. No file data passes through the server, ensuring privacy and reducing server load
+
+## Development
+
+The project structure is simple:
+- `main.go`: Go server implementation
+- `static/index.html`: Frontend HTML
+- `static/app.js`: Frontend JavaScript
+
+To build the executable:
+```
+go build -o p2pftp main.go
+```
+
+## License
+
+[MIT License](LICENSE)

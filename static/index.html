@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>P2P File Transfer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .system-message {
+            color: #6b7280;
+            font-style: italic;
+        }
+        .peer-message {
+            background-color: #e5e7eb;
+        }
+        .my-message {
+            background-color: #dbeafe;
+            margin-left: auto;
+        }
+        .btn {
+            transition: all 0.2s;
+        }
+        .btn:active {
+            transform: scale(0.95);
+        }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen">
+    <div class="container mx-auto px-4 py-8 max-w-md">
+        <h1 class="text-2xl font-bold text-center mb-6">P2P File Transfer</h1>
+        
+        <!-- Connection Panel -->
+        <div id="connection-panel" class="bg-white rounded-lg shadow-md p-4 mb-4">
+            <div class="mb-4">
+                <h2 class="text-lg font-semibold mb-2">Your Token</h2>
+                <div class="flex">
+                    <input id="my-token" type="text" readonly class="w-full px-3 py-2 border rounded-l-md bg-gray-50" placeholder="Loading...">
+                    <button id="copy-token" class="bg-blue-500 hover:bg-blue-600 text-white px-3 py-2 rounded-r-md btn">Copy</button>
+                </div>
+                <p class="mt-1 text-sm text-gray-500">Share this token with the person you want to connect with</p>
+            </div>
+            
+            <div>
+                <h2 class="text-lg font-semibold mb-2">Connect to Peer</h2>
+                <div class="flex mb-2">
+                    <input id="peer-token" type="text" class="w-full px-3 py-2 border rounded-l-md" placeholder="Enter peer token">
+                    <button id="connect-btn" class="bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-r-md btn">Connect</button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Connection Request Panel (initially hidden) -->
+        <div id="request-panel" class="hidden bg-white rounded-lg shadow-md p-4 mb-4">
+            <h2 class="text-lg font-semibold mb-2">Connection Request</h2>
+            <p>Someone with token <span id="requester-token" class="font-mono font-bold"></span> wants to connect.</p>
+            <div class="flex space-x-2 mt-3">
+                <button id="accept-btn" class="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-md flex-1 btn">Accept</button>
+                <button id="reject-btn" class="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-md flex-1 btn">Reject</button>
+            </div>
+        </div>
+        
+        <!-- Connection Status -->
+        <div id="status-bar" class="bg-gray-200 text-center py-2 rounded-md mb-4">
+            <span id="connection-status">Not connected</span>
+        </div>
+        
+        <!-- Chat Window (initially hidden) -->
+        <div id="chat-window" class="hidden bg-white rounded-lg shadow-md mb-4 flex flex-col h-96">
+            <div id="messages" class="p-4 overflow-y-auto flex-grow space-y-2"></div>
+            <div class="border-t p-2">
+                <div class="flex">
+                    <input id="message-input" type="text" class="w-full px-3 py-2 border rounded-l-md" placeholder="Type a message...">
+                    <button id="send-btn" class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-r-md btn">Send</button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- File Transfer Panel (initially hidden) -->
+        <div id="file-panel" class="hidden bg-white rounded-lg shadow-md p-4">
+            <h2 class="text-lg font-semibold mb-2">Send File</h2>
+            <div class="mb-3">
+                <input type="file" id="file-input" class="hidden">
+                <label for="file-input" class="block w-full cursor-pointer bg-gray-100 text-center border rounded-md px-4 py-6 hover:bg-gray-200">
+                    Click to select a file
+                </label>
+            </div>
+            <div id="file-info" class="hidden mb-3 px-3 py-2 bg-gray-50 rounded-md">
+                <p>Selected: <span id="file-name"></span> (<span id="file-size"></span>)</p>
+            </div>
+            <button id="send-file-btn" disabled class="w-full bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-md opacity-50 btn">Send File</button>
+            
+            <!-- File Transfer Progress (initially hidden) -->
+            <div id="transfer-progress" class="hidden mt-3">
+                <div class="flex justify-between text-sm mb-1">
+                    <span id="transfer-status">Sending file...</span>
+                    <span id="transfer-percentage">0%</span>
+                </div>
+                <div class="w-full bg-gray-200 rounded-full h-2.5">
+                    <div id="progress-bar" class="bg-blue-600 h-2.5 rounded-full" style="width: 0%"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>
