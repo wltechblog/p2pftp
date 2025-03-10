@@ -46,7 +46,30 @@ const WS_URL = `wss://${window.location.host}/ws`;
 function init() {
     setupWebSocket();
     setupEventListeners();
+    setupNotifications();
     updateStatus('Connecting to server...');
+}
+
+// Set up browser notifications
+function setupNotifications() {
+    if ('Notification' in window) {
+        if (Notification.permission !== 'granted' && Notification.permission !== 'denied') {
+            Notification.requestPermission();
+        }
+    }
+}
+
+// Show browser notification
+function showNotification(title, message) {
+    if ('Notification' in window && Notification.permission === 'granted') {
+        new Notification(title, { body: message });
+    }
+}
+
+// Update page title with loading indicator
+function updateTitleWithSpinner(isLoading) {
+    const baseTitle = 'P2P File Transfer';
+    document.title = isLoading ? `↻ ${baseTitle}` : baseTitle;
 }
 
 // Set up WebSocket connection
@@ -234,6 +257,8 @@ function handleSignalingMessage(message) {
 function showConnectionRequest(token) {
     requesterTokenSpan.textContent = token;
     requestPanel.classList.remove('hidden');
+    showNotification('Connection Request', `Peer ${token} wants to connect with you`);
+    updateTitleWithSpinner(true);
 }
 
 // Initialize WebRTC peer connection
@@ -462,27 +487,29 @@ function sendFile(file) {
             progressBar.style.width = `${percentage}%`;
             transferPercentage.textContent = `${percentage}%`;
             
-            if (offset < file.size) {
-                // More to send
-                readSlice(offset);
-            } else {
-                // Done sending
-                dataChannel.send(JSON.stringify({
-                    type: 'file-complete'
-                }));
-                
-                addSystemMessage(`File sent: ${file.name}`);
-                
-                // Reset UI after a brief delay
-                setTimeout(() => {
-                    transferProgress.classList.add('hidden');
-                    fileInfo.classList.add('hidden');
-                    fileInput.value = '';
-                    selectedFile = null;
-                    sendFileBtn.disabled = true;
-                    sendFileBtn.classList.add('opacity-50');
-                }, 2000);
-            }
+    if (offset < file.size) {
+        // More to send
+        readSlice(offset);
+    } else {
+        // Done sending
+        dataChannel.send(JSON.stringify({
+            type: 'file-complete'
+        }));
+        
+        addSystemMessage(`File sent: ${file.name}`);
+        showNotification('File Sent', `${file.name} was sent successfully`);
+        updateTitleWithSpinner(false);
+        
+        // Reset UI after a brief delay
+        setTimeout(() => {
+            transferProgress.classList.add('hidden');
+            fileInfo.classList.add('hidden');
+            fileInput.value = '';
+            selectedFile = null;
+            sendFileBtn.disabled = true;
+            sendFileBtn.classList.add('opacity-50');
+        }, 2000);
+    }
         }
     };
     
@@ -505,6 +532,10 @@ function receiveFile() {
     // Combine received buffer into a single Blob
     const received = new Blob(receiveBuffer);
     receiveBuffer = [];
+
+    // Show notification and update title
+    showNotification('File Received', `${fileReceiveInfo.name} is ready to download`);
+    updateTitleWithSpinner(false);
     
     // Create message with download link
     const messageElement = document.createElement('div');
