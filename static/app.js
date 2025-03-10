@@ -478,27 +478,34 @@ function sendFile(file) {
     readSlice(0);
 }
 
-// Complete file reception and trigger download
+// Complete file reception and show download link
 function receiveFile() {
     // Combine received buffer into a single Blob
     const received = new Blob(receiveBuffer);
     receiveBuffer = [];
     
-    // Create download link
+    // Create message with download link
+    const messageElement = document.createElement('div');
+    messageElement.className = 'system-message text-sm py-1';
+    
     const downloadLink = document.createElement('a');
     downloadLink.href = URL.createObjectURL(received);
     downloadLink.download = fileReceiveInfo.name;
-    downloadLink.style.display = 'none';
-    document.body.appendChild(downloadLink);
+    downloadLink.className = 'text-blue-500 hover:text-blue-700 underline';
+    downloadLink.textContent = `Download ${fileReceiveInfo.name} (${formatBytes(fileReceiveInfo.size)})`;
     
-    // Trigger download and clean up
-    downloadLink.click();
-    setTimeout(() => {
-        document.body.removeChild(downloadLink);
-        URL.revokeObjectURL(downloadLink.href);
-    }, 100);
+    // Clean up Blob URL after download starts
+    downloadLink.addEventListener('click', () => {
+        setTimeout(() => {
+            URL.revokeObjectURL(downloadLink.href);
+        }, 100);
+    });
     
-    addSystemMessage(`File received: ${fileReceiveInfo.name} (${formatBytes(fileReceiveInfo.size)})`);
+    messageElement.appendChild(document.createTextNode('File received: '));
+    messageElement.appendChild(downloadLink);
+    messagesContainer.appendChild(messageElement);
+    messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    
     updateStatus('Connected to peer');
     
     // Reset file transfer state
