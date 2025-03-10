@@ -263,6 +263,9 @@ function showConnectionRequest(token) {
 
 // Initialize WebRTC peer connection
 function initiatePeerConnection(isInitiator) {
+    const startTime = Date.now();
+    console.debug('[WebRTC] Initiating peer connection...');
+
     // Create peer connection with IPv4 STUN servers for Firefox compatibility
     peerConnection = new RTCPeerConnection({
         iceServers: [
@@ -278,36 +281,111 @@ function initiatePeerConnection(isInitiator) {
         iceCandidatePoolSize: 10
     });
 
+    // Log RTCPeerConnection state changes
+    ['connectionState', 'iceConnectionState', 'iceGatheringState', 'signalingState'].forEach(prop => {
+        const handler = () => {
+            console.debug(`[WebRTC] ${prop}: ${peerConnection[prop]}`);
+        };
+        peerConnection[`on${prop}change`] = handler;
+        handler(); // Log initial state
+    });
+
     // Set up ICE candidate handling
     peerConnection.onicecandidate = (event) => {
         if (event.candidate) {
+            console.debug('[WebRTC] New ICE candidate:', event.candidate.candidate);
             sendSignalingMessage({
                 type: 'ice',
                 peerToken: peerToken,
                 ice: JSON.stringify(event.candidate)
             });
+        } else {
+            console.debug('[WebRTC] ICE gathering complete');
+            const duration = Date.now() - startTime;
+            console.debug(`[WebRTC] Setup time: ${duration}ms`);
         }
     };
 
     // Monitor ICE connection state
     peerConnection.oniceconnectionstatechange = () => {
         const state = peerConnection.iceConnectionState;
+        const duration = Date.now() - startTime;
+        console.debug(`[WebRTC] ICE state '${state}' after ${duration}ms`);
         addSystemMessage(`ICE Connection State: ${state}`);
+        
         if (state === 'failed' || state === 'disconnected') {
+            console.warn('[WebRTC] Connection problems detected, diagnostic info:', {
+                iceConnectionState: peerConnection.iceConnectionState,
+                connectionState: peerConnection.connectionState,
+                signalingState: peerConnection.signalingState,
+                localDescription: peerConnection.localDescription?.sdp,
+                remoteDescription: peerConnection.remoteDescription?.sdp,
+                setupTime: duration
+            });
+            
+            // Attempt ICE restart
             addSystemMessage('Attempting to restart ICE...');
-            peerConnection.restartIce();
+            try {
+                peerConnection.restartIce();
+                console.debug('[WebRTC] ICE restart initiated');
+            } catch (error) {
+                console.error('[WebRTC] ICE restart failed:', error);
+                disconnectFromPeer();
+            }
         }
     };
 
     // Monitor connection state
     peerConnection.onconnectionstatechange = () => {
         const state = peerConnection.connectionState;
+        const duration = Date.now() - startTime;
+        console.debug(`[WebRTC] Connection state '${state}' after ${duration}ms`);
         updateStatus(`WebRTC: ${state}`);
+        
         if (state === 'failed') {
+            console.error('[WebRTC] Connection failed, diagnostic info:', {
+                iceConnectionState: peerConnection.iceConnectionState,
+                connectionState: peerConnection.connectionState,
+                signalingState: peerConnection.signalingState,
+                localDescription: peerConnection.localDescription?.sdp,
+                remoteDescription: peerConnection.remoteDescription?.sdp,
+                setupTime: duration
+            });
             addSystemMessage('Connection failed. You may need to reconnect.');
             disconnectFromPeer();
         }
     };
+
+    // Log stats periodically for debugging
+    const statsInterval = setInterval(async () => {
+        if (peerConnection && peerConnection.connectionState === 'connected') {
+            try {
+                const stats = await peerConnection.getStats();
+                let diagnostics = {};
+                stats.forEach(stat => {
+                    if (stat.type === 'candidate-pair' && stat.state === 'succeeded') {
+                        diagnostics.activeCandidatePair = {
+                            localType: stat.localCandidateType,
+                            remoteType: stat.remoteCandidateType,
+                            protocol: stat.protocol
+                        };
+                    }
+                });
+                console.debug('[WebRTC] Connection stats:', diagnostics);
+            } catch (error) {
+                console.warn('[WebRTC] Failed to get stats:', error);
+            }
+        }
+    }, 10000);
+
+    // Clean up stats interval on disconnect
+    peerConnection.addEventListener('connectionstatechange', () => {
+        if (peerConnection.connectionState === 'disconnected' || 
+            peerConnection.connectionState === 'failed' || 
+            peerConnection.connectionState === 'closed') {
+            clearInterval(statsInterval);
+        }
+    });
 
     // Create data channel if initiator, or prepare to receive it
     if (isInitiator) {
@@ -404,11 +482,22 @@ function setupDataChannel(channel) {
 
 // Handle WebRTC offer
 function handleOffer(message) {
+    console.debug('[WebRTC] Received offer');
     const offer = JSON.parse(message.sdp);
+    
+    console.debug('[WebRTC] Offer SDP:', offer.sdp);
+    
     peerConnection.setRemoteDescription(new RTCSessionDescription(offer))
-        .then(() => peerConnection.createAnswer())
-        .then(answer => peerConnection.setLocalDescription(answer))
         .then(() => {
+            console.debug('[WebRTC] Remote description set, creating answer...');
+            return peerConnection.createAnswer();
+        })
+        .then(answer => {
+            console.debug('[WebRTC] Answer created:', answer.sdp);
+            return peerConnection.setLocalDescription(answer);
+        })
+        .then(() => {
+            console.debug('[WebRTC] Local description set, sending answer...');
             sendSignalingMessage({
                 type: 'answer',
                 peerToken: peerToken,
@@ -416,25 +505,59 @@ function handleOffer(message) {
             });
         })
         .catch(error => {
-            addSystemMessage(`Error handling offer: ${error}`);
+            console.error('[WebRTC] Error in offer/answer process:', error, {
+                errorName: error.name,
+                errorMessage: error.message,
+                connectionState: peerConnection?.connectionState,
+                iceConnectionState: peerConnection?.iceConnectionState,
+                signalingState: peerConnection?.signalingState
+            });
+            addSystemMessage(`Error handling offer: ${error.name}: ${error.message}`);
         });
 }
 
 // Handle WebRTC answer
 function handleAnswer(message) {
+    console.debug('[WebRTC] Received answer');
     const answer = JSON.parse(message.sdp);
+    
+    console.debug('[WebRTC] Answer SDP:', answer.sdp);
+    
     peerConnection.setRemoteDescription(new RTCSessionDescription(answer))
+        .then(() => {
+            console.debug('[WebRTC] Remote description set successfully');
+        })
         .catch(error => {
-            addSystemMessage(`Error handling answer: ${error}`);
+            console.error('[WebRTC] Error handling answer:', error, {
+                errorName: error.name,
+                errorMessage: error.message,
+                connectionState: peerConnection?.connectionState,
+                iceConnectionState: peerConnection?.iceConnectionState,
+                signalingState: peerConnection?.signalingState
+            });
+            addSystemMessage(`Error handling answer: ${error.name}: ${error.message}`);
         });
 }
 
 // Handle ICE candidate
 function handleICECandidate(message) {
     const candidate = JSON.parse(message.ice);
+    console.debug('[WebRTC] Received ICE candidate:', candidate.candidate);
+    
     peerConnection.addIceCandidate(new RTCIceCandidate(candidate))
+        .then(() => {
+            console.debug('[WebRTC] Added ICE candidate successfully');
+        })
         .catch(error => {
-            addSystemMessage(`Error adding ICE candidate: ${error}`);
+            console.error('[WebRTC] Error adding ICE candidate:', error, {
+                candidate: candidate.candidate,
+                errorName: error.name,
+                errorMessage: error.message,
+                connectionState: peerConnection?.connectionState,
+                iceConnectionState: peerConnection?.iceConnectionState,
+                signalingState: peerConnection?.signalingState
+            });
+            addSystemMessage(`Error adding ICE candidate: ${error.name}: ${error.message}`);
         });
 }
 
