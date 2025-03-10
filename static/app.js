@@ -263,19 +263,19 @@ function showConnectionRequest(token) {
 
 // Initialize WebRTC peer connection
 function initiatePeerConnection(isInitiator) {
-    // Create peer connection with expanded STUN servers for better Firefox compatibility
+    // Create peer connection with IPv4 STUN servers for Firefox compatibility
     peerConnection = new RTCPeerConnection({
         iceServers: [
-            { urls: 'stun:stun.l.google.com:19302' },
-            { urls: 'stun:stun1.l.google.com:19302' },
-            { urls: 'stun:stun2.l.google.com:19302' },
-            { urls: 'stun:stun3.l.google.com:19302' },
-            { urls: 'stun:stun4.l.google.com:19302' },
-            { urls: 'stun:stun.stunprotocol.org:3478' }
+            { urls: 'stun:64.233.163.127:19302' },  // Google STUN IPv4
+            { urls: 'stun:64.233.189.127:19302' },  // Google STUN IPv4
+            { urls: 'stun:stun.1.google.com:19302' },
+            { urls: 'stun:stun.services.mozilla.com:3478' },  // Mozilla's STUN
+            { urls: 'stun:stun.counterpath.net:3478' }  // CounterPath's STUN
         ],
         iceTransportPolicy: 'all',
         bundlePolicy: 'max-bundle',
-        rtcpMuxPolicy: 'require'
+        rtcpMuxPolicy: 'require',
+        iceCandidatePoolSize: 10
     });
 
     // Set up ICE candidate handling
