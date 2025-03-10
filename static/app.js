@@ -39,7 +39,7 @@ let fileReceiveInfo = null;
 
 // Constants
 const CHUNK_SIZE = 16384; // 16KB chunks
-const WS_URL = `ws://${window.location.host}/ws`;
+const WS_URL = `wss://${window.location.host}/ws`;
 
 // Initialize the application
 function init() {
@@ -406,6 +406,15 @@ function sendFile(file) {
     
     reader.onload = function(event) {
         if (dataChannel.readyState === 'open') {
+            // Check if the channel's buffer is too full
+            if (dataChannel.bufferedAmount > CHUNK_SIZE * 8) {
+                // Wait for buffer to clear before sending more data
+                setTimeout(() => {
+                    reader.onload(event);
+                }, 100);
+                return;
+            }
+
             dataChannel.send(event.target.result);
             
             offset += event.target.result.byteLength;
