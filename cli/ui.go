@@ -16,6 +16,7 @@ Data interface{}
 type UI struct {
 program *tea.Program
 client  *Client
+msgChan chan tea.Msg
 }
 
 type model struct {
@@ -30,9 +31,19 @@ error          string
 func NewUI(client *Client) *UI {
 ui := &UI{
 client: client,
+msgChan: make(chan tea.Msg),
 }
 initialModel := model{client: client}
-ui.program = tea.NewProgram(initialModel)
+p := tea.NewProgram(initialModel)
+ui.program = p
+
+// Setup message forwarder
+go func() {
+for msg := range ui.msgChan {
+p.Send(msg)
+}
+}()
+
 return ui
 }
 
@@ -80,13 +91,13 @@ case tea.KeyEnter:
 if m.inputPeerToken != "" {
 token := m.inputPeerToken
 m.inputPeerToken = ""
-m.client.Connect(token)
+go m.client.Connect(token) // Run in goroutine
 m.debugLog += fmt.Sprintf("\nAttempting to connect to: %s", token)
 } else if len(m.peerRequests) > 0 {
 // Accept the most recent request
 token := m.peerRequests[len(m.peerRequests)-1]
 m.peerRequests = m.peerRequests[:len(m.peerRequests)-1]
-m.client.Accept(token)
+go m.client.Accept(token) // Run in goroutine
 m.debugLog += fmt.Sprintf("\nAccepting connection from: %s", token)
 }
 case tea.KeyCtrlC:
@@ -102,7 +113,7 @@ if len(m.peerRequests) > 0 {
 // Reject the most recent request
 token := m.peerRequests[len(m.peerRequests)-1]
 m.peerRequests = m.peerRequests[:len(m.peerRequests)-1]
-m.client.Reject(token)
+go m.client.Reject(token) // Run in goroutine
 m.debugLog += fmt.Sprintf("\nRejected connection from: %s", token)
 }
 }
@@ -168,30 +179,31 @@ inputField,
 
 // UI interface implementation methods that update the program state
 func (ui *UI) SetToken(token string) {
-ui.program.Send(Message{Type: "token", Token: token})
+ui.msgChan <- Message{Type: "token", Token: token}
 }
 
 func (ui *UI) ShowConnectionRequest(token string) {
-ui.program.Send(Message{Type: "request", Token: token})
+ui.msgChan <- Message{Type: "request", Token: token}
 }
 
 func (ui *UI) ShowConnectionAccepted(msg string) {
-ui.program.Send(ModelMsg{Type: "debug", Data: msg})
+ui.msgChan <- ModelMsg{Type: "debug", Data: msg}
 }
 
 func (ui *UI) ShowConnectionRejected(token string) {
-ui.program.Send(ModelMsg{Type: "debug", Data: fmt.Sprintf("Rejected connection with %s", token)})
+ui.msgChan <- ModelMsg{Type: "debug", Data: fmt.Sprintf("Rejected connection with %s", token)}
 }
 
 func (ui *UI) ShowError(msg string) {
-ui.program.Send(Message{Type: "error", SDP: msg})
+ui.msgChan <- Message{Type: "error", SDP: msg}
 }
 
 func (ui *UI) LogDebug(msg string) {
-ui.program.Send(ModelMsg{Type: "debug", Data: msg})
+ui.msgChan <- ModelMsg{Type: "debug", Data: msg}
 }
 
 func (ui *UI) Run() error {
 _, err := ui.program.Run()
+close(ui.msgChan)
 return err
 }
