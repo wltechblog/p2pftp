@@ -31,6 +31,8 @@ fmt.Println("  /token - Show your token")
 fmt.Println("  /connect <token> - Connect to a peer")
 fmt.Println("  /accept [token] - Accept connection request (defaults to most recent)")
 fmt.Println("  /reject [token] - Reject connection request (defaults to most recent)")
+fmt.Println("  /send <message> - Send chat message")
+fmt.Println("  /file <path> - Send a file")
 fmt.Println("  /quit - Exit program")
 fmt.Println()
 
@@ -49,6 +51,11 @@ continue
 }
 
 parts := strings.Fields(line)
+if len(parts) == 0 {
+ui.printPrompt()
+continue
+}
+
 cmd := parts[0]
 
 switch cmd {
@@ -115,6 +122,25 @@ ui.lastRequest = "" // Clear the last request after rejecting
 }
 }
 
+case "/send":
+if len(parts) < 2 {
+fmt.Println("Usage: /send <message>")
+continue
+}
+message := strings.Join(parts[1:], " ")
+if err := ui.client.SendChat(message); err != nil {
+fmt.Printf("Error sending message: %v\n", err)
+}
+
+case "/file":
+if len(parts) != 2 {
+fmt.Println("Usage: /file <path>")
+continue
+}
+if err := ui.client.SendFile(parts[1]); err != nil {
+fmt.Printf("Error sending file: %v\n", err)
+}
+
 default:
 fmt.Printf("Unknown command: %s\n", cmd)
 }
@@ -152,5 +178,15 @@ ui.printPrompt()
 
 func (ui *UI) LogDebug(msg string) {
 fmt.Printf("\r[DEBUG] %s\n", msg)
+ui.printPrompt()
+}
+
+func (ui *UI) ShowChat(from string, msg string) {
+fmt.Printf("\r[%s] %s\n", from, msg)
+ui.printPrompt()
+}
+
+func (ui *UI) ShowFileTransfer(msg string) {
+fmt.Printf("\r[File] %s\n", msg)
 ui.printPrompt()
 }

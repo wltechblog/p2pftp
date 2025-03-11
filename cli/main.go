@@ -1,10 +1,14 @@
 package main
 
 import (
+	"encoding/base64"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net/url"
+	"os"
+	"path/filepath"
 
 	"github.com/gorilla/websocket"
 )
@@ -16,7 +20,15 @@ Token     string `json:"token,omitempty"`
 PeerToken string `json:"peerToken,omitempty"`
 SDP       string `json:"sdp,omitempty"`
 ICE       string `json:"ice,omitempty"`
+// Chat and file transfer fields
+Text     string `json:"text,omitempty"`     // For chat messages
+FileName string `json:"fileName,omitempty"`  // For file transfers
+FileData string `json:"fileData,omitempty"`  // Base64 encoded file data
 }
+
+const (
+maxChunkSize = 16384 // 16KB chunks for file transfer
+)
 
 type WebRTCState struct {
 peerToken    string
@@ -140,7 +152,7 @@ c.ui.ShowConnectionAccepted("Connection established")
 
 case "offer":
 if c.webrtc.peerToken == "" {
-c.webrtc.peerToken = msg.Token // Set peer token from offer
+c.webrtc.peerToken = msg.Token
 }
 c.ui.LogDebug(fmt.Sprintf("Received offer from peer %s, sending answer...", msg.Token))
 answerSDP := `v=0
@@ -170,6 +182,47 @@ c.webrtc = &WebRTCState{}
 case "error":
 c.ui.ShowError(msg.SDP)
 c.webrtc = &WebRTCState{}
+
+case "chat":
+if !c.webrtc.connected {
+c.ui.ShowError("Not connected to peer")
+continue
+}
+c.ui.ShowChat(msg.Token, msg.Text)
+
+case "file-start":
+if !c.webrtc.connected {
+c.ui.ShowError("Not connected to peer")
+continue
+}
+c.ui.ShowFileTransfer(fmt.Sprintf("Receiving file: %s", msg.FileName))
+
+case "file-data":
+if !c.webrtc.connected {
+c.ui.ShowError("Not connected to peer")
+continue
+}
+// Create downloads directory if it doesn't exist
+downloadDir := "downloads"
+if err := os.MkdirAll(downloadDir, 0755); err != nil {
+c.ui.ShowError(fmt.Sprintf("Failed to create downloads directory: %v", err))
+continue
+}
+
+// Decode and save file data
+data, err := base64.StdEncoding.DecodeString(msg.FileData)
+if err != nil {
+c.ui.ShowError(fmt.Sprintf("Failed to decode file data: %v", err))
+continue
+}
+
+filePath := filepath.Join(downloadDir, msg.FileName)
+err = os.WriteFile(filePath, data, 0644)
+if err != nil {
+c.ui.ShowError(fmt.Sprintf("Failed to save file: %v", err))
+continue
+}
+c.ui.ShowFileTransfer(fmt.Sprintf("Saved file to: %s", filePath))
 }
 }
 }
@@ -211,4 +264,66 @@ return c.SendMessage(Message{Type: "accept", PeerToken: peerToken})
 func (c *Client) Reject(peerToken string) error {
 c.webrtc = &WebRTCState{}
 return c.SendMessage(Message{Type: "reject", PeerToken: peerToken})
+}
+
+func (c *Client) SendChat(text string) error {
+if !c.webrtc.connected {
+return fmt.Errorf("not connected to peer")
+}
+return c.SendMessage(Message{
+Type:      "chat",
+PeerToken: c.webrtc.peerToken,
+Text:     text,
+})
+}
+
+func (c *Client) SendFile(filePath string) error {
+if !c.webrtc.connected {
+return fmt.Errorf("not connected to peer")
+}
+
+file, err := os.Open(filePath)
+if err != nil {
+return fmt.Errorf("failed to open file: %v", err)
+}
+defer file.Close()
+
+// Send file start message with filename
+fileName := filepath.Base(filePath)
+err = c.SendMessage(Message{
+Type:      "file-start",
+PeerToken: c.webrtc.peerToken,
+FileName:  fileName,
+})
+if err != nil {
+return fmt.Errorf("failed to send file start: %v", err)
+}
+
+// Read and send file in chunks
+buf := make([]byte, maxChunkSize)
+for {
+n, err := file.Read(buf)
+if err == io.EOF {
+break
+}
+if err != nil {
+return fmt.Errorf("failed to read file: %v", err)
+}
+
+// Base64 encode the chunk
+fileData := base64.StdEncoding.EncodeToString(buf[:n])
+
+// Send the chunk
+err = c.SendMessage(Message{
+Type:      "file-data",
+PeerToken: c.webrtc.peerToken,
+FileName:  fileName,
+FileData:  fileData,
+})
+if err != nil {
+return fmt.Errorf("failed to send file data: %v", err)
+}
+}
+
+return nil
 }
