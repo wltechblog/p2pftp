@@ -8,6 +8,8 @@ import uuid
 import os
 import sys
 import argparse
+import ssl
+import traceback
 from aiortc import RTCPeerConnection, RTCSessionDescription
 from aiortc.contrib.signaling import object_from_string, object_to_string
 from dataclasses import dataclass
@@ -35,6 +37,11 @@ class P2PClient:
         self.should_exit = False
         self.pc = None
         self.dc = None
+
+        # Create SSL context that accepts self-signed certs for testing
+        self.ssl_context = ssl.create_default_context()
+        self.ssl_context.check_hostname = False
+        self.ssl_context.verify_mode = ssl.CERT_NONE
 
     def init_screen(self):
         self.screen = curses.initscr()
@@ -102,6 +109,8 @@ class P2PClient:
                     color = curses.color_pair(3)
                 elif msg.startswith("[INFO]"):
                     color = curses.color_pair(4)
+                elif msg.startswith("[DEBUG]"):
+                    color = curses.color_pair(2)
                 self.screen.addstr(msg_y, 0, msg[:width-1], color)
                 msg_y += 1
             except curses.error:
@@ -118,42 +127,10 @@ class P2PClient:
 
         self.screen.refresh()
 
-    async def setup_peer_connection(self, is_initiator=False):
-        config = aiortc.RTCConfiguration(
-            iceServers=[
-                {"urls": ["stun:stun.l.google.com:19302"]}
-            ]
-        )
-        self.pc = RTCPeerConnection(configuration=config)
-        
-        @self.pc.on("datachannel")
-        def on_datachannel(channel):
-            self.dc = channel
-            self.setup_data_channel()
-
-        if is_initiator:
-            self.dc = self.pc.createDataChannel("file-transfer")
-            self.setup_data_channel()
-
-    def setup_data_channel(self):
-        @self.dc.on("open")
-        def on_open():
-            self.add_message("[INFO] Data channel opened")
-
-        @self.dc.on("message")
-        def on_message(message):
-            if isinstance(message, str):
-                try:
-                    data = json.loads(message)
-                    if data["type"] == "file-info":
-                        self.handle_file_info(data["info"])
-                    elif data["type"] == "message":
-                        self.add_message(f"Peer: {data['content']}")
-                except json.JSONDecodeError:
-                    self.add_message(f"Peer: {message}")
-            else:
-                # Binary data - file chunk
-                self.handle_file_chunk(message)
+    def add_message(self, message: str):
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        self.messages.append(f"[{timestamp}] {message}")
+        self.draw_ui()
 
     def handle_file_info(self, info):
         transfer_id = str(uuid.uuid4())
@@ -172,59 +149,155 @@ class P2PClient:
                     transfer.complete = True
                 break
 
-    def add_message(self, message: str):
-        timestamp = datetime.now().strftime("%H:%M:%S")
-        self.messages.append(f"[{timestamp}] {message}")
+    async def setup_peer_connection(self, is_initiator=False):
+        self.add_message("[DEBUG] Setting up peer connection...")
+        config = aiortc.RTCConfiguration(
+            iceServers=[
+                {"urls": ["stun:stun.l.google.com:19302"]},
+                {"urls": ["stun:stun1.l.google.com:19302"]},
+                {
+                    "urls": [
+                        "turn:openrelay.metered.ca:80",
+                        "turn:openrelay.metered.ca:443",
+                        "turn:openrelay.metered.ca:443?transport=tcp"
+                    ],
+                    "username": "openrelayproject",
+                    "credential": "openrelayproject"
+                }
+            ]
+        )
+        self.pc = RTCPeerConnection(configuration=config)
+        
+        @self.pc.on("connectionstatechange")
+        def on_connectionstatechange():
+            self.add_message(f"[DEBUG] Connection state: {self.pc.connectionState}")
+            
+        @self.pc.on("icegatheringstatechange")
+        def on_icegatheringstatechange():
+            self.add_message(f"[DEBUG] ICE gathering state: {self.pc.iceGatheringState}")
+            
+        @self.pc.on("iceconnectionstatechange")
+        def on_iceconnectionstatechange():
+            self.add_message(f"[DEBUG] ICE connection state: {self.pc.iceConnectionState}")
+            
+        @self.pc.on("signalingstatechange")
+        def on_signalingstatechange():
+            self.add_message(f"[DEBUG] Signaling state: {self.pc.signalingState}")
+        
+        @self.pc.on("datachannel")
+        def on_datachannel(channel):
+            self.dc = channel
+            self.setup_data_channel()
+            self.add_message("[DEBUG] Received data channel from peer")
+
+        if is_initiator:
+            self.dc = self.pc.createDataChannel("file-transfer")
+            self.setup_data_channel()
+            self.add_message("[DEBUG] Created data channel as initiator")
+
+    def setup_data_channel(self):
+        @self.dc.on("open")
+        def on_open():
+            self.add_message("[INFO] Data channel opened")
+
+        @self.dc.on("close")
+        def on_close():
+            self.add_message("[INFO] Data channel closed")
+
+        @self.dc.on("error")
+        def on_error(error):
+            self.add_message(f"[ERROR] Data channel error: {error}")
+
+        @self.dc.on("message")
+        def on_message(message):
+            if isinstance(message, str):
+                try:
+                    data = json.loads(message)
+                    if data["type"] == "file-info":
+                        self.handle_file_info(data["info"])
+                    elif data["type"] == "message":
+                        self.add_message(f"Peer: {data['content']}")
+                except json.JSONDecodeError:
+                    self.add_message(f"[ERROR] Invalid JSON message: {message[:100]}...")
+            else:
+                # Binary data - file chunk
+                self.handle_file_chunk(message)
 
     async def handle_websocket_message(self, message):
-        data = json.loads(message)
-        msg_type = data.get('type')
+        try:
+            self.add_message(f"[DEBUG] Processing message: {message[:100]}...")
+            data = json.loads(message)
+            msg_type = data.get('type')
+            self.add_message(f"[DEBUG] Message type: {msg_type}")
 
-        if msg_type == 'token':
-            self.my_token = data['token']
-            self.add_message(f"[INFO] Your token: {self.my_token}")
-        
-        elif msg_type == 'request':
-            self.add_message(f"[INFO] Connection request from: {data['token']}")
-            # Auto-accept for now
-            await self.websocket.send(json.dumps({
-                "type": "accept",
-                "peerToken": data['token']
-            }))
-            await self.setup_peer_connection(False)
-        
-        elif msg_type == 'offer':
-            self.add_message("[INFO] Received offer")
-            desc = RTCSessionDescription(
-                sdp=json.loads(data['sdp'])['sdp'],
-                type=data['type']
-            )
-            await self.pc.setRemoteDescription(desc)
-            answer = await self.pc.createAnswer()
-            await self.pc.setLocalDescription(answer)
+            if msg_type == 'token':
+                self.my_token = data['token']
+                self.add_message(f"[INFO] Your token: {self.my_token}")
             
-            await self.websocket.send(json.dumps({
-                "type": "answer",
-                "peerToken": self.peer_token,
-                "sdp": json.dumps({
-                    "sdp": self.pc.localDescription.sdp,
-                    "type": self.pc.localDescription.type
-                })
-            }))
-        
-        elif msg_type in ('answer', 'ice'):
-            # Would handle WebRTC signaling
-            pass
+            elif msg_type == 'request':
+                self.add_message(f"[INFO] Connection request from: {data['token']}")
+                await self.websocket.send(json.dumps({
+                    "type": "accept",
+                    "peerToken": data['token']
+                }))
+                await self.setup_peer_connection(False)
+            
+            elif msg_type == 'offer':
+                self.add_message("[DEBUG] Processing offer...")
+                sdp_data = json.loads(data['sdp'])
+                desc = RTCSessionDescription(
+                    sdp=sdp_data['sdp'],
+                    type=sdp_data['type']
+                )
+                self.add_message("[DEBUG] Setting remote description...")
+                await self.pc.setRemoteDescription(desc)
+                
+                self.add_message("[DEBUG] Creating answer...")
+                answer = await self.pc.createAnswer()
+                
+                self.add_message("[DEBUG] Setting local description...")
+                await self.pc.setLocalDescription(answer)
+                
+                self.add_message("[DEBUG] Sending answer...")
+                await self.websocket.send(json.dumps({
+                    "type": "answer",
+                    "peerToken": self.peer_token,
+                    "sdp": json.dumps({
+                        "sdp": self.pc.localDescription.sdp,
+                        "type": self.pc.localDescription.type
+                    })
+                }))
+            
+            elif msg_type == 'answer':
+                self.add_message("[DEBUG] Processing answer...")
+                sdp_data = json.loads(data['sdp'])
+                desc = RTCSessionDescription(
+                    sdp=sdp_data['sdp'],
+                    type=sdp_data['type']
+                )
+                await self.pc.setRemoteDescription(desc)
+            
+            elif msg_type == 'ice':
+                self.add_message("[DEBUG] Processing ICE candidate...")
+                candidate = json.loads(data['ice'])
+                await self.pc.addIceCandidate(candidate)
+                
+        except Exception as e:
+            self.add_message(f"[ERROR] Message handling error: {type(e).__name__}: {str(e)}")
+            self.add_message(f"[DEBUG] {traceback.format_exc()}")
 
     async def process_command(self, cmd: str):
         if not cmd.startswith('/'):
             # Regular message
             if self.dc and self.dc.readyState == "open":
-                self.dc.send(json.dumps({
-                    "type": "message",
-                    "content": cmd
-                }))
-                self.add_message(f"Me: {cmd}")
+                try:
+                    self.dc.send(json.dumps({
+                        "type": "message",
+                        "content": cmd
+                    }))
+                    self.add_message(f"Me: {cmd}")
+                except Exception as e:
+                    self.add_message(f"[ERROR] Failed to send message: {str(e)}")
             return
 
         parts = cmd[1:].split()
@@ -256,24 +329,32 @@ class P2PClient:
                 self.add_message(f"[ERROR] File not found: {filename}")
                 return
 
-            # Send file info
-            file_size = os.path.getsize(filename)
-            self.dc.send(json.dumps({
-                "type": "file-info",
-                "info": {
-                    "name": os.path.basename(filename),
-                    "size": file_size
-                }
-            }))
+            try:
+                # Send file info
+                file_size = os.path.getsize(filename)
+                self.add_message(f"[DEBUG] Sending file info for {filename} ({file_size} bytes)")
+                self.dc.send(json.dumps({
+                    "type": "file-info",
+                    "info": {
+                        "name": os.path.basename(filename),
+                        "size": file_size
+                    }
+                }))
 
-            # Read and send file in chunks
-            chunk_size = 16384  # 16KB chunks
-            with open(filename, 'rb') as f:
-                while chunk := f.read(chunk_size):
-                    await asyncio.sleep(0.001)  # Prevent blocking
-                    self.dc.send(chunk)
+                # Read and send file in chunks
+                chunk_size = 16384  # 16KB chunks
+                bytes_sent = 0
+                with open(filename, 'rb') as f:
+                    while chunk := f.read(chunk_size):
+                        await asyncio.sleep(0.001)  # Prevent blocking
+                        self.dc.send(chunk)
+                        bytes_sent += len(chunk)
+                        self.add_message(f"[DEBUG] Progress: {bytes_sent}/{file_size} bytes ({(bytes_sent/file_size)*100:.1f}%)")
 
-            self.add_message(f"[INFO] File sent: {filename}")
+                self.add_message(f"[INFO] File sent: {filename}")
+            except Exception as e:
+                self.add_message(f"[ERROR] File transfer failed: {str(e)}")
+                self.add_message(f"[DEBUG] {traceback.format_exc()}")
         
         elif command == 'quit':
             self.should_exit = True
@@ -295,29 +376,44 @@ class P2PClient:
                     self.command_mode = True
                     self.input_buffer = "/"
                 else:
-                    self.input_buffer += chr(c)
+                    try:
+                        self.input_buffer += chr(c)
+                    except ValueError:
+                        pass  # Ignore invalid characters
                 
                 self.draw_ui()
                 
             except Exception as e:
-                self.add_message(f"[ERROR] Input error: {e}")
+                self.add_message(f"[ERROR] Input error: {str(e)}")
 
     async def websocket_loop(self):
         while not self.should_exit:
             try:
-                self.websocket = await websockets.connect(self.server_url)
+                self.add_message(f"[DEBUG] Connecting to {self.server_url}")
+                self.websocket = await websockets.connect(
+                    self.server_url,
+                    ssl=self.ssl_context,
+                    max_size=2**24,  # 16MB max message size
+                    ping_interval=20,
+                    ping_timeout=10,
+                    close_timeout=10
+                )
                 self.add_message("[INFO] Connected to server")
                 
                 while not self.should_exit:
                     try:
+                        self.add_message("[DEBUG] Waiting for messages...")
                         message = await self.websocket.recv()
                         await self.handle_websocket_message(message)
-                        self.draw_ui()
-                    except websockets.exceptions.ConnectionClosed:
-                        self.add_message("[ERROR] Server connection lost")
+                    except websockets.exceptions.ConnectionClosed as e:
+                        self.add_message(f"[ERROR] Connection lost: code={e.code}, reason={e.reason}")
                         break
+                    except Exception as e:
+                        self.add_message(f"[ERROR] Message handling error: {str(e)}")
+                        self.add_message(f"[DEBUG] {traceback.format_exc()}")
             except Exception as e:
-                self.add_message(f"[ERROR] WebSocket error: {e}")
+                self.add_message(f"[ERROR] WebSocket error: {str(e)}")
+                self.add_message(f"[DEBUG] {traceback.format_exc()}")
                 await asyncio.sleep(5)
 
     async def main(self):
@@ -339,6 +435,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='P2P File Transfer CLI Client')
     parser.add_argument('hostname', help='Server hostname (e.g., p2p.example.com)')
     parser.add_argument('-p', '--port', type=int, help='Server port (default: none)', default=None)
+    parser.add_argument('-v', '--verbose', action='store_true', help='Enable verbose debug output')
     args = parser.parse_args()
 
     # Construct WebSocket URL
