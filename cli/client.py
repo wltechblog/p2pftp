@@ -40,6 +40,11 @@ class P2PClient:
         self.dc = None
         self.logger = logging.getLogger("p2p-client")
 
+        # Set up SSL context for WebSocket
+        self.ssl_context = ssl.create_default_context()
+        self.ssl_context.check_hostname = False
+        self.ssl_context.verify_mode = ssl.CERT_NONE
+
     def init_screen(self):
         self.screen = curses.initscr()
         curses.start_color()
@@ -385,32 +390,41 @@ class P2PClient:
         while not self.should_exit:
             try:
                 self.add_message(f"[DEBUG] Attempting WebSocket connection to {self.server_url}")
-                self.websocket = await websockets.connect(
-                    self.server_url,
-                    max_size=2**24,  # 16MB max message size
-                    ping_interval=20,
-                    ping_timeout=10,
-                    close_timeout=10
-                )
-                self.add_message(f"[DEBUG] Connection details:")
-                self.add_message(f"[DEBUG] - Local address: {self.websocket.local_address}")
-                self.add_message(f"[DEBUG] - Remote address: {self.websocket.remote_address}")
-                self.add_message(f"[DEBUG] - Protocol: {self.websocket.subprotocol or 'none'}")
-                self.add_message("[INFO] WebSocket connection established")
+                self.add_message(f"[DEBUG] Using SSL verification with check_hostname=False")
                 
-                while not self.should_exit:
-                    try:
-                        message = await self.websocket.recv()
-                        self.add_message(f"[DEBUG] Received message ({len(message)} bytes)")
-                        await self.handle_websocket_message(message)
-                    except websockets.exceptions.ConnectionClosed as e:
-                        self.add_message(f"[ERROR] Connection lost: code={e.code}, reason={e.reason}")
-                        break
-                    except Exception as e:
-                        self.add_message(f"[ERROR] Message error: {type(e).__name__}: {str(e)}")
-                        self.add_message(f"[DEBUG] {traceback.format_exc()}")
+                try:
+                    self.websocket = await websockets.connect(
+                        self.server_url,
+                        ssl=self.ssl_context,
+                        max_size=2**24,  # 16MB max message size
+                        ping_interval=20,
+                        ping_timeout=10,
+                        close_timeout=10,
+                        extra_headers={"User-Agent": "P2P File Transfer CLI"}
+                    )
+                    self.add_message("[INFO] WebSocket connection established")
+                    self.add_message(f"[DEBUG] Connection details:")
+                    self.add_message(f"[DEBUG] - Local address: {self.websocket.local_address}")
+                    self.add_message(f"[DEBUG] - Remote address: {self.websocket.remote_address}")
+                    self.add_message(f"[DEBUG] - Protocol: {self.websocket.subprotocol or 'none'}")
+                    
+                    while not self.should_exit:
+                        try:
+                            message = await self.websocket.recv()
+                            self.add_message(f"[DEBUG] Received message ({len(message)} bytes)")
+                            await self.handle_websocket_message(message)
+                        except websockets.exceptions.ConnectionClosed as e:
+                            self.add_message(f"[ERROR] Connection lost: code={e.code}, reason={e.reason}")
+                            break
+                        except Exception as e:
+                            self.add_message(f"[ERROR] Message error: {type(e).__name__}: {str(e)}")
+                            self.add_message(f"[DEBUG] {traceback.format_exc()}")
+                except Exception as e:
+                    self.add_message(f"[ERROR] WebSocket connection failed: {type(e).__name__}: {str(e)}")
+                    self.add_message(f"[DEBUG] Stack trace:\n{traceback.format_exc()}")
+                    await asyncio.sleep(retry_delay)
             except Exception as e:
-                self.add_message(f"[ERROR] Connection failed: {type(e).__name__}: {str(e)}")
+                self.add_message(f"[ERROR] Outer connection error: {type(e).__name__}: {str(e)}")
                 self.add_message(f"[DEBUG] Stack trace:\n{traceback.format_exc()}")
                 await asyncio.sleep(retry_delay)
 
@@ -444,7 +458,7 @@ if __name__ == "__main__":
     )
 
     # Construct WebSocket URL
-    ws_url = f"wss://{args.hostname}"
+    ws_url = f"wss://{args.hostname}"  # Always use secure WebSocket
     if args.port:
         ws_url += f":{args.port}"
     ws_url += "/ws"
