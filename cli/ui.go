@@ -45,21 +45,34 @@ ui.app.Draw()
 SetTextColor(tcell.ColorYellow)
 ui.debugView.SetBorder(true).SetTitle("Debug Log")
 
-	// Create connection form
-	ui.connectionBox = tview.NewForm()
-	ui.connectionBox.
-		AddInputField("Peer Token:", "", 20, nil, nil).
-		AddButton("Connect", func() {
+// Create connection form
+ui.connectionBox = tview.NewForm()
+ui.connectionBox.
+AddInputField("Peer Token:", "", 20, nil, nil).
+AddButton("Connect", func() {
+ui.LogDebug("Connect button pressed")
 token := ui.connectionBox.GetFormItem(0).(*tview.InputField).GetText()
-if token != "" {
+ui.LogDebug(fmt.Sprintf("Input token value: '%s'", token))
+
+if token == "" {
+ui.ShowError("Please enter a peer token")
+return
+}
+
+if token == ui.client.token {
+ui.ShowError("Cannot connect to yourself")
+return
+}
+
+ui.LogDebug("Calling Connect function")
 if err := ui.client.Connect(token); err != nil {
 ui.ShowError(fmt.Sprintf("Failed to connect: %v", err))
+ui.LogDebug(fmt.Sprintf("Connect error: %v", err))
 } else {
 ui.Printf("Sending connection request to peer: %s...\n", token)
 }
 ui.connectionBox.GetFormItem(0).(*tview.InputField).SetText("")
-}
-		})
+})
 	ui.connectionBox.SetBorder(true).SetTitle("Connect to Peer")
 
 	// Create status bar

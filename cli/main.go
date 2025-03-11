@@ -38,13 +38,18 @@ flag.Parse()
 
 // Create WebSocket URL
 u := url.URL{Scheme: "wss", Host: *addr, Path: "/ws"}
+log.Printf("Connecting to %s...", u.String())
 
 // Connect to WebSocket server
-conn, _, err := websocket.DefaultDialer.Dial(u.String(), nil)
+conn, resp, err := websocket.DefaultDialer.Dial(u.String(), nil)
 if err != nil {
+if resp != nil {
+log.Printf("HTTP Response Status: %d", resp.StatusCode)
+}
 log.Fatal("dial:", err)
 }
 defer conn.Close()
+log.Printf("Successfully connected to server")
 
 client := &Client{
 conn:     conn,
@@ -57,6 +62,7 @@ ui := NewUI(client)
 client.ui = ui
 
 // Start message handler
+log.Printf("Starting message handler")
 go client.handleMessages()
 
 // Run UI
@@ -66,11 +72,14 @@ fmt.Printf("Error running UI: %v\n", err)
 }
 
 func (c *Client) handleMessages() {
+c.ui.LogDebug("Message handler started")
 for {
 var msg Message
+c.ui.LogDebug("Waiting for next message...")
 err := c.conn.ReadJSON(&msg)
 if err != nil {
-log.Printf("Error reading message: %v", err)
+c.ui.LogDebug(fmt.Sprintf("Error reading message: %v", err))
+c.ui.ShowError(fmt.Sprintf("Connection error: %v", err))
 return
 }
 
@@ -81,6 +90,7 @@ switch msg.Type {
 case "token":
 c.token = msg.Token
 c.ui.SetToken(msg.Token)
+c.ui.LogDebug(fmt.Sprintf("Set local token to: %s", msg.Token))
 
 case "request":
 c.ui.LogDebug(fmt.Sprintf("Received connection request from peer %s", msg.Token))
@@ -98,43 +108,56 @@ return
 c.webrtc.peerToken = msg.Token
 c.webrtc.isInitiator = true
 // Send initial offer after acceptance
-c.ui.LogDebug("Sending WebRTC offer")
+c.ui.LogDebug("Preparing to send WebRTC offer")
 if err := c.SendMessage(Message{
 Type:      "offer",
 PeerToken: c.webrtc.peerToken,
 SDP:       "v=0\r\no=- 0 0 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=group:BUNDLE 0\r\na=ice-options:trickle\r\nm=application 9 UDP/DTLS/SCTP webrtc-datachannel\r\nc=IN IP4 0.0.0.0\r\na=mid:0\r\na=sctpmap:5000 webrtc-datachannel 1024\r\n",
 }); err != nil {
 c.ui.LogDebug(fmt.Sprintf("Error sending offer: %v", err))
+c.ui.ShowError(fmt.Sprintf("Failed to send offer: %v", err))
 }
 
 case "rejected":
+c.ui.LogDebug(fmt.Sprintf("Connection rejected by peer %s", msg.Token))
 c.ui.ShowConnectionRejected(msg.Token)
 c.webrtc = &WebRTCState{}
 
 case "offer":
-c.ui.LogDebug(fmt.Sprintf("Received offer from %s", msg.Token))
+c.ui.LogDebug(fmt.Sprintf("Received WebRTC offer from %s", msg.Token))
 // Send answer in response to offer
-c.SendMessage(Message{
+c.ui.LogDebug("Preparing answer")
+err := c.SendMessage(Message{
 Type:      "answer",
 PeerToken: msg.Token,
 SDP:       "v=0\r\no=- 0 0 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=group:BUNDLE 0\r\na=ice-options:trickle\r\nm=application 9 UDP/DTLS/SCTP webrtc-datachannel\r\nc=IN IP4 0.0.0.0\r\na=mid:0\r\na=sctpmap:5000 webrtc-datachannel 1024\r\n",
 })
+if err != nil {
+c.ui.LogDebug(fmt.Sprintf("Error sending answer: %v", err))
+c.ui.ShowError(fmt.Sprintf("Failed to send answer: %v", err))
+}
 
 case "answer":
-c.ui.LogDebug(fmt.Sprintf("Received answer from %s", msg.Token))
+c.ui.LogDebug(fmt.Sprintf("Received WebRTC answer from %s", msg.Token))
 // Exchange ICE candidates
-c.SendMessage(Message{
+c.ui.LogDebug("Sending ICE candidate")
+err := c.SendMessage(Message{
 Type:      "ice",
 PeerToken: c.webrtc.peerToken,
 ICE:       "candidate:0 1 UDP 2122252543 10.0.0.1 54321 typ host",
 })
+if err != nil {
+c.ui.LogDebug(fmt.Sprintf("Error sending ICE: %v", err))
+c.ui.ShowError(fmt.Sprintf("Failed to send ICE: %v", err))
+}
 
 case "ice":
 c.ui.LogDebug(fmt.Sprintf("Received ICE candidate from %s", msg.Token))
 c.webrtc.connected = true
-c.ui.LogDebug("WebRTC connection established")
+c.ui.LogDebug("WebRTC connection established!")
 
 case "error":
+c.ui.LogDebug(fmt.Sprintf("Received error message: %s", msg.SDP))
 c.ui.ShowError(msg.SDP)
 c.webrtc = &WebRTCState{}
 }
@@ -142,42 +165,80 @@ c.webrtc = &WebRTCState{}
 }
 
 func (c *Client) SendMessage(msg Message) error {
-// Log outgoing message
-c.ui.LogDebug(fmt.Sprintf("→ Sending: %+v", msg))
-return c.conn.WriteJSON(msg)
+c.ui.LogDebug(fmt.Sprintf("→ Preparing to send: %+v", msg))
+
+err := c.conn.WriteJSON(msg)
+if err != nil {
+c.ui.LogDebug(fmt.Sprintf("→ Send error: %v", err))
+return fmt.Errorf("failed to send message: %v", err)
+}
+
+c.ui.LogDebug("→ Message sent successfully")
+return nil
 }
 
 func (c *Client) Connect(peerToken string) error {
+c.ui.LogDebug(fmt.Sprintf("Connect called with peer token: %s", peerToken))
+
 c.webrtc = &WebRTCState{
-peerToken: peerToken,
+peerToken:   peerToken,
 isInitiator: true,
 }
-c.ui.LogDebug(fmt.Sprintf("Initiating connection to peer %s", peerToken))
+
+c.ui.LogDebug("Sending connect message")
 err := c.SendMessage(Message{
 Type:      "connect",
 PeerToken: peerToken,
 })
+
 if err != nil {
-c.ui.LogDebug(fmt.Sprintf("Error sending connect message: %v", err))
-}
+c.ui.LogDebug(fmt.Sprintf("Connect failed: %v", err))
+c.webrtc = &WebRTCState{} // Reset state on error
 return err
 }
 
+c.ui.LogDebug("Connect message sent successfully")
+return nil
+}
+
 func (c *Client) Accept(peerToken string) error {
+c.ui.LogDebug(fmt.Sprintf("Accepting connection from peer: %s", peerToken))
+
 c.webrtc = &WebRTCState{
-peerToken: peerToken,
+peerToken:   peerToken,
 isInitiator: false,
 }
-return c.SendMessage(Message{
+
+err := c.SendMessage(Message{
 Type:      "accept",
 PeerToken: peerToken,
 })
+
+if err != nil {
+c.ui.LogDebug(fmt.Sprintf("Accept failed: %v", err))
+c.webrtc = &WebRTCState{} // Reset state on error
+return err
+}
+
+c.ui.LogDebug("Accept message sent successfully")
+return nil
 }
 
 func (c *Client) Reject(peerToken string) error {
+c.ui.LogDebug(fmt.Sprintf("Rejecting connection from peer: %s", peerToken))
+
 c.webrtc = &WebRTCState{}
-return c.SendMessage(Message{
+
+err := c.SendMessage(Message{
 Type:      "reject",
 PeerToken: peerToken,
 })
+
+if err != nil {
+c.ui.LogDebug(fmt.Sprintf("Reject failed: %v", err))
+return err
+}
+
+c.ui.LogDebug("Reject message sent successfully")
+return nil
 }
