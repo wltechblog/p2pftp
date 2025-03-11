@@ -3,17 +3,19 @@ package main
 import (
 	"fmt"
 
+	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 )
 
 type UI struct {
-	app           *tview.Application
-	client        *Client
-	header        *tview.TextView
-	mainView      *tview.TextView
-	connectionBox *tview.Form
-	statusBar     *tview.TextView
-	pages         *tview.Pages
+app           *tview.Application
+client        *Client
+header        *tview.TextView
+mainView      *tview.TextView
+debugView     *tview.TextView
+connectionBox *tview.Form
+statusBar     *tview.TextView
+pages         *tview.Pages
 }
 
 func NewUI(client *Client) *UI {
@@ -27,12 +29,20 @@ func NewUI(client *Client) *UI {
 		SetTextAlign(tview.AlignCenter).
 		SetText("P2P File Transfer Client")
 
-	// Create main view
-	ui.mainView = tview.NewTextView().
-		SetChangedFunc(func() {
-			ui.app.Draw()
-		})
-	ui.mainView.SetBorder(true).SetTitle("Status")
+// Create main view
+ui.mainView = tview.NewTextView().
+SetChangedFunc(func() {
+ui.app.Draw()
+})
+ui.mainView.SetBorder(true).SetTitle("Status")
+
+// Create debug view
+ui.debugView = tview.NewTextView().
+SetChangedFunc(func() {
+ui.app.Draw()
+}).
+SetTextColor(tcell.ColorYellow)
+ui.debugView.SetBorder(true).SetTitle("Debug Log")
 
 	// Create connection form
 	ui.connectionBox = tview.NewForm()
@@ -54,10 +64,13 @@ func NewUI(client *Client) *UI {
 	// Create layout
 	flex := tview.NewFlex().SetDirection(tview.FlexRow).
 		AddItem(ui.header, 3, 1, false).
-		AddItem(tview.NewFlex().SetDirection(tview.FlexColumn).
-			AddItem(ui.mainView, 0, 2, false).
-			AddItem(ui.connectionBox, 30, 1, true),
-			0, 1, true).
+AddItem(tview.NewFlex().SetDirection(tview.FlexColumn).
+AddItem(tview.NewFlex().SetDirection(tview.FlexRow).
+AddItem(ui.mainView, 0, 2, false).
+AddItem(ui.debugView, 0, 1, false),
+0, 2, false).
+AddItem(ui.connectionBox, 30, 1, true),
+0, 1, true).
 		AddItem(ui.statusBar, 1, 1, false)
 
 	// Create pages for modal dialogs
@@ -114,5 +127,11 @@ func (ui *UI) ShowConnectionAccepted(peerToken string) {
 }
 
 func (ui *UI) ShowConnectionRejected(peerToken string) {
-	ui.Printf("Peer %s rejected the connection\n", peerToken)
+ui.Printf("Peer %s rejected the connection\n", peerToken)
+}
+
+func (ui *UI) LogDebug(msg string) {
+ui.app.QueueUpdateDraw(func() {
+fmt.Fprintf(ui.debugView, "%s\n", msg)
+})
 }

@@ -29,8 +29,8 @@ func main() {
 	addr := flag.String("addr", "localhost:8089", "server address")
 	flag.Parse()
 
-	// Create WebSocket URL
-	u := url.URL{Scheme: "ws", Host: *addr, Path: "/ws"}
+// Create WebSocket URL
+u := url.URL{Scheme: "wss", Host: *addr, Path: "/ws"}
 	
 	// Connect to WebSocket server
 	conn, _, err := websocket.DefaultDialer.Dial(u.String(), nil)
@@ -59,14 +59,17 @@ func main() {
 
 func (c *Client) handleMessages() {
 	for {
-		var msg Message
-		err := c.conn.ReadJSON(&msg)
-		if err != nil {
-			log.Printf("Error reading message: %v", err)
-			return
-		}
+var msg Message
+err := c.conn.ReadJSON(&msg)
+if err != nil {
+log.Printf("Error reading message: %v", err)
+return
+}
 
-		switch msg.Type {
+// Log raw message for debugging
+c.ui.LogDebug(fmt.Sprintf("← Received: %+v", msg))
+
+switch msg.Type {
 		case "token":
 			c.token = msg.Token
 			c.ui.SetToken(msg.Token)
@@ -89,7 +92,9 @@ func (c *Client) handleMessages() {
 }
 
 func (c *Client) SendMessage(msg Message) error {
-	return c.conn.WriteJSON(msg)
+// Log outgoing message
+c.ui.LogDebug(fmt.Sprintf("→ Sending: %+v", msg))
+return c.conn.WriteJSON(msg)
 }
 
 func (c *Client) Connect(peerToken string) error {
