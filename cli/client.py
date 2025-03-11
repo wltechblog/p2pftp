@@ -444,7 +444,7 @@ if __name__ == "__main__":
     )
 
     # Construct WebSocket URL
-    ws_url = f"ws://{args.hostname}"
+    ws_url = f"wss://{args.hostname}"
     if args.port:
         ws_url += f":{args.port}"
     ws_url += "/ws"
