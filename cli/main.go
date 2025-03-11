@@ -41,6 +41,10 @@ isInitiator   bool
 connected     bool
 peerConn     *webrtc.PeerConnection
 dataChannel  *webrtc.DataChannel
+// File transfer state
+receiveBuffer [][]byte
+receivedSize int64
+fileInfo     *FileInfo
 }
 
 type Client struct {
@@ -85,7 +89,6 @@ fmt.Printf("Error running UI: %v\n", err)
 }
 
 func (c *Client) setupPeerConnection() error {
-// Create WebRTC configuration with STUN server
 config := webrtc.Configuration{
 ICEServers: []webrtc.ICEServer{
 {
@@ -94,13 +97,11 @@ URLs: []string{"stun:stun.l.google.com:19302"},
 },
 }
 
-// Create new peer connection
 peerConn, err := webrtc.NewPeerConnection(config)
 if err != nil {
 return fmt.Errorf("failed to create peer connection: %v", err)
 }
 
-// Set up ICE candidate handling
 peerConn.OnICECandidate(func(candidate *webrtc.ICECandidate) {
 if candidate != nil {
 candidateJSON, err := json.Marshal(candidate.ToJSON())
@@ -120,7 +121,6 @@ c.ui.ShowError(fmt.Sprintf("Failed to send ICE candidate: %v", err))
 }
 })
 
-// Set up data channel handling
 if c.webrtc.isInitiator {
 dataChannel, err := peerConn.CreateDataChannel("p2pftp", nil)
 if err != nil {
@@ -150,14 +150,12 @@ c.ui.LogDebug("Data channel closed")
 c.webrtc.connected = false
 })
 
-// Handle incoming messages
 channel.OnMessage(func(msg webrtc.DataChannelMessage) {
 if !msg.IsString {
 c.ui.ShowError("Received binary data - not supported")
 return
 }
 
-// Try to parse as JSON
 var dataMsg struct {
 Type    string   `json:"type"`
 Content string   `json:"content"`
@@ -167,13 +165,49 @@ Info    FileInfo `json:"info"`
 if err := json.Unmarshal([]byte(msg.Data), &dataMsg); err == nil {
 switch dataMsg.Type {
 case "message":
-// Regular chat message
 c.ui.ShowChat(c.webrtc.peerToken, dataMsg.Content)
 
 case "file-info":
-c.ui.ShowFileTransfer(fmt.Sprintf("Receiving file: %s (%d bytes)", dataMsg.Info.Name, dataMsg.Info.Size))
+c.webrtc.fileInfo = &dataMsg.Info
+c.webrtc.receiveBuffer = make([][]byte, 0)
+c.webrtc.receivedSize = 0
+c.ui.ShowFileTransfer(fmt.Sprintf("Receiving file: %s (0/%d bytes)", dataMsg.Info.Name, dataMsg.Info.Size))
 
 case "file-data":
+if c.webrtc.fileInfo == nil {
+c.ui.ShowError("Received file data without file info")
+return
+}
+
+data, err := base64.StdEncoding.DecodeString(dataMsg.Content)
+if err != nil {
+c.ui.ShowError(fmt.Sprintf("Failed to decode file chunk: %v", err))
+return
+}
+
+c.webrtc.receiveBuffer = append(c.webrtc.receiveBuffer, data)
+c.webrtc.receivedSize += int64(len(data))
+
+// Show progress
+percentage := int((float64(c.webrtc.receivedSize) / float64(c.webrtc.fileInfo.Size)) * 100)
+c.ui.ShowFileTransfer(fmt.Sprintf("Receiving %s (%d/%d bytes) - %d%%",
+c.webrtc.fileInfo.Name,
+c.webrtc.receivedSize,
+c.webrtc.fileInfo.Size,
+percentage))
+
+case "file-complete":
+if c.webrtc.fileInfo == nil {
+c.ui.ShowError("Received file complete without file info")
+return
+}
+
+// Combine all chunks
+allData := make([]byte, 0, c.webrtc.receivedSize)
+for _, chunk := range c.webrtc.receiveBuffer {
+allData = append(allData, chunk...)
+}
+
 // Create downloads directory if it doesn't exist
 downloadDir := "downloads"
 if err := os.MkdirAll(downloadDir, 0755); err != nil {
@@ -181,23 +215,20 @@ c.ui.ShowError(fmt.Sprintf("Failed to create downloads directory: %v", err))
 return
 }
 
-// Decode and save file data
-data, err := base64.StdEncoding.DecodeString(dataMsg.Content)
-if err != nil {
-c.ui.ShowError(fmt.Sprintf("Failed to decode file data: %v", err))
-return
-}
-
-filePath := filepath.Join(downloadDir, dataMsg.Info.Name)
-err = os.WriteFile(filePath, data, 0644)
+// Save file
+filePath := filepath.Join(downloadDir, c.webrtc.fileInfo.Name)
+err := os.WriteFile(filePath, allData, 0644)
 if err != nil {
 c.ui.ShowError(fmt.Sprintf("Failed to save file: %v", err))
 return
 }
+
 c.ui.ShowFileTransfer(fmt.Sprintf("Saved file from peer to: %s", filePath))
 
-case "file-complete":
-c.ui.ShowFileTransfer("File transfer complete")
+// Reset file transfer state
+c.webrtc.fileInfo = nil
+c.webrtc.receiveBuffer = nil
+c.webrtc.receivedSize = 0
 }
 } else {
 // Just a plain text message
@@ -238,21 +269,18 @@ c.ui.ShowError(fmt.Sprintf("Failed to setup peer connection: %v", err))
 continue
 }
 
-// Create offer
 offer, err := c.webrtc.peerConn.CreateOffer(nil)
 if err != nil {
 c.ui.ShowError(fmt.Sprintf("Failed to create offer: %v", err))
 continue
 }
 
-// Set local description
 err = c.webrtc.peerConn.SetLocalDescription(offer)
 if err != nil {
 c.ui.ShowError(fmt.Sprintf("Failed to set local description: %v", err))
 continue
 }
 
-// Send offer
 offerJSON, err := json.Marshal(offer)
 if err != nil {
 c.ui.ShowError(fmt.Sprintf("Failed to marshal offer: %v", err))
@@ -275,7 +303,6 @@ c.ui.ShowError(fmt.Sprintf("Failed to setup peer connection: %v", err))
 continue
 }
 
-// Parse and set remote description
 var offer webrtc.SessionDescription
 if err := json.Unmarshal([]byte(msg.SDP), &offer); err != nil {
 c.ui.ShowError(fmt.Sprintf("Failed to parse offer: %v", err))
@@ -288,21 +315,18 @@ c.ui.ShowError(fmt.Sprintf("Failed to set remote description: %v", err))
 continue
 }
 
-// Create answer
 answer, err := c.webrtc.peerConn.CreateAnswer(nil)
 if err != nil {
 c.ui.ShowError(fmt.Sprintf("Failed to create answer: %v", err))
 continue
 }
 
-// Set local description
 err = c.webrtc.peerConn.SetLocalDescription(answer)
 if err != nil {
 c.ui.ShowError(fmt.Sprintf("Failed to set local description: %v", err))
 continue
 }
 
-// Send answer
 answerJSON, err := json.Marshal(answer)
 if err != nil {
 c.ui.ShowError(fmt.Sprintf("Failed to marshal answer: %v", err))
@@ -320,7 +344,6 @@ continue
 }
 
 case "answer":
-// Parse and set remote description
 var answer webrtc.SessionDescription
 if err := json.Unmarshal([]byte(msg.SDP), &answer); err != nil {
 c.ui.ShowError(fmt.Sprintf("Failed to parse answer: %v", err))
@@ -334,7 +357,6 @@ continue
 }
 
 case "ice":
-// Parse and add ICE candidate
 var candidate webrtc.ICECandidateInit
 if err := json.Unmarshal([]byte(msg.ICE), &candidate); err != nil {
 c.ui.ShowError(fmt.Sprintf("Failed to parse ICE candidate: %v", err))
@@ -410,7 +432,6 @@ if !c.webrtc.connected || c.webrtc.dataChannel == nil {
 return fmt.Errorf("not connected to peer")
 }
 
-// Create chat message in the format expected by the web client
 chatMsg := struct {
 Type    string `json:"type"`
 Content string `json:"content"`
@@ -447,6 +468,8 @@ if err != nil {
 return fmt.Errorf("failed to get file info: %v", err)
 }
 
+fileSize := fileInfo.Size()
+
 // Send file info message first
 infoMsg := struct {
 Type string   `json:"type"`
@@ -455,7 +478,7 @@ Info FileInfo `json:"info"`
 Type: "file-info",
 Info: FileInfo{
 Name: fileInfo.Name(),
-Size: fileInfo.Size(),
+Size: fileSize,
 Type: "", // Not critical for CLI
 },
 }
@@ -470,16 +493,22 @@ if err != nil {
 return fmt.Errorf("failed to send file info: %v", err)
 }
 
-// Read file data
-data, err := io.ReadAll(file)
+// Send file in chunks
+buffer := make([]byte, maxChunkSize)
+totalSent := int64(0)
+
+for {
+n, err := file.Read(buffer)
+if err == io.EOF {
+break
+}
 if err != nil {
 return fmt.Errorf("failed to read file: %v", err)
 }
 
-// Base64 encode the data
-fileData := base64.StdEncoding.EncodeToString(data)
+chunk := buffer[:n]
+fileData := base64.StdEncoding.EncodeToString(chunk)
 
-// Send file data
 dataMsg := struct {
 Type    string   `json:"type"`
 Content string   `json:"content"`
@@ -489,21 +518,27 @@ Type:    "file-data",
 Content: fileData,
 Info: FileInfo{
 Name: fileInfo.Name(),
-Size: fileInfo.Size(),
+Size: fileSize,
 },
 }
 
 dataJSON, err := json.Marshal(dataMsg)
 if err != nil {
-return fmt.Errorf("failed to marshal file data: %v", err)
+return fmt.Errorf("failed to marshal file chunk: %v", err)
 }
-
-// Give data channel some time to process previous message
-time.Sleep(100 * time.Millisecond)
 
 err = c.webrtc.dataChannel.SendText(string(dataJSON))
 if err != nil {
-return fmt.Errorf("failed to send file data: %v", err)
+return fmt.Errorf("failed to send file chunk: %v", err)
+}
+
+totalSent += int64(n)
+percentage := int((float64(totalSent) / float64(fileSize)) * 100)
+c.ui.ShowFileTransfer(fmt.Sprintf("Sending %s (%d/%d bytes) - %d%%",
+fileInfo.Name(), totalSent, fileSize, percentage))
+
+// Small delay to prevent overwhelming the channel
+time.Sleep(10 * time.Millisecond)
 }
 
 // Send file complete message
@@ -517,9 +552,6 @@ completeJSON, err := json.Marshal(completeMsg)
 if err != nil {
 return fmt.Errorf("failed to marshal complete message: %v", err)
 }
-
-// Give data channel some time to process previous message
-time.Sleep(100 * time.Millisecond)
 
 err = c.webrtc.dataChannel.SendText(string(completeJSON))
 if err != nil {
