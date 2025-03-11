@@ -10,6 +10,7 @@ import sys
 import argparse
 import ssl
 import traceback
+import logging
 from aiortc import RTCPeerConnection, RTCSessionDescription
 from aiortc.contrib.signaling import object_from_string, object_to_string
 from dataclasses import dataclass
@@ -37,11 +38,7 @@ class P2PClient:
         self.should_exit = False
         self.pc = None
         self.dc = None
-
-        # Create SSL context that accepts self-signed certs for testing
-        self.ssl_context = ssl.create_default_context()
-        self.ssl_context.check_hostname = False
-        self.ssl_context.verify_mode = ssl.CERT_NONE
+        self.logger = logging.getLogger("p2p-client")
 
     def init_screen(self):
         self.screen = curses.initscr()
@@ -129,7 +126,9 @@ class P2PClient:
 
     def add_message(self, message: str):
         timestamp = datetime.now().strftime("%H:%M:%S")
-        self.messages.append(f"[{timestamp}] {message}")
+        msg = f"[{timestamp}] {message}"
+        self.messages.append(msg)
+        self.logger.debug(msg)
         self.draw_ui()
 
     def handle_file_info(self, info):
@@ -170,7 +169,7 @@ class P2PClient:
         
         @self.pc.on("connectionstatechange")
         def on_connectionstatechange():
-            self.add_message(f"[DEBUG] Connection state: {self.pc.connectionState}")
+            self.add_message(f"[DEBUG] WebRTC connection state: {self.pc.connectionState}")
             
         @self.pc.on("icegatheringstatechange")
         def on_icegatheringstatechange():
@@ -182,7 +181,7 @@ class P2PClient:
             
         @self.pc.on("signalingstatechange")
         def on_signalingstatechange():
-            self.add_message(f"[DEBUG] Signaling state: {self.pc.signalingState}")
+            self.add_message(f"[DEBUG] WebRTC signaling state: {self.pc.signalingState}")
         
         @self.pc.on("datachannel")
         def on_datachannel(channel):
@@ -243,22 +242,16 @@ class P2PClient:
                 await self.setup_peer_connection(False)
             
             elif msg_type == 'offer':
-                self.add_message("[DEBUG] Processing offer...")
+                self.add_message("[DEBUG] Processing WebRTC offer...")
                 sdp_data = json.loads(data['sdp'])
                 desc = RTCSessionDescription(
                     sdp=sdp_data['sdp'],
                     type=sdp_data['type']
                 )
-                self.add_message("[DEBUG] Setting remote description...")
                 await self.pc.setRemoteDescription(desc)
-                
-                self.add_message("[DEBUG] Creating answer...")
                 answer = await self.pc.createAnswer()
-                
-                self.add_message("[DEBUG] Setting local description...")
                 await self.pc.setLocalDescription(answer)
                 
-                self.add_message("[DEBUG] Sending answer...")
                 await self.websocket.send(json.dumps({
                     "type": "answer",
                     "peerToken": self.peer_token,
@@ -267,9 +260,10 @@ class P2PClient:
                         "type": self.pc.localDescription.type
                     })
                 }))
+                self.add_message("[DEBUG] Sent WebRTC answer")
             
             elif msg_type == 'answer':
-                self.add_message("[DEBUG] Processing answer...")
+                self.add_message("[DEBUG] Processing WebRTC answer...")
                 sdp_data = json.loads(data['sdp'])
                 desc = RTCSessionDescription(
                     sdp=sdp_data['sdp'],
@@ -387,34 +381,38 @@ class P2PClient:
                 self.add_message(f"[ERROR] Input error: {str(e)}")
 
     async def websocket_loop(self):
+        retry_delay = 5
         while not self.should_exit:
             try:
-                self.add_message(f"[DEBUG] Connecting to {self.server_url}")
+                self.add_message(f"[DEBUG] Attempting WebSocket connection to {self.server_url}")
                 self.websocket = await websockets.connect(
                     self.server_url,
-                    ssl=self.ssl_context,
                     max_size=2**24,  # 16MB max message size
                     ping_interval=20,
                     ping_timeout=10,
                     close_timeout=10
                 )
-                self.add_message("[INFO] Connected to server")
+                self.add_message(f"[DEBUG] Connection details:")
+                self.add_message(f"[DEBUG] - Local address: {self.websocket.local_address}")
+                self.add_message(f"[DEBUG] - Remote address: {self.websocket.remote_address}")
+                self.add_message(f"[DEBUG] - Protocol: {self.websocket.subprotocol or 'none'}")
+                self.add_message("[INFO] WebSocket connection established")
                 
                 while not self.should_exit:
                     try:
-                        self.add_message("[DEBUG] Waiting for messages...")
                         message = await self.websocket.recv()
+                        self.add_message(f"[DEBUG] Received message ({len(message)} bytes)")
                         await self.handle_websocket_message(message)
                     except websockets.exceptions.ConnectionClosed as e:
                         self.add_message(f"[ERROR] Connection lost: code={e.code}, reason={e.reason}")
                         break
                     except Exception as e:
-                        self.add_message(f"[ERROR] Message handling error: {str(e)}")
+                        self.add_message(f"[ERROR] Message error: {type(e).__name__}: {str(e)}")
                         self.add_message(f"[DEBUG] {traceback.format_exc()}")
             except Exception as e:
-                self.add_message(f"[ERROR] WebSocket error: {str(e)}")
-                self.add_message(f"[DEBUG] {traceback.format_exc()}")
-                await asyncio.sleep(5)
+                self.add_message(f"[ERROR] Connection failed: {type(e).__name__}: {str(e)}")
+                self.add_message(f"[DEBUG] Stack trace:\n{traceback.format_exc()}")
+                await asyncio.sleep(retry_delay)
 
     async def main(self):
         try:
@@ -433,17 +431,25 @@ class P2PClient:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='P2P File Transfer CLI Client')
-    parser.add_argument('hostname', help='Server hostname (e.g., p2p.example.com)')
+    parser.add_argument('hostname', help='Server hostname (e.g., localhost:8080)')
     parser.add_argument('-p', '--port', type=int, help='Server port (default: none)', default=None)
     parser.add_argument('-v', '--verbose', action='store_true', help='Enable verbose debug output')
     args = parser.parse_args()
 
+    # Configure logging
+    logging.basicConfig(
+        level=logging.DEBUG if args.verbose else logging.INFO,
+        format='%(asctime)s %(levelname)s: %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S',
+    )
+
     # Construct WebSocket URL
-    ws_url = f"wss://{args.hostname}"
+    ws_url = f"ws://{args.hostname}"
     if args.port:
         ws_url += f":{args.port}"
     ws_url += "/ws"
 
+    logging.info(f"Connecting to {ws_url}")
     client = P2PClient(ws_url)
     try:
         asyncio.run(client.main())

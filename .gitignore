@@ -28,3 +28,4 @@ go.work
 # Log files
 *.log
 p2pftp
+cli/venv
