@@ -47,14 +47,24 @@ ui.debugView.SetBorder(true).SetTitle("Debug Log")
 
 // Create connection form
 ui.connectionBox = tview.NewForm()
-ui.connectionBox.AddInputField("Peer Token:", "", 20, nil, func(text string) {
+ui.connectionBox.
+AddInputField("Peer Token:", "", 20, nil, func(text string) {
 if text == ui.client.token {
 ui.ShowError("Cannot connect to yourself")
 }
-}).GetFormItem(0).(*tview.InputField).SetDoneFunc(func(key tcell.Key) {
-if key == tcell.KeyEnter {
-token := ui.connectionBox.GetFormItem(0).(*tview.InputField).GetText()
-ui.LogDebug(fmt.Sprintf("Enter pressed with token: '%s'", token))
+})
+
+// Get input field reference
+inputField := ui.connectionBox.GetFormItem(0).(*tview.InputField)
+
+// Set up Enter key handler
+inputField.SetDoneFunc(func(key tcell.Key) {
+if key != tcell.KeyEnter {
+return
+}
+ui.LogDebug("Enter key pressed")
+token := inputField.GetText()
+ui.LogDebug(fmt.Sprintf("Token value: '%s'", token))
 
 if token == "" {
 ui.ShowError("Please enter a peer token")
@@ -67,14 +77,17 @@ return
 }
 
 ui.LogDebug("Initiating connection...")
+go func() {
+ui.app.QueueUpdateDraw(func() {
 if err := ui.client.Connect(token); err != nil {
 ui.ShowError(fmt.Sprintf("Failed to connect: %v", err))
 ui.LogDebug(fmt.Sprintf("Connect error: %v", err))
 } else {
 ui.Printf("Sending connection request to peer: %s...\n", token)
 }
-ui.connectionBox.GetFormItem(0).(*tview.InputField).SetText("")
-}
+inputField.SetText("")
+})
+}()
 })
 	ui.connectionBox.SetBorder(true).SetTitle("Connect to Peer")
 
