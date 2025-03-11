@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"net/url"
-	"time"
 
 	"github.com/gorilla/websocket"
 )
@@ -41,13 +40,9 @@ flag.Parse()
 u := url.URL{Scheme: "wss", Host: *addr, Path: "/ws"}
 log.Printf("Connecting to %s...", u.String())
 
-// Connect to WebSocket server with custom dialer
-dialer := websocket.Dialer{
-EnableCompression: true,
-HandshakeTimeout: 10 * time.Second,
-}
+// Connect to WebSocket server
 log.Printf("Attempting WebSocket connection to %s...", u.String())
-conn, resp, err := dialer.Dial(u.String(), nil)
+conn, resp, err := websocket.DefaultDialer.Dial(u.String(), nil)
 if err != nil {
 if resp != nil {
 log.Printf("HTTP Response Status: %d", resp.StatusCode)
@@ -174,9 +169,7 @@ c.webrtc = &WebRTCState{}
 func (c *Client) SendMessage(msg Message) error {
 c.ui.LogDebug(fmt.Sprintf("→ Preparing to send message type: %s to peer: %s", msg.Type, msg.PeerToken))
 
-// Lock to prevent concurrent writes
-c.ui.LogDebug("Acquiring write lock...")
-c.conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+c.ui.LogDebug("Attempting to send message...")
 err := c.conn.WriteJSON(msg)
 if err != nil {
 c.ui.LogDebug(fmt.Sprintf("→ Send error: %v", err))
