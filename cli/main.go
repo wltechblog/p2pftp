@@ -113,7 +113,7 @@ a=sctpmap:5000 webrtc-datachannel 1024`
 
 if err := c.SendMessage(Message{
 Type:      "offer",
-PeerToken: msg.Token,
+PeerToken: c.webrtc.peerToken,
 SDP:       offerSDP,
 }); err != nil {
 c.ui.ShowError("Failed to send offer")
@@ -124,7 +124,7 @@ case "answer":
 c.ui.LogDebug("Received answer from peer, sending ICE candidate...")
 if err := c.SendMessage(Message{
 Type:      "ice",
-PeerToken: msg.PeerToken,
+PeerToken: c.webrtc.peerToken,
 ICE:       "candidate:0 1 UDP 2122194623 192.168.1.100 5000 typ host",
 }); err != nil {
 c.ui.ShowError("Failed to send ICE candidate")
@@ -139,7 +139,10 @@ c.webrtc.connected = true
 c.ui.ShowConnectionAccepted("Connection established")
 
 case "offer":
-c.ui.LogDebug(fmt.Sprintf("Received offer from peer %s, sending answer...", msg.PeerToken))
+if c.webrtc.peerToken == "" {
+c.webrtc.peerToken = msg.Token // Set peer token from offer
+}
+c.ui.LogDebug(fmt.Sprintf("Received offer from peer %s, sending answer...", msg.Token))
 answerSDP := `v=0
 o=- 0 0 IN IP4 127.0.0.1
 s=-
@@ -153,7 +156,7 @@ a=sctpmap:5000 webrtc-datachannel 1024`
 
 if err := c.SendMessage(Message{
 Type:      "answer",
-PeerToken: msg.PeerToken,
+PeerToken: c.webrtc.peerToken,
 SDP:       answerSDP,
 }); err != nil {
 c.ui.ShowError("Failed to send answer")
