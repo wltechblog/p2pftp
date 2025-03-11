@@ -540,11 +540,18 @@ function setupDataChannel(channel) {
             receivedSize += data.byteLength;
             
             // Update progress if we have file info
-            if (fileReceiveInfo) {
-                const percentage = Math.floor((receivedSize / fileReceiveInfo.size) * 100);
+            if (fileReceiveInfo && fileReceiveInfo.size > 0) {
+                const percentage = Math.min(Math.floor((receivedSize / fileReceiveInfo.size) * 100), 100);
+                console.debug(`[WebRTC] File transfer progress: ${receivedSize}/${fileReceiveInfo.size} bytes (${percentage}%)`);
                 progressBar.style.width = `${percentage}%`;
                 transferPercentage.textContent = `${percentage}%`;
-                transferStatus.textContent = `Receiving ${fileReceiveInfo.name}`;
+                transferStatus.textContent = `Receiving ${fileReceiveInfo.name} (${formatBytes(receivedSize)} / ${formatBytes(fileReceiveInfo.size)})`;
+                transferProgress.classList.remove('hidden');
+            } else {
+                console.warn('[WebRTC] Missing or invalid file info during transfer');
+                progressBar.style.width = '0%';
+                transferPercentage.textContent = '-%';
+                transferStatus.textContent = `Receiving file...`;
                 transferProgress.classList.remove('hidden');
             }
         }
