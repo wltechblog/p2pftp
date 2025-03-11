@@ -17,6 +17,7 @@ debugView     *tview.TextView
 connectionBox *tview.Form
 statusBar     *tview.TextView
 pages         *tview.Pages
+inputField    *tview.InputField
 }
 
 func NewUI(client *Client) *UI {
@@ -45,51 +46,52 @@ ui.app.Draw()
 SetTextColor(tcell.ColorYellow)
 ui.debugView.SetBorder(true).SetTitle("Debug Log")
 
-// Create connection form
+// Create connection form with debug logging for every event
 ui.connectionBox = tview.NewForm()
-ui.connectionBox.
-AddInputField("Peer Token:", "", 20, nil, func(text string) {
-if text == ui.client.token {
-ui.ShowError("Cannot connect to yourself")
-}
+
+// Initialize input field
+ui.inputField = tview.NewInputField()
+ui.inputField.SetLabel("Peer Token: ")
+ui.inputField.SetFieldWidth(20)
+
+ui.inputField.SetChangedFunc(func(text string) {
+	ui.LogDebug(fmt.Sprintf("Text changed: '%s'", text))
+	if text == ui.client.token {
+		ui.ShowError("Cannot connect to yourself")
+	}
 })
 
-// Get input field reference
-inputField := ui.connectionBox.GetFormItem(0).(*tview.InputField)
+ui.inputField.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+	ui.LogDebug(fmt.Sprintf("Key pressed: %v", event.Key()))
+	if event.Key() == tcell.KeyEnter {
+		token := ui.inputField.GetText()
+		ui.LogDebug(fmt.Sprintf("Enter pressed with token: '%s'", token))
 
-// Set up Enter key handler
-inputField.SetDoneFunc(func(key tcell.Key) {
-if key != tcell.KeyEnter {
-return
-}
-ui.LogDebug("Enter key pressed")
-token := inputField.GetText()
-ui.LogDebug(fmt.Sprintf("Token value: '%s'", token))
+		if token == "" {
+			ui.ShowError("Please enter a peer token")
+			return nil
+		}
 
-if token == "" {
-ui.ShowError("Please enter a peer token")
-return
-}
+		if token == ui.client.token {
+			ui.ShowError("Cannot connect to yourself")
+			return nil
+		}
 
-if token == ui.client.token {
-ui.ShowError("Cannot connect to yourself")
-return
-}
-
-ui.LogDebug("Initiating connection...")
-go func() {
-ui.app.QueueUpdateDraw(func() {
-if err := ui.client.Connect(token); err != nil {
-ui.ShowError(fmt.Sprintf("Failed to connect: %v", err))
-ui.LogDebug(fmt.Sprintf("Connect error: %v", err))
-} else {
-ui.Printf("Sending connection request to peer: %s...\n", token)
-}
-inputField.SetText("")
+		ui.LogDebug("Initiating connection...")
+		if err := ui.client.Connect(token); err != nil {
+			ui.ShowError(fmt.Sprintf("Failed to connect: %v", err))
+			ui.LogDebug(fmt.Sprintf("Connect error: %v", err))
+		} else {
+			ui.Printf("Sending connection request to peer: %s...\n", token)
+		}
+		ui.inputField.SetText("")
+	}
+	return event
 })
-}()
-})
-	ui.connectionBox.SetBorder(true).SetTitle("Connect to Peer")
+
+// Add inputField to the form
+ui.connectionBox.AddFormItem(ui.inputField)
+ui.connectionBox.SetBorder(true).SetTitle("Connect to Peer")
 
 	// Create status bar
 	ui.statusBar = tview.NewTextView().
