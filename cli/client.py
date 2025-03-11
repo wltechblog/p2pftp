@@ -17,6 +17,11 @@ from dataclasses import dataclass
 from typing import Optional, Dict, List
 from datetime import datetime
 
+# Enable debug logging for websockets
+websockets_logger = logging.getLogger('websockets')
+websockets_logger.setLevel(logging.DEBUG)
+websockets_logger.addHandler(logging.StreamHandler())
+
 @dataclass
 class FileTransfer:
     name: str
@@ -41,9 +46,10 @@ class P2PClient:
         self.logger = logging.getLogger("p2p-client")
 
         # Set up SSL context for WebSocket
-        self.ssl_context = ssl.create_default_context()
-        self.ssl_context.check_hostname = False
-        self.ssl_context.verify_mode = ssl.CERT_NONE
+        self.ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        self.ssl_context.load_verify_locations(cafile=None, capath=None)  # Use system CA certs
+        self.ssl_context.verify_mode = ssl.CERT_NONE  # For development/testing
+        self.ssl_context.check_hostname = False  # For development/testing
 
     def init_screen(self):
         self.screen = curses.initscr()
@@ -229,10 +235,8 @@ class P2PClient:
 
     async def handle_websocket_message(self, message):
         try:
-            self.add_message(f"[DEBUG] Processing message: {message[:100]}...")
             data = json.loads(message)
             msg_type = data.get('type')
-            self.add_message(f"[DEBUG] Message type: {msg_type}")
 
             if msg_type == 'token':
                 self.my_token = data['token']
@@ -390,9 +394,14 @@ class P2PClient:
         while not self.should_exit:
             try:
                 self.add_message(f"[DEBUG] Attempting WebSocket connection to {self.server_url}")
-                self.add_message(f"[DEBUG] Using SSL verification with check_hostname=False")
+                self.add_message("[DEBUG] Connection parameters:")
+                self.add_message(f"[DEBUG] - URL: {self.server_url}")
+                self.add_message(f"[DEBUG] - SSL protocol: {self.ssl_context.protocol}")
+                self.add_message(f"[DEBUG] - SSL verify_mode: {self.ssl_context.verify_mode}")
+                self.add_message(f"[DEBUG] - SSL check_hostname: {self.ssl_context.check_hostname}")
                 
                 try:
+                    self.add_message("[DEBUG] Starting websockets.connect()...")
                     self.websocket = await websockets.connect(
                         self.server_url,
                         ssl=self.ssl_context,
@@ -401,11 +410,8 @@ class P2PClient:
                         ping_timeout=10,
                         close_timeout=10
                     )
-                    self.add_message("[INFO] WebSocket connection established")
-                    self.add_message(f"[DEBUG] Connection details:")
-                    self.add_message(f"[DEBUG] - Local address: {self.websocket.local_address}")
-                    self.add_message(f"[DEBUG] - Remote address: {self.websocket.remote_address}")
-                    self.add_message(f"[DEBUG] - Protocol: {self.websocket.subprotocol or 'none'}")
+                    self.add_message("[DEBUG] websockets.connect() succeeded")
+                    self.add_message("[INFO] WebSocket connection established!")
                     
                     while not self.should_exit:
                         try:
@@ -417,11 +423,12 @@ class P2PClient:
                             break
                         except Exception as e:
                             self.add_message(f"[ERROR] Message error: {type(e).__name__}: {str(e)}")
-                            self.add_message(f"[DEBUG] {traceback.format_exc()}")
+                            self.add_message(f"[DEBUG] Stack trace:\n{traceback.format_exc()}")
+                            break
                 except Exception as e:
-                    self.add_message(f"[ERROR] WebSocket connection failed: {type(e).__name__}: {str(e)}")
+                    self.add_message(f"[ERROR] Connection failed: {type(e).__name__}: {str(e)}")
                     self.add_message(f"[DEBUG] Stack trace:\n{traceback.format_exc()}")
-                    await asyncio.sleep(retry_delay)
+                    raise
             except Exception as e:
                 self.add_message(f"[ERROR] Outer connection error: {type(e).__name__}: {str(e)}")
                 self.add_message(f"[DEBUG] Stack trace:\n{traceback.format_exc()}")
