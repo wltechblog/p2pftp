@@ -33,18 +33,19 @@ func NewUI(client *Client) *UI {
 
 // Create main view
 ui.mainView = tview.NewTextView().
-SetChangedFunc(func() {
-ui.app.Draw()
-})
-ui.mainView.SetBorder(true).SetTitle("Status")
+	SetText("Status Messages Will Appear Here")
+
+// Create main view container
+mainViewContainer := tview.NewFlex().SetDirection(tview.FlexRow)
+mainViewContainer.AddItem(ui.mainView, 0, 1, false)
 
 // Create debug view
 ui.debugView = tview.NewTextView().
-SetChangedFunc(func() {
-ui.app.Draw()
-}).
-SetTextColor(tcell.ColorYellow)
-ui.debugView.SetBorder(true).SetTitle("Debug Log")
+	SetTextColor(tcell.ColorYellow)
+
+// Create debug view container
+debugViewContainer := tview.NewFlex().SetDirection(tview.FlexRow)
+debugViewContainer.AddItem(ui.debugView, 0, 1, false)
 
 // Create connection form with debug logging for every event
 ui.connectionBox = tview.NewForm()
@@ -100,13 +101,13 @@ ui.connectionBox.SetBorder(true).SetTitle("Connect to Peer")
 	// Create layout
 	flex := tview.NewFlex().SetDirection(tview.FlexRow).
 		AddItem(ui.header, 3, 1, false).
-AddItem(tview.NewFlex().SetDirection(tview.FlexColumn).
-AddItem(tview.NewFlex().SetDirection(tview.FlexRow).
-AddItem(ui.mainView, 0, 2, false).
-AddItem(ui.debugView, 0, 1, false),
-0, 2, false).
-AddItem(ui.connectionBox, 30, 1, true),
-0, 1, true).
+		AddItem(tview.NewFlex().SetDirection(tview.FlexColumn).
+			AddItem(tview.NewFlex().SetDirection(tview.FlexRow).
+				AddItem(mainViewContainer, 0, 2, false).
+				AddItem(debugViewContainer, 0, 1, false),
+				0, 2, false).
+			AddItem(ui.connectionBox, 30, 1, true),
+			0, 1, true).
 		AddItem(ui.statusBar, 1, 1, false)
 
 	// Create pages for modal dialogs
