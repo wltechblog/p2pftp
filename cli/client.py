@@ -399,8 +399,7 @@ class P2PClient:
                         max_size=2**24,  # 16MB max message size
                         ping_interval=20,
                         ping_timeout=10,
-                        close_timeout=10,
-                        extra_headers={"User-Agent": "P2P File Transfer CLI"}
+                        close_timeout=10
                     )
                     self.add_message("[INFO] WebSocket connection established")
                     self.add_message(f"[DEBUG] Connection details:")
