@@ -10,6 +10,7 @@ import (
 type UI struct {
 client *Client
 token  string
+lastRequest string // Track the most recent request token
 }
 
 func NewUI(client *Client) *UI {
@@ -26,9 +27,10 @@ func (ui *UI) Run() error {
 reader := bufio.NewReader(os.Stdin)
 fmt.Println("P2P FTP Client")
 fmt.Println("Commands:")
+fmt.Println("  /token - Show your token")
 fmt.Println("  /connect <token> - Connect to a peer")
-fmt.Println("  /accept <token> - Accept connection request")
-fmt.Println("  /reject <token> - Reject connection request")
+fmt.Println("  /accept [token] - Accept connection request (defaults to most recent)")
+fmt.Println("  /reject [token] - Reject connection request (defaults to most recent)")
 fmt.Println("  /quit - Exit program")
 fmt.Println()
 
@@ -53,9 +55,18 @@ switch cmd {
 case "/quit":
 return nil
 
+case "/token":
+if ui.token == "" {
+fmt.Println("Token not yet received. Please wait...")
+} else {
+fmt.Printf("Your token: %s\n", ui.token)
+}
+
 case "/connect":
 if len(parts) != 2 {
 fmt.Println("Usage: /connect <token>")
+} else if ui.token == "" {
+fmt.Println("Please wait for your token before connecting")
 } else {
 if err := ui.client.Connect(parts[1]); err != nil {
 fmt.Printf("Error connecting: %v\n", err)
@@ -63,20 +74,44 @@ fmt.Printf("Error connecting: %v\n", err)
 }
 
 case "/accept":
-if len(parts) != 2 {
-fmt.Println("Usage: /accept <token>")
+if ui.token == "" {
+fmt.Println("Please wait for your token before accepting")
 } else {
-if err := ui.client.Accept(parts[1]); err != nil {
+var tokenToAccept string
+if len(parts) > 1 {
+tokenToAccept = parts[1]
+} else if ui.lastRequest != "" {
+tokenToAccept = ui.lastRequest
+} else {
+fmt.Println("No pending request to accept")
+break
+}
+
+if err := ui.client.Accept(tokenToAccept); err != nil {
 fmt.Printf("Error accepting: %v\n", err)
+} else {
+ui.lastRequest = "" // Clear the last request after accepting
 }
 }
 
 case "/reject":
-if len(parts) != 2 {
-fmt.Println("Usage: /reject <token>")
+if ui.token == "" {
+fmt.Println("Please wait for your token before rejecting")
 } else {
-if err := ui.client.Reject(parts[1]); err != nil {
+var tokenToReject string
+if len(parts) > 1 {
+tokenToReject = parts[1]
+} else if ui.lastRequest != "" {
+tokenToReject = ui.lastRequest
+} else {
+fmt.Println("No pending request to reject")
+break
+}
+
+if err := ui.client.Reject(tokenToReject); err != nil {
 fmt.Printf("Error rejecting: %v\n", err)
+} else {
+ui.lastRequest = "" // Clear the last request after rejecting
 }
 }
 
@@ -90,12 +125,13 @@ ui.printPrompt()
 
 func (ui *UI) SetToken(token string) {
 ui.token = token
-fmt.Printf("\rYour token: %s\n", token)
+fmt.Printf("\rToken received: %s\n", token)
 ui.printPrompt()
 }
 
 func (ui *UI) ShowConnectionRequest(token string) {
-fmt.Printf("\rConnection request from: %s\n", token)
+ui.lastRequest = token // Store the request token
+fmt.Printf("\rConnection request from: %s (use /accept to accept)\n", token)
 ui.printPrompt()
 }
 
