@@ -46,10 +46,10 @@ SetTextColor(tcell.ColorYellow)
 ui.debugView.SetBorder(true).SetTitle("Debug Log")
 
 // Create connection form
-ui.connectionBox = tview.NewForm()
-ui.connectionBox.
+ui.connectionBox = tview.NewForm().
 AddInputField("Peer Token:", "", 20, nil, nil).
 AddButton("Connect", func() {
+ui.app.QueueUpdateDraw(func() {
 ui.LogDebug("Connect button pressed")
 token := ui.connectionBox.GetFormItem(0).(*tview.InputField).GetText()
 ui.LogDebug(fmt.Sprintf("Input token value: '%s'", token))
@@ -72,6 +72,7 @@ ui.LogDebug(fmt.Sprintf("Connect error: %v", err))
 ui.Printf("Sending connection request to peer: %s...\n", token)
 }
 ui.connectionBox.GetFormItem(0).(*tview.InputField).SetText("")
+})
 })
 	ui.connectionBox.SetBorder(true).SetTitle("Connect to Peer")
 
