@@ -2,174 +2,172 @@ package main
 
 import (
 	"fmt"
-	"time"
+	"strings"
 
-	"github.com/gdamore/tcell/v2"
-	"github.com/rivo/tview"
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
+type ModelMsg struct {
+Type string
+Data interface{}
+}
+
 type UI struct {
-app           *tview.Application
-client        *Client
-header        *tview.TextView
-mainView      *tview.TextView
-debugView     *tview.TextView
-connectionBox *tview.Form
-statusBar     *tview.TextView
-pages         *tview.Pages
-inputField    *tview.InputField
+program *tea.Program
+client  *Client
+}
+
+type model struct {
+client         *Client
+token          string
+debugLog       string
+inputPeerToken string
+peerRequests   []string
+error          string
 }
 
 func NewUI(client *Client) *UI {
-	ui := &UI{
-		app:    tview.NewApplication(),
-		client: client,
-	}
-
-	// Create header
-	ui.header = tview.NewTextView().
-		SetTextAlign(tview.AlignCenter).
-		SetText("P2P File Transfer Client")
-
-// Create main view
-ui.mainView = tview.NewTextView().
-	SetText("Status Messages Will Appear Here")
-
-// Create main view container
-mainViewContainer := tview.NewFlex().SetDirection(tview.FlexRow)
-mainViewContainer.AddItem(ui.mainView, 0, 1, false)
-
-// Create debug view
-ui.debugView = tview.NewTextView().
-	SetTextColor(tcell.ColorYellow)
-
-// Create debug view container
-debugViewContainer := tview.NewFlex().SetDirection(tview.FlexRow)
-debugViewContainer.AddItem(ui.debugView, 0, 1, false)
-
-// Create connection form with debug logging for every event
-ui.connectionBox = tview.NewForm()
-
-// Initialize input field
-ui.inputField = tview.NewInputField()
-ui.inputField.SetLabel("Peer Token: ")
-ui.inputField.SetFieldWidth(20)
-
-ui.inputField.SetChangedFunc(func(text string) {
-	ui.LogDebug(fmt.Sprintf("Text changed: '%s'", text))
-	if text == ui.client.token {
-		ui.ShowError("Cannot connect to yourself")
-	}
-})
-
-ui.inputField.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
-	ui.LogDebug(fmt.Sprintf("Key pressed: %v", event.Key()))
-	if event.Key() == tcell.KeyEnter {
-		token := ui.inputField.GetText()
-		ui.LogDebug(fmt.Sprintf("Enter pressed with token: '%s'", token))
-
-		if token == "" {
-			ui.ShowError("Please enter a peer token")
-			return nil
-		}
-
-		if token == ui.client.token {
-			ui.ShowError("Cannot connect to yourself")
-			return nil
-		}
-
-		ui.LogDebug("Initiating connection...")
-		if err := ui.client.Connect(token); err != nil {
-			ui.ShowError(fmt.Sprintf("Failed to connect: %v", err))
-			ui.LogDebug(fmt.Sprintf("Connect error: %v", err))
-		} else {
-			ui.Printf("Sending connection request to peer: %s...\n", token)
-		}
-		ui.inputField.SetText("")
-	}
-	return event
-})
-
-// Add inputField to the form
-ui.connectionBox.AddFormItem(ui.inputField)
-ui.connectionBox.SetBorder(true).SetTitle("Connect to Peer")
-
-	// Create status bar
-	ui.statusBar = tview.NewTextView().
-		SetTextColor(tview.Styles.TertiaryTextColor)
-
-	// Create layout
-	flex := tview.NewFlex().SetDirection(tview.FlexRow).
-		AddItem(ui.header, 3, 1, false).
-		AddItem(tview.NewFlex().SetDirection(tview.FlexColumn).
-			AddItem(tview.NewFlex().SetDirection(tview.FlexRow).
-				AddItem(mainViewContainer, 0, 2, false).
-				AddItem(debugViewContainer, 0, 1, false),
-				0, 2, false).
-			AddItem(ui.connectionBox, 30, 1, true),
-			0, 1, true).
-		AddItem(ui.statusBar, 1, 1, false)
-
-	// Create pages for modal dialogs
-	ui.pages = tview.NewPages().
-		AddPage("main", flex, true, true)
-
-	return ui
+ui := &UI{
+client: client,
+}
+initialModel := model{client: client}
+ui.program = tea.NewProgram(initialModel)
+return ui
 }
 
-func (ui *UI) Run() error {
-	return ui.app.SetRoot(ui.pages, true).Run()
+func (m model) Init() tea.Cmd {
+return nil
 }
 
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+switch msg := msg.(type) {
+case ModelMsg:
+switch msg.Type {
+case "token":
+m.token = msg.Data.(string)
+case "request":
+m.peerRequests = append(m.peerRequests, msg.Data.(string))
+case "debug":
+m.debugLog += "\n" + msg.Data.(string)
+case "error":
+m.error = msg.Data.(string)
+m.debugLog += "\nError: " + msg.Data.(string)
+}
+case tea.KeyMsg:
+switch msg.Type {
+case tea.KeyEnter:
+if m.inputPeerToken != "" {
+token := m.inputPeerToken
+m.inputPeerToken = ""
+m.client.Connect(token)
+} else if len(m.peerRequests) > 0 {
+// Accept the most recent request
+token := m.peerRequests[len(m.peerRequests)-1]
+m.peerRequests = m.peerRequests[:len(m.peerRequests)-1]
+m.client.Accept(token)
+}
+case tea.KeyCtrlC:
+return m, tea.Quit
+case tea.KeyRunes:
+m.inputPeerToken += string(msg.Runes)
+case tea.KeyBackspace:
+if len(m.inputPeerToken) > 0 {
+m.inputPeerToken = m.inputPeerToken[:len(m.inputPeerToken)-1]
+}
+case tea.KeyEsc:
+if len(m.peerRequests) > 0 {
+// Reject the most recent request
+token := m.peerRequests[len(m.peerRequests)-1]
+m.peerRequests = m.peerRequests[:len(m.peerRequests)-1]
+m.client.Reject(token)
+}
+}
+}
+return m, nil
+}
+
+func (m model) View() string {
+const width = 70
+
+headerStyle := lipgloss.NewStyle().
+Foreground(lipgloss.Color("6")).
+BorderStyle(lipgloss.RoundedBorder()).
+Padding(0, 1)
+
+tokenField := headerStyle.Render(fmt.Sprintf("Your Token: %s", m.token))
+
+helpText := lipgloss.NewStyle().
+Foreground(lipgloss.Color("241")).
+Render("Enter: Connect/Accept • Esc: Reject • Ctrl+C: Quit")
+
+debugSection := lipgloss.NewStyle().
+Border(lipgloss.RoundedBorder()).
+Render(fmt.Sprintf("Debug Log:\n%s", m.debugLog))
+
+var requestsContent string
+if len(m.peerRequests) > 0 {
+requestsContent = fmt.Sprintf("Pending Requests:\n%s", strings.Join(m.peerRequests, "\n"))
+} else {
+requestsContent = "No pending requests"
+}
+peerSection := lipgloss.NewStyle().
+Border(lipgloss.RoundedBorder()).
+Render(requestsContent)
+
+inputField := lipgloss.NewStyle().
+Border(lipgloss.RoundedBorder()).
+Render(fmt.Sprintf("Enter Peer Token: %s", m.inputPeerToken))
+
+if m.error != "" {
+errorSection := lipgloss.NewStyle().
+Foreground(lipgloss.Color("9")).
+Border(lipgloss.RoundedBorder()).
+Render(fmt.Sprintf("Error: %s", m.error))
+inputField = fmt.Sprintf("%s\n\n%s", errorSection, inputField)
+}
+
+layout := lipgloss.NewStyle().
+Width(width).
+Align(lipgloss.Center)
+
+return layout.Render(
+fmt.Sprintf("%s\n\n%s\n\n%s\n\n%s\n\n%s",
+tokenField,
+helpText,
+debugSection,
+peerSection,
+inputField,
+),
+)
+}
+
+// UI interface implementation methods that update the program state
 func (ui *UI) SetToken(token string) {
-	ui.app.QueueUpdateDraw(func() {
-		ui.header.SetText(fmt.Sprintf("Your Token: %s", token))
-	})
+ui.program.Send(ModelMsg{Type: "token", Data: token})
+}
+
+func (ui *UI) ShowConnectionRequest(token string) {
+ui.program.Send(ModelMsg{Type: "request", Data: token})
+}
+
+func (ui *UI) ShowConnectionAccepted(msg string) {
+ui.program.Send(ModelMsg{Type: "debug", Data: msg})
+}
+
+func (ui *UI) ShowConnectionRejected(token string) {
+ui.program.Send(ModelMsg{Type: "debug", Data: fmt.Sprintf("Rejected connection with %s", token)})
 }
 
 func (ui *UI) ShowError(msg string) {
-	ui.app.QueueUpdateDraw(func() {
-		ui.statusBar.SetText(fmt.Sprintf("Error: %s", msg))
-	})
-}
-
-func (ui *UI) Printf(format string, args ...interface{}) {
-	ui.app.QueueUpdateDraw(func() {
-		fmt.Fprintf(ui.mainView, format, args...)
-	})
-}
-
-func (ui *UI) ShowConnectionRequest(peerToken string) {
-	modal := tview.NewModal().
-		SetText(fmt.Sprintf("Connection request from peer: %s\nAccept connection?", peerToken)).
-		AddButtons([]string{"Accept", "Reject"}).
-		SetDoneFunc(func(buttonIndex int, buttonLabel string) {
-			if buttonLabel == "Accept" {
-				ui.client.Accept(peerToken)
-				ui.Printf("Accepted connection from: %s\n", peerToken)
-			} else {
-				ui.client.Reject(peerToken)
-				ui.Printf("Rejected connection from: %s\n", peerToken)
-			}
-			ui.pages.SwitchToPage("main")
-		})
-
-	ui.app.QueueUpdateDraw(func() {
-		ui.pages.AddPage("modal", modal, true, true)
-	})
-}
-
-func (ui *UI) ShowConnectionAccepted(peerToken string) {
-	ui.Printf("Peer %s accepted the connection\n", peerToken)
-}
-
-func (ui *UI) ShowConnectionRejected(peerToken string) {
-ui.Printf("Peer %s rejected the connection\n", peerToken)
+ui.program.Send(ModelMsg{Type: "error", Data: msg})
 }
 
 func (ui *UI) LogDebug(msg string) {
-ui.app.QueueUpdateDraw(func() {
-ts := time.Now().Format("15:04:05")
-fmt.Fprintf(ui.debugView, "[%s] %s\n", ts, msg)
-})
+ui.program.Send(ModelMsg{Type: "debug", Data: msg})
+}
+
+func (ui *UI) Run() error {
+_, err := ui.program.Run()
+return err
 }
