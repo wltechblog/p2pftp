@@ -13,7 +13,7 @@ A service providing secure and reliable P2P file transfers and chat
 
 ## What it isn't
 
-- A fully anonymous tool, unless you're using through a vpn, tor, etc that makes all your traffic anonymous. webrtc signaling reveals the public IPs of both endpoints.
+- A fully anonymous tool, unless you're using through a vpn, tor, etc that makes all your traffic anonymous. webrtc signaling reveals the public IPs of both endpoints, and webrtc support over VPN is not ubiquitous.
 - A robust chat app with emojis and such
 - Gluten free
 
