@@ -88,8 +88,6 @@ c.ui.ShowError("Connection error - please try again")
 return
 }
 
-c.ui.LogDebug(fmt.Sprintf("Received: type=%s token=%s peerToken=%s", msg.Type, msg.Token, msg.PeerToken))
-
 switch msg.Type {
 case "token":
 c.token = msg.Token
@@ -183,25 +181,13 @@ case "error":
 c.ui.ShowError(msg.SDP)
 c.webrtc = &WebRTCState{}
 
-case "chat":
-if !c.webrtc.connected {
-c.ui.ShowError("Not connected to peer")
-continue
-}
+case "data":
+// Handle messages based on what's set in the Message struct
+switch {
+case msg.Text != "":
 c.ui.ShowChat(msg.Token, msg.Text)
 
-case "file-start":
-if !c.webrtc.connected {
-c.ui.ShowError("Not connected to peer")
-continue
-}
-c.ui.ShowFileTransfer(fmt.Sprintf("Receiving file: %s", msg.FileName))
-
-case "file-data":
-if !c.webrtc.connected {
-c.ui.ShowError("Not connected to peer")
-continue
-}
+case msg.FileName != "" && msg.FileData != "":
 // Create downloads directory if it doesn't exist
 downloadDir := "downloads"
 if err := os.MkdirAll(downloadDir, 0755); err != nil {
@@ -222,7 +208,8 @@ if err != nil {
 c.ui.ShowError(fmt.Sprintf("Failed to save file: %v", err))
 continue
 }
-c.ui.ShowFileTransfer(fmt.Sprintf("Saved file to: %s", filePath))
+c.ui.ShowFileTransfer(fmt.Sprintf("Saved file from %s to: %s", msg.Token, filePath))
+}
 }
 }
 }
@@ -271,9 +258,10 @@ if !c.webrtc.connected {
 return fmt.Errorf("not connected to peer")
 }
 return c.SendMessage(Message{
-Type:      "chat",
+Type:      "data",
 PeerToken: c.webrtc.peerToken,
 Text:     text,
+Token:    c.token,
 })
 }
 
@@ -288,42 +276,27 @@ return fmt.Errorf("failed to open file: %v", err)
 }
 defer file.Close()
 
-// Send file start message with filename
-fileName := filepath.Base(filePath)
-err = c.SendMessage(Message{
-Type:      "file-start",
-PeerToken: c.webrtc.peerToken,
-FileName:  fileName,
-})
-if err != nil {
-return fmt.Errorf("failed to send file start: %v", err)
-}
-
-// Read and send file in chunks
-buf := make([]byte, maxChunkSize)
-for {
-n, err := file.Read(buf)
-if err == io.EOF {
-break
-}
+// Read entire file at once since we're using a unified data message type
+data, err := io.ReadAll(file)
 if err != nil {
 return fmt.Errorf("failed to read file: %v", err)
 }
 
-// Base64 encode the chunk
-fileData := base64.StdEncoding.EncodeToString(buf[:n])
+// Base64 encode the data
+fileData := base64.StdEncoding.EncodeToString(data)
 
-// Send the chunk
+// Send file in a data message
 err = c.SendMessage(Message{
-Type:      "file-data",
+Type:      "data",
 PeerToken: c.webrtc.peerToken,
-FileName:  fileName,
+Token:    c.token,
+FileName:  filepath.Base(filePath),
 FileData:  fileData,
 })
 if err != nil {
-return fmt.Errorf("failed to send file data: %v", err)
-}
+return fmt.Errorf("failed to send file: %v", err)
 }
 
+c.ui.ShowFileTransfer(fmt.Sprintf("Sent file: %s", filePath))
 return nil
 }

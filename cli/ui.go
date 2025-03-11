@@ -31,9 +31,10 @@ fmt.Println("  /token - Show your token")
 fmt.Println("  /connect <token> - Connect to a peer")
 fmt.Println("  /accept [token] - Accept connection request (defaults to most recent)")
 fmt.Println("  /reject [token] - Reject connection request (defaults to most recent)")
-fmt.Println("  /send <message> - Send chat message")
 fmt.Println("  /file <path> - Send a file")
 fmt.Println("  /quit - Exit program")
+fmt.Println()
+fmt.Println("Type any message to send chat (without / prefix)")
 fmt.Println()
 
 ui.printPrompt()
@@ -46,6 +47,15 @@ return err
 
 line = strings.TrimSpace(line)
 if line == "" {
+ui.printPrompt()
+continue
+}
+
+// If line doesn't start with /, treat it as a chat message
+if !strings.HasPrefix(line, "/") {
+if err := ui.client.SendChat(line); err != nil {
+fmt.Printf("Error sending message: %v\n", err)
+}
 ui.printPrompt()
 continue
 }
@@ -120,16 +130,6 @@ fmt.Printf("Error rejecting: %v\n", err)
 } else {
 ui.lastRequest = "" // Clear the last request after rejecting
 }
-}
-
-case "/send":
-if len(parts) < 2 {
-fmt.Println("Usage: /send <message>")
-continue
-}
-message := strings.Join(parts[1:], " ")
-if err := ui.client.SendChat(message); err != nil {
-fmt.Printf("Error sending message: %v\n", err)
 }
 
 case "/file":
