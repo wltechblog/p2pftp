@@ -42,7 +42,27 @@ return nil
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 switch msg := msg.(type) {
+case Message:
+// Handle messages from the client
+switch msg.Type {
+case "token":
+m.token = msg.Token
+m.debugLog += "\nReceived token: " + msg.Token
+case "request":
+m.peerRequests = append(m.peerRequests, msg.Token)
+m.debugLog += fmt.Sprintf("\nConnection request from: %s", msg.Token)
+case "accepted":
+m.debugLog += fmt.Sprintf("\nConnection accepted with: %s", msg.Token)
+case "answer":
+m.debugLog += fmt.Sprintf("\nReceived answer SDP")
+case "ice":
+m.debugLog += "\nReceived ICE candidate"
+case "error":
+m.error = msg.SDP
+m.debugLog += "\nError: " + msg.SDP
+}
 case ModelMsg:
+// Handle internal UI messages
 switch msg.Type {
 case "token":
 m.token = msg.Data.(string)
@@ -61,11 +81,13 @@ if m.inputPeerToken != "" {
 token := m.inputPeerToken
 m.inputPeerToken = ""
 m.client.Connect(token)
+m.debugLog += fmt.Sprintf("\nAttempting to connect to: %s", token)
 } else if len(m.peerRequests) > 0 {
 // Accept the most recent request
 token := m.peerRequests[len(m.peerRequests)-1]
 m.peerRequests = m.peerRequests[:len(m.peerRequests)-1]
 m.client.Accept(token)
+m.debugLog += fmt.Sprintf("\nAccepting connection from: %s", token)
 }
 case tea.KeyCtrlC:
 return m, tea.Quit
@@ -81,6 +103,7 @@ if len(m.peerRequests) > 0 {
 token := m.peerRequests[len(m.peerRequests)-1]
 m.peerRequests = m.peerRequests[:len(m.peerRequests)-1]
 m.client.Reject(token)
+m.debugLog += fmt.Sprintf("\nRejected connection from: %s", token)
 }
 }
 }
@@ -103,6 +126,7 @@ Render("Enter: Connect/Accept • Esc: Reject • Ctrl+C: Quit")
 
 debugSection := lipgloss.NewStyle().
 Border(lipgloss.RoundedBorder()).
+MaxHeight(10).
 Render(fmt.Sprintf("Debug Log:\n%s", m.debugLog))
 
 var requestsContent string
@@ -144,11 +168,11 @@ inputField,
 
 // UI interface implementation methods that update the program state
 func (ui *UI) SetToken(token string) {
-ui.program.Send(ModelMsg{Type: "token", Data: token})
+ui.program.Send(Message{Type: "token", Token: token})
 }
 
 func (ui *UI) ShowConnectionRequest(token string) {
-ui.program.Send(ModelMsg{Type: "request", Data: token})
+ui.program.Send(Message{Type: "request", Token: token})
 }
 
 func (ui *UI) ShowConnectionAccepted(msg string) {
@@ -160,7 +184,7 @@ ui.program.Send(ModelMsg{Type: "debug", Data: fmt.Sprintf("Rejected connection w
 }
 
 func (ui *UI) ShowError(msg string) {
-ui.program.Send(ModelMsg{Type: "error", Data: msg})
+ui.program.Send(Message{Type: "error", SDP: msg})
 }
 
 func (ui *UI) LogDebug(msg string) {
