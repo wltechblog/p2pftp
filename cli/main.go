@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -24,6 +25,14 @@ ICE       string `json:"ice,omitempty"`
 Text     string `json:"text,omitempty"`     // For chat messages
 FileName string `json:"fileName,omitempty"`  // For file transfers
 FileData string `json:"fileData,omitempty"`  // Base64 encoded file data
+Content  string `json:"content,omitempty"`   // For chat content
+Info     FileInfo `json:"info,omitempty"`    // For file info
+}
+
+type FileInfo struct {
+Name string `json:"name"`
+Size int64  `json:"size"`
+Type string `json:"type"`
 }
 
 const (
@@ -182,12 +191,30 @@ c.ui.ShowError(msg.SDP)
 c.webrtc = &WebRTCState{}
 
 case "data":
-// Handle messages based on what's set in the Message struct
-switch {
-case msg.Text != "":
-c.ui.ShowChat(msg.Token, msg.Text)
+if !c.webrtc.connected {
+c.ui.ShowError("Received data but not connected to peer")
+continue
+}
 
-case msg.FileName != "" && msg.FileData != "":
+// Parse the message content
+var dataMsg struct {
+Type    string   `json:"type"`
+Content string   `json:"content"`
+Info    FileInfo `json:"info"`
+}
+
+if err := json.Unmarshal([]byte(msg.Text), &dataMsg); err == nil {
+switch dataMsg.Type {
+case "message":
+// Regular chat message
+c.ui.ShowChat(msg.Token, dataMsg.Content)
+
+case "file-info":
+c.ui.ShowFileTransfer(fmt.Sprintf("Receiving file: %s (%d bytes)", dataMsg.Info.Name, dataMsg.Info.Size))
+
+case "file-complete":
+// Handle file data that was accumulated
+if msg.FileData != "" {
 // Create downloads directory if it doesn't exist
 downloadDir := "downloads"
 if err := os.MkdirAll(downloadDir, 0755); err != nil {
@@ -211,6 +238,11 @@ continue
 c.ui.ShowFileTransfer(fmt.Sprintf("Saved file from %s to: %s", msg.Token, filePath))
 }
 }
+} else {
+// Just a plain text message
+c.ui.ShowChat(msg.Token, msg.Text)
+}
+}
 }
 }
 
@@ -218,6 +250,11 @@ func (c *Client) SendMessage(msg Message) error {
 logMsg := fmt.Sprintf("Sending: type=%s", msg.Type)
 if msg.PeerToken != "" {
 logMsg += fmt.Sprintf(" to=%s", msg.PeerToken)
+}
+if msg.Text != "" {
+logMsg += " (chat message)"
+} else if msg.FileName != "" {
+logMsg += fmt.Sprintf(" (file: %s)", msg.FileName)
 }
 c.ui.LogDebug(logMsg)
 
@@ -257,11 +294,26 @@ func (c *Client) SendChat(text string) error {
 if !c.webrtc.connected {
 return fmt.Errorf("not connected to peer")
 }
+
+// Create chat message in the format expected by the web client
+chatMsg := struct {
+Type    string `json:"type"`
+Content string `json:"content"`
+}{
+Type:    "message",
+Content: text,
+}
+
+chatJSON, err := json.Marshal(chatMsg)
+if err != nil {
+return fmt.Errorf("failed to marshal chat message: %v", err)
+}
+
 return c.SendMessage(Message{
 Type:      "data",
 PeerToken: c.webrtc.peerToken,
-Text:     text,
-Token:    c.token,
+Token:     c.token,
+Text:      string(chatJSON),
 })
 }
 
@@ -276,7 +328,40 @@ return fmt.Errorf("failed to open file: %v", err)
 }
 defer file.Close()
 
-// Read entire file at once since we're using a unified data message type
+fileInfo, err := file.Stat()
+if err != nil {
+return fmt.Errorf("failed to get file info: %v", err)
+}
+
+// Send file info message first
+infoMsg := struct {
+Type string   `json:"type"`
+Info FileInfo `json:"info"`
+}{
+Type: "file-info",
+Info: FileInfo{
+Name: fileInfo.Name(),
+Size: fileInfo.Size(),
+Type: "", // Not critical for CLI
+},
+}
+
+infoJSON, err := json.Marshal(infoMsg)
+if err != nil {
+return fmt.Errorf("failed to marshal file info: %v", err)
+}
+
+err = c.SendMessage(Message{
+Type:      "data",
+PeerToken: c.webrtc.peerToken,
+Token:     c.token,
+Text:      string(infoJSON),
+})
+if err != nil {
+return fmt.Errorf("failed to send file info: %v", err)
+}
+
+// Read file data
 data, err := io.ReadAll(file)
 if err != nil {
 return fmt.Errorf("failed to read file: %v", err)
@@ -285,16 +370,38 @@ return fmt.Errorf("failed to read file: %v", err)
 // Base64 encode the data
 fileData := base64.StdEncoding.EncodeToString(data)
 
-// Send file in a data message
+// Send file data
 err = c.SendMessage(Message{
 Type:      "data",
 PeerToken: c.webrtc.peerToken,
-Token:    c.token,
+Token:     c.token,
 FileName:  filepath.Base(filePath),
 FileData:  fileData,
 })
 if err != nil {
-return fmt.Errorf("failed to send file: %v", err)
+return fmt.Errorf("failed to send file data: %v", err)
+}
+
+// Send file complete message
+completeMsg := struct {
+Type string `json:"type"`
+}{
+Type: "file-complete",
+}
+
+completeJSON, err := json.Marshal(completeMsg)
+if err != nil {
+return fmt.Errorf("failed to marshal complete message: %v", err)
+}
+
+err = c.SendMessage(Message{
+Type:      "data",
+PeerToken: c.webrtc.peerToken,
+Token:     c.token,
+Text:      string(completeJSON),
+})
+if err != nil {
+return fmt.Errorf("failed to send complete message: %v", err)
 }
 
 c.ui.ShowFileTransfer(fmt.Sprintf("Sent file: %s", filePath))
