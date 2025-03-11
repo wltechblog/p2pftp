@@ -10,8 +10,10 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/pion/webrtc/v3"
 )
 
 // Message matches the server's message structure
@@ -21,12 +23,6 @@ Token     string `json:"token,omitempty"`
 PeerToken string `json:"peerToken,omitempty"`
 SDP       string `json:"sdp,omitempty"`
 ICE       string `json:"ice,omitempty"`
-// Chat and file transfer fields
-Text     string `json:"text,omitempty"`     // For chat messages
-FileName string `json:"fileName,omitempty"`  // For file transfers
-FileData string `json:"fileData,omitempty"`  // Base64 encoded file data
-Content  string `json:"content,omitempty"`   // For chat content
-Info     FileInfo `json:"info,omitempty"`    // For file info
 }
 
 type FileInfo struct {
@@ -40,9 +36,11 @@ maxChunkSize = 16384 // 16KB chunks for file transfer
 )
 
 type WebRTCState struct {
-peerToken    string
-isInitiator  bool
-connected    bool
+peerToken     string
+isInitiator   bool
+connected     bool
+peerConn     *webrtc.PeerConnection
+dataChannel  *webrtc.DataChannel
 }
 
 type Client struct {
@@ -86,6 +84,128 @@ fmt.Printf("Error running UI: %v\n", err)
 }
 }
 
+func (c *Client) setupPeerConnection() error {
+// Create WebRTC configuration with STUN server
+config := webrtc.Configuration{
+ICEServers: []webrtc.ICEServer{
+{
+URLs: []string{"stun:stun.l.google.com:19302"},
+},
+},
+}
+
+// Create new peer connection
+peerConn, err := webrtc.NewPeerConnection(config)
+if err != nil {
+return fmt.Errorf("failed to create peer connection: %v", err)
+}
+
+// Set up ICE candidate handling
+peerConn.OnICECandidate(func(candidate *webrtc.ICECandidate) {
+if candidate != nil {
+candidateJSON, err := json.Marshal(candidate.ToJSON())
+if err != nil {
+c.ui.ShowError(fmt.Sprintf("Failed to marshal ICE candidate: %v", err))
+return
+}
+
+err = c.SendMessage(Message{
+Type:      "ice",
+PeerToken: c.webrtc.peerToken,
+ICE:       string(candidateJSON),
+})
+if err != nil {
+c.ui.ShowError(fmt.Sprintf("Failed to send ICE candidate: %v", err))
+}
+}
+})
+
+// Set up data channel handling
+if c.webrtc.isInitiator {
+dataChannel, err := peerConn.CreateDataChannel("p2pftp", nil)
+if err != nil {
+return fmt.Errorf("failed to create data channel: %v", err)
+}
+c.setupDataChannel(dataChannel)
+} else {
+peerConn.OnDataChannel(func(channel *webrtc.DataChannel) {
+c.setupDataChannel(channel)
+})
+}
+
+c.webrtc.peerConn = peerConn
+return nil
+}
+
+func (c *Client) setupDataChannel(channel *webrtc.DataChannel) {
+c.webrtc.dataChannel = channel
+
+channel.OnOpen(func() {
+c.ui.LogDebug("Data channel opened")
+c.webrtc.connected = true
+})
+
+channel.OnClose(func() {
+c.ui.LogDebug("Data channel closed")
+c.webrtc.connected = false
+})
+
+// Handle incoming messages
+channel.OnMessage(func(msg webrtc.DataChannelMessage) {
+if !msg.IsString {
+c.ui.ShowError("Received binary data - not supported")
+return
+}
+
+// Try to parse as JSON
+var dataMsg struct {
+Type    string   `json:"type"`
+Content string   `json:"content"`
+Info    FileInfo `json:"info"`
+}
+
+if err := json.Unmarshal([]byte(msg.Data), &dataMsg); err == nil {
+switch dataMsg.Type {
+case "message":
+// Regular chat message
+c.ui.ShowChat(c.webrtc.peerToken, dataMsg.Content)
+
+case "file-info":
+c.ui.ShowFileTransfer(fmt.Sprintf("Receiving file: %s (%d bytes)", dataMsg.Info.Name, dataMsg.Info.Size))
+
+case "file-data":
+// Create downloads directory if it doesn't exist
+downloadDir := "downloads"
+if err := os.MkdirAll(downloadDir, 0755); err != nil {
+c.ui.ShowError(fmt.Sprintf("Failed to create downloads directory: %v", err))
+return
+}
+
+// Decode and save file data
+data, err := base64.StdEncoding.DecodeString(dataMsg.Content)
+if err != nil {
+c.ui.ShowError(fmt.Sprintf("Failed to decode file data: %v", err))
+return
+}
+
+filePath := filepath.Join(downloadDir, dataMsg.Info.Name)
+err = os.WriteFile(filePath, data, 0644)
+if err != nil {
+c.ui.ShowError(fmt.Sprintf("Failed to save file: %v", err))
+return
+}
+c.ui.ShowFileTransfer(fmt.Sprintf("Saved file from peer to: %s", filePath))
+
+case "file-complete":
+c.ui.ShowFileTransfer("File transfer complete")
+}
+} else {
+// Just a plain text message
+c.ui.ShowChat(c.webrtc.peerToken, string(msg.Data))
+}
+})
+}
+
 func (c *Client) handleMessages() {
 c.ui.LogDebug("Message handler started, waiting for server token...")
 for {
@@ -112,152 +232,145 @@ if c.webrtc.peerToken == "" {
 c.ui.ShowError("No active connection attempt")
 continue
 }
-c.ui.LogDebug(fmt.Sprintf("Connection accepted by peer %s, sending offer...", msg.Token))
-// Send SDP offer
-offerSDP := `v=0
-o=- 4294967296 1 IN IP4 127.0.0.1
-s=-
-t=0 0
-a=group:BUNDLE 0
-a=ice-lite
-a=msid-semantic: WMS *
-m=application 9 UDP/DTLS/SCTP webrtc-datachannel
-c=IN IP4 0.0.0.0
-b=AS:30
-a=ice-ufrag:abc123
-a=ice-pwd:secret
-a=fingerprint:sha-256 01:02:03:04:05:06:07:08:09:0A:0B:0C:0D:0E:0F:10:11:12:13:14:15:16:17:18:19:1A:1B:1C:1D:1E:1F:20
-a=setup:actpass
-a=sctpmap:5000 webrtc-datachannel 1024`
 
-if err := c.SendMessage(Message{
+if err := c.setupPeerConnection(); err != nil {
+c.ui.ShowError(fmt.Sprintf("Failed to setup peer connection: %v", err))
+continue
+}
+
+// Create offer
+offer, err := c.webrtc.peerConn.CreateOffer(nil)
+if err != nil {
+c.ui.ShowError(fmt.Sprintf("Failed to create offer: %v", err))
+continue
+}
+
+// Set local description
+err = c.webrtc.peerConn.SetLocalDescription(offer)
+if err != nil {
+c.ui.ShowError(fmt.Sprintf("Failed to set local description: %v", err))
+continue
+}
+
+// Send offer
+offerJSON, err := json.Marshal(offer)
+if err != nil {
+c.ui.ShowError(fmt.Sprintf("Failed to marshal offer: %v", err))
+continue
+}
+
+err = c.SendMessage(Message{
 Type:      "offer",
 PeerToken: c.webrtc.peerToken,
-SDP:       offerSDP,
-}); err != nil {
+SDP:       string(offerJSON),
+})
+if err != nil {
 c.ui.ShowError("Failed to send offer")
-return
+continue
+}
+
+case "offer":
+if err := c.setupPeerConnection(); err != nil {
+c.ui.ShowError(fmt.Sprintf("Failed to setup peer connection: %v", err))
+continue
+}
+
+// Parse and set remote description
+var offer webrtc.SessionDescription
+if err := json.Unmarshal([]byte(msg.SDP), &offer); err != nil {
+c.ui.ShowError(fmt.Sprintf("Failed to parse offer: %v", err))
+continue
+}
+
+err = c.webrtc.peerConn.SetRemoteDescription(offer)
+if err != nil {
+c.ui.ShowError(fmt.Sprintf("Failed to set remote description: %v", err))
+continue
+}
+
+// Create answer
+answer, err := c.webrtc.peerConn.CreateAnswer(nil)
+if err != nil {
+c.ui.ShowError(fmt.Sprintf("Failed to create answer: %v", err))
+continue
+}
+
+// Set local description
+err = c.webrtc.peerConn.SetLocalDescription(answer)
+if err != nil {
+c.ui.ShowError(fmt.Sprintf("Failed to set local description: %v", err))
+continue
+}
+
+// Send answer
+answerJSON, err := json.Marshal(answer)
+if err != nil {
+c.ui.ShowError(fmt.Sprintf("Failed to marshal answer: %v", err))
+continue
+}
+
+err = c.SendMessage(Message{
+Type:      "answer",
+PeerToken: c.webrtc.peerToken,
+SDP:       string(answerJSON),
+})
+if err != nil {
+c.ui.ShowError("Failed to send answer")
+continue
 }
 
 case "answer":
-c.ui.LogDebug("Received answer from peer, sending ICE candidate...")
-if err := c.SendMessage(Message{
-Type:      "ice",
-PeerToken: c.webrtc.peerToken,
-ICE:       "candidate:0 1 UDP 2122194623 192.168.1.100 5000 typ host",
-}); err != nil {
-c.ui.ShowError("Failed to send ICE candidate")
-return
+// Parse and set remote description
+var answer webrtc.SessionDescription
+if err := json.Unmarshal([]byte(msg.SDP), &answer); err != nil {
+c.ui.ShowError(fmt.Sprintf("Failed to parse answer: %v", err))
+continue
 }
-c.webrtc.connected = true
-c.ui.ShowConnectionAccepted("Connection established")
+
+err = c.webrtc.peerConn.SetRemoteDescription(answer)
+if err != nil {
+c.ui.ShowError(fmt.Sprintf("Failed to set remote description: %v", err))
+continue
+}
 
 case "ice":
-c.ui.LogDebug("Received ICE candidate, connection ready")
-c.webrtc.connected = true
-c.ui.ShowConnectionAccepted("Connection established")
-
-case "offer":
-if c.webrtc.peerToken == "" {
-c.webrtc.peerToken = msg.Token
+// Parse and add ICE candidate
+var candidate webrtc.ICECandidateInit
+if err := json.Unmarshal([]byte(msg.ICE), &candidate); err != nil {
+c.ui.ShowError(fmt.Sprintf("Failed to parse ICE candidate: %v", err))
+continue
 }
-c.ui.LogDebug(fmt.Sprintf("Received offer from peer %s, sending answer...", msg.Token))
-answerSDP := `v=0
-o=- 0 0 IN IP4 127.0.0.1
-s=-
-t=0 0
-a=group:BUNDLE 0
-a=ice-options:trickle
-m=application 9 UDP/DTLS/SCTP webrtc-datachannel
-c=IN IP4 0.0.0.0
-a=mid:0
-a=sctpmap:5000 webrtc-datachannel 1024`
 
-if err := c.SendMessage(Message{
-Type:      "answer",
-PeerToken: c.webrtc.peerToken,
-SDP:       answerSDP,
-}); err != nil {
-c.ui.ShowError("Failed to send answer")
-return
+err = c.webrtc.peerConn.AddICECandidate(candidate)
+if err != nil {
+c.ui.ShowError(fmt.Sprintf("Failed to add ICE candidate: %v", err))
+continue
 }
 
 case "rejected":
 c.ui.ShowConnectionRejected(msg.Token)
-c.webrtc = &WebRTCState{}
+c.disconnectPeer()
 
 case "error":
 c.ui.ShowError(msg.SDP)
+c.disconnectPeer()
+}
+}
+}
+
+func (c *Client) disconnectPeer() {
+if c.webrtc.peerConn != nil {
+c.webrtc.peerConn.Close()
+c.webrtc.peerConn = nil
+}
+if c.webrtc.dataChannel != nil {
+c.webrtc.dataChannel.Close()
+c.webrtc.dataChannel = nil
+}
 c.webrtc = &WebRTCState{}
-
-case "data":
-if !c.webrtc.connected {
-c.ui.ShowError("Received data but not connected to peer")
-continue
-}
-
-// Parse the message content
-var dataMsg struct {
-Type    string   `json:"type"`
-Content string   `json:"content"`
-Info    FileInfo `json:"info"`
-}
-
-if err := json.Unmarshal([]byte(msg.Text), &dataMsg); err == nil {
-switch dataMsg.Type {
-case "message":
-// Regular chat message
-c.ui.ShowChat(msg.Token, dataMsg.Content)
-
-case "file-info":
-c.ui.ShowFileTransfer(fmt.Sprintf("Receiving file: %s (%d bytes)", dataMsg.Info.Name, dataMsg.Info.Size))
-
-case "file-complete":
-// Handle file data that was accumulated
-if msg.FileData != "" {
-// Create downloads directory if it doesn't exist
-downloadDir := "downloads"
-if err := os.MkdirAll(downloadDir, 0755); err != nil {
-c.ui.ShowError(fmt.Sprintf("Failed to create downloads directory: %v", err))
-continue
-}
-
-// Decode and save file data
-data, err := base64.StdEncoding.DecodeString(msg.FileData)
-if err != nil {
-c.ui.ShowError(fmt.Sprintf("Failed to decode file data: %v", err))
-continue
-}
-
-filePath := filepath.Join(downloadDir, msg.FileName)
-err = os.WriteFile(filePath, data, 0644)
-if err != nil {
-c.ui.ShowError(fmt.Sprintf("Failed to save file: %v", err))
-continue
-}
-c.ui.ShowFileTransfer(fmt.Sprintf("Saved file from %s to: %s", msg.Token, filePath))
-}
-}
-} else {
-// Just a plain text message
-c.ui.ShowChat(msg.Token, msg.Text)
-}
-}
-}
 }
 
 func (c *Client) SendMessage(msg Message) error {
-logMsg := fmt.Sprintf("Sending: type=%s", msg.Type)
-if msg.PeerToken != "" {
-logMsg += fmt.Sprintf(" to=%s", msg.PeerToken)
-}
-if msg.Text != "" {
-logMsg += " (chat message)"
-} else if msg.FileName != "" {
-logMsg += fmt.Sprintf(" (file: %s)", msg.FileName)
-}
-c.ui.LogDebug(logMsg)
-
 err := c.conn.WriteJSON(msg)
 if err != nil {
 c.ui.ShowError("Send failed: " + err.Error())
@@ -286,12 +399,14 @@ return c.SendMessage(Message{Type: "accept", PeerToken: peerToken})
 }
 
 func (c *Client) Reject(peerToken string) error {
-c.webrtc = &WebRTCState{}
+if c.webrtc.connected {
+c.disconnectPeer()
+}
 return c.SendMessage(Message{Type: "reject", PeerToken: peerToken})
 }
 
 func (c *Client) SendChat(text string) error {
-if !c.webrtc.connected {
+if !c.webrtc.connected || c.webrtc.dataChannel == nil {
 return fmt.Errorf("not connected to peer")
 }
 
@@ -309,16 +424,15 @@ if err != nil {
 return fmt.Errorf("failed to marshal chat message: %v", err)
 }
 
-return c.SendMessage(Message{
-Type:      "data",
-PeerToken: c.webrtc.peerToken,
-Token:     c.token,
-Text:      string(chatJSON),
-})
+err = c.webrtc.dataChannel.SendText(string(chatJSON))
+if err != nil {
+return fmt.Errorf("failed to send chat message: %v", err)
+}
+return nil
 }
 
 func (c *Client) SendFile(filePath string) error {
-if !c.webrtc.connected {
+if !c.webrtc.connected || c.webrtc.dataChannel == nil {
 return fmt.Errorf("not connected to peer")
 }
 
@@ -351,12 +465,7 @@ if err != nil {
 return fmt.Errorf("failed to marshal file info: %v", err)
 }
 
-err = c.SendMessage(Message{
-Type:      "data",
-PeerToken: c.webrtc.peerToken,
-Token:     c.token,
-Text:      string(infoJSON),
-})
+err = c.webrtc.dataChannel.SendText(string(infoJSON))
 if err != nil {
 return fmt.Errorf("failed to send file info: %v", err)
 }
@@ -371,13 +480,28 @@ return fmt.Errorf("failed to read file: %v", err)
 fileData := base64.StdEncoding.EncodeToString(data)
 
 // Send file data
-err = c.SendMessage(Message{
-Type:      "data",
-PeerToken: c.webrtc.peerToken,
-Token:     c.token,
-FileName:  filepath.Base(filePath),
-FileData:  fileData,
-})
+dataMsg := struct {
+Type    string   `json:"type"`
+Content string   `json:"content"`
+Info    FileInfo `json:"info"`
+}{
+Type:    "file-data",
+Content: fileData,
+Info: FileInfo{
+Name: fileInfo.Name(),
+Size: fileInfo.Size(),
+},
+}
+
+dataJSON, err := json.Marshal(dataMsg)
+if err != nil {
+return fmt.Errorf("failed to marshal file data: %v", err)
+}
+
+// Give data channel some time to process previous message
+time.Sleep(100 * time.Millisecond)
+
+err = c.webrtc.dataChannel.SendText(string(dataJSON))
 if err != nil {
 return fmt.Errorf("failed to send file data: %v", err)
 }
@@ -394,12 +518,10 @@ if err != nil {
 return fmt.Errorf("failed to marshal complete message: %v", err)
 }
 
-err = c.SendMessage(Message{
-Type:      "data",
-PeerToken: c.webrtc.peerToken,
-Token:     c.token,
-Text:      string(completeJSON),
-})
+// Give data channel some time to process previous message
+time.Sleep(100 * time.Millisecond)
+
+err = c.webrtc.dataChannel.SendText(string(completeJSON))
 if err != nil {
 return fmt.Errorf("failed to send complete message: %v", err)
 }
