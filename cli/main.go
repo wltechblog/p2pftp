@@ -83,20 +83,29 @@ c.token = msg.Token
 c.ui.SetToken(msg.Token)
 
 case "request":
+c.ui.LogDebug(fmt.Sprintf("Received connection request from peer %s", msg.Token))
 c.ui.ShowConnectionRequest(msg.Token)
 c.webrtc.peerToken = msg.Token
 c.webrtc.isInitiator = false
 
 case "accepted":
+c.ui.LogDebug(fmt.Sprintf("Peer %s accepted connection", msg.Token))
 c.ui.ShowConnectionAccepted(msg.Token)
+if c.webrtc == nil {
+c.ui.LogDebug("Error: WebRTC state is nil")
+return
+}
 c.webrtc.peerToken = msg.Token
 c.webrtc.isInitiator = true
 // Send initial offer after acceptance
-c.SendMessage(Message{
+c.ui.LogDebug("Sending WebRTC offer")
+if err := c.SendMessage(Message{
 Type:      "offer",
 PeerToken: c.webrtc.peerToken,
 SDP:       "v=0\r\no=- 0 0 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=group:BUNDLE 0\r\na=ice-options:trickle\r\nm=application 9 UDP/DTLS/SCTP webrtc-datachannel\r\nc=IN IP4 0.0.0.0\r\na=mid:0\r\na=sctpmap:5000 webrtc-datachannel 1024\r\n",
-})
+}); err != nil {
+c.ui.LogDebug(fmt.Sprintf("Error sending offer: %v", err))
+}
 
 case "rejected":
 c.ui.ShowConnectionRejected(msg.Token)
@@ -143,10 +152,15 @@ c.webrtc = &WebRTCState{
 peerToken: peerToken,
 isInitiator: true,
 }
-return c.SendMessage(Message{
+c.ui.LogDebug(fmt.Sprintf("Initiating connection to peer %s", peerToken))
+err := c.SendMessage(Message{
 Type:      "connect",
 PeerToken: peerToken,
 })
+if err != nil {
+c.ui.LogDebug(fmt.Sprintf("Error sending connect message: %v", err))
+}
+return err
 }
 
 func (c *Client) Accept(peerToken string) error {

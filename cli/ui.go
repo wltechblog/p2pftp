@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
@@ -49,11 +50,15 @@ ui.debugView.SetBorder(true).SetTitle("Debug Log")
 	ui.connectionBox.
 		AddInputField("Peer Token:", "", 20, nil, nil).
 		AddButton("Connect", func() {
-			token := ui.connectionBox.GetFormItem(0).(*tview.InputField).GetText()
-			if token != "" {
-				ui.client.Connect(token)
-				ui.Printf("Connecting to peer: %s...\n", token)
-			}
+token := ui.connectionBox.GetFormItem(0).(*tview.InputField).GetText()
+if token != "" {
+if err := ui.client.Connect(token); err != nil {
+ui.ShowError(fmt.Sprintf("Failed to connect: %v", err))
+} else {
+ui.Printf("Sending connection request to peer: %s...\n", token)
+}
+ui.connectionBox.GetFormItem(0).(*tview.InputField).SetText("")
+}
 		})
 	ui.connectionBox.SetBorder(true).SetTitle("Connect to Peer")
 
@@ -132,6 +137,7 @@ ui.Printf("Peer %s rejected the connection\n", peerToken)
 
 func (ui *UI) LogDebug(msg string) {
 ui.app.QueueUpdateDraw(func() {
-fmt.Fprintf(ui.debugView, "%s\n", msg)
+ts := time.Now().Format("15:04:05")
+fmt.Fprintf(ui.debugView, "[%s] %s\n", ts, msg)
 })
 }
