@@ -211,17 +211,10 @@ func (c *Client) setupPeerConnection() error {
 				c.disconnectPeer()
 				return
 			}
-offerObj := struct {
-    Type string `json:"type"`
-    SDP  string `json:"sdp"`
-}{
-    Type: "offer",
-    SDP:  offer.SDP,
-}
-
-offerJSON, err := json.Marshal(offerObj)
+// Match web client's double stringified SDP format for ICE restart
+sdp, err := json.Marshal(offer.SDP)
 if err != nil {
-    c.ui.ShowError(fmt.Sprintf("Failed to marshal ICE restart offer object: %v", err))
+    c.ui.ShowError(fmt.Sprintf("Failed to marshal ICE restart SDP: %v", err))
     c.disconnectPeer()
     return
 }
@@ -229,7 +222,7 @@ if err != nil {
 err = c.SendMessage(Message{
     Type:      "offer",
     PeerToken: c.webrtc.peerToken,
-    SDP:       string(offerJSON),
+    SDP:       string(sdp),
 })
 			if err != nil {
 				c.ui.ShowError(fmt.Sprintf("Failed to send ICE restart offer: %v", err))
@@ -562,24 +555,17 @@ func (c *Client) handleMessages() {
 				continue
 			}
 
-offerObj := struct {
-    Type string `json:"type"`
-    SDP  string `json:"sdp"`
-}{
-    Type: "offer",
-    SDP:  offer.SDP,
-}
-
-offerJSON, err := json.Marshal(offerObj)
+// Match web client's double stringified SDP format
+sdp, err := json.Marshal(offer.SDP)
 if err != nil {
-    c.ui.ShowError(fmt.Sprintf("Failed to marshal offer object: %v", err))
+    c.ui.ShowError(fmt.Sprintf("Failed to marshal SDP: %v", err))
     continue
 }
 
 err = c.SendMessage(Message{
     Type:      "offer",
     PeerToken: c.webrtc.peerToken,
-    SDP:       string(offerJSON),
+    SDP:       string(sdp),
 })
 			if err != nil {
 				c.ui.ShowError("Failed to send offer")
@@ -601,9 +587,15 @@ if err := json.Unmarshal([]byte(msg.SDP), &offerObj); err != nil {
     continue
 }
 
+var rawSDP string
+if err := json.Unmarshal([]byte(offerObj.SDP), &rawSDP); err != nil {
+    c.ui.ShowError(fmt.Sprintf("Failed to parse nested SDP: %v", err))
+    continue
+}
+
 offer := webrtc.SessionDescription{
     Type: webrtc.SDPTypeOffer,
-    SDP:  offerObj.SDP,
+    SDP:  rawSDP,
 }
 
 			err = c.webrtc.peerConn.SetRemoteDescription(offer)
@@ -624,24 +616,17 @@ offer := webrtc.SessionDescription{
 				continue
 			}
 
-answerObj := struct {
-    Type string `json:"type"`
-    SDP  string `json:"sdp"`
-}{
-    Type: "answer",
-    SDP:  answer.SDP,
-}
-
-answerJSON, err := json.Marshal(answerObj)
+// Match web client's double stringified SDP format
+sdp, err := json.Marshal(answer.SDP)
 if err != nil {
-    c.ui.ShowError(fmt.Sprintf("Failed to marshal answer object: %v", err))
+    c.ui.ShowError(fmt.Sprintf("Failed to marshal SDP: %v", err))
     continue
 }
 
 err = c.SendMessage(Message{
     Type:      "answer",
     PeerToken: c.webrtc.peerToken,
-    SDP:       string(answerJSON),
+    SDP:       string(sdp),
 })
 			if err != nil {
 				c.ui.ShowError("Failed to send answer")
@@ -658,9 +643,15 @@ if err := json.Unmarshal([]byte(msg.SDP), &answerObj); err != nil {
     continue
 }
 
+var rawSDP string
+if err := json.Unmarshal([]byte(answerObj.SDP), &rawSDP); err != nil {
+    c.ui.ShowError(fmt.Sprintf("Failed to parse nested SDP: %v", err))
+    continue
+}
+
 answer := webrtc.SessionDescription{
     Type: webrtc.SDPTypeAnswer,
-    SDP:  answerObj.SDP,
+    SDP:  rawSDP,
 }
 
 			err = c.webrtc.peerConn.SetRemoteDescription(answer)
