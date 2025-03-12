@@ -335,6 +335,7 @@ func (c *Client) handleFileInfo(info map[string]interface{}) {
 
     name, _ := fileInfo["name"].(string)
     size, _ := fileInfo["size"].(float64)
+    md5, _ := fileInfo["md5"].(string)
 
     filePath := filepath.Join(downloadDir, name)
     file, err := os.Create(filePath)
@@ -348,6 +349,7 @@ func (c *Client) handleFileInfo(info map[string]interface{}) {
         FileInfo: &FileInfo{
             Name: name,
             Size: int64(size),
+            MD5:  md5,
         },
         file:     file,
         filePath: filePath,
@@ -392,6 +394,7 @@ func (c *Client) handleFileComplete() {
         return
     }
 
+    // Write all chunks to file
     for i, chunk := range c.webrtc.chunks {
         if chunk == nil {
             c.ui.ShowError(fmt.Sprintf("Missing chunk %d/%d", i+1, len(c.webrtc.chunks)))
@@ -406,7 +409,24 @@ func (c *Client) handleFileComplete() {
         }
     }
 
+    // Close file before calculating MD5
     c.webrtc.fileTransfer.file.Close()
+
+    // Validate MD5 checksum if provided
+    if c.webrtc.fileTransfer.MD5 != "" {
+        c.ui.ShowFileTransfer("Validating file integrity...")
+        receivedMD5, err := calculateMD5(c.webrtc.fileTransfer.filePath)
+        if err != nil {
+            c.ui.ShowError(fmt.Sprintf("Failed to calculate MD5: %v", err))
+        } else if receivedMD5 != c.webrtc.fileTransfer.MD5 {
+            c.ui.ShowError("⚠️ File integrity check failed! The file may be corrupted.")
+            c.ui.ShowFileTransfer(fmt.Sprintf("MD5 mismatch - Expected: %s, Got: %s", 
+                c.webrtc.fileTransfer.MD5, receivedMD5))
+        } else {
+            c.ui.ShowFileTransfer(fmt.Sprintf("✓ File integrity verified (MD5: %s)", receivedMD5))
+        }
+    }
+
     c.ui.ShowFileTransfer(fmt.Sprintf("Saved file to: %s", c.webrtc.fileTransfer.filePath))
     c.webrtc.fileTransfer = nil
     c.webrtc.chunks = nil
