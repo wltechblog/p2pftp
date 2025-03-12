@@ -158,15 +158,25 @@ c.ui.ShowError(fmt.Sprintf("Failed to send ICE candidate: %v", err))
 })
 
 if c.webrtc.isInitiator {
-dataChannel, err := peerConn.CreateDataChannel("p2pftp", nil)
-if err != nil {
-return fmt.Errorf("failed to create data channel: %v", err)
-}
-c.setupDataChannel(dataChannel)
+    // Configure data channel for reliability with large files
+    dataChannelConfig := &webrtc.DataChannelInit{
+        Ordered:           new(bool),   // Guarantee order of messages
+        MaxRetransmits:    new(uint16), // Increased retransmits for reliability
+        MaxPacketLifeTime: new(uint16), // 3 seconds max packet lifetime
+    }
+    *dataChannelConfig.Ordered = true
+    *dataChannelConfig.MaxRetransmits = 10
+    *dataChannelConfig.MaxPacketLifeTime = 3000
+    
+    dataChannel, err := peerConn.CreateDataChannel("p2pftp", dataChannelConfig)
+    if err != nil {
+        return fmt.Errorf("failed to create data channel: %v", err)
+    }
+    c.setupDataChannel(dataChannel)
 } else {
-peerConn.OnDataChannel(func(channel *webrtc.DataChannel) {
-c.setupDataChannel(channel)
-})
+    peerConn.OnDataChannel(func(channel *webrtc.DataChannel) {
+        c.setupDataChannel(channel)
+    })
 }
 
 c.webrtc.peerConn = peerConn
@@ -211,8 +221,19 @@ channel.OnMessage(func(msg webrtc.DataChannelMessage) {
                     return
                 }
 
-                // Combine all chunks
-                allData := make([]byte, 0, c.webrtc.receivedSize)
+                // Combine all chunks with size verification
+                expectedSize := c.webrtc.fileInfo.Size
+                actualSize := c.webrtc.receivedSize
+                
+                if actualSize != expectedSize {
+                    c.ui.ShowError(fmt.Sprintf("File size mismatch: expected %d bytes, got %d bytes", 
+                        expectedSize, actualSize))
+                    c.ui.ShowFileTransfer(fmt.Sprintf("⚠️ Warning: Received file size (%d bytes) doesn't match expected size (%d bytes)", 
+                        actualSize, expectedSize))
+                }
+                
+                // Pre-allocate buffer with exact size to avoid memory issues
+                allData := make([]byte, 0, actualSize)
                 for _, chunk := range c.webrtc.receiveBuffer {
                     allData = append(allData, chunk...)
                 }
@@ -548,32 +569,40 @@ if err != nil {
 return fmt.Errorf("failed to send file info: %v", err)
 }
 
-// Send file in chunks
+// Send file in chunks with flow control
 buffer := make([]byte, maxChunkSize)
 totalSent := int64(0)
+lastProgressUpdate := time.Now()
 
 for {
-n, err := file.Read(buffer)
-if err == io.EOF {
-break
-}
-if err != nil {
-return fmt.Errorf("failed to read file: %v", err)
-}
+    n, err := file.Read(buffer)
+    if err == io.EOF {
+        break
+    }
+    if err != nil {
+        return fmt.Errorf("failed to read file: %v", err)
+    }
 
-// Send chunk as binary data
-err = c.webrtc.dataChannel.Send(buffer[:n])
-if err != nil {
-return fmt.Errorf("failed to send file chunk: %v", err)
-}
+    // Flow control: wait if the buffer is getting full
+    for c.webrtc.dataChannel.BufferedAmount() > maxChunkSize*8 {
+        time.Sleep(50 * time.Millisecond)
+    }
 
-totalSent += int64(n)
-percentage := int((float64(totalSent) / float64(fileSize)) * 100)
-c.ui.ShowFileTransfer(fmt.Sprintf("Sending %s (%d/%d bytes) - %d%%",
-fileInfo.Name(), totalSent, fileSize, percentage))
+    // Send chunk as binary data
+    err = c.webrtc.dataChannel.Send(buffer[:n])
+    if err != nil {
+        return fmt.Errorf("failed to send file chunk: %v", err)
+    }
 
-// Small delay to prevent overwhelming the channel
-time.Sleep(10 * time.Millisecond)
+    totalSent += int64(n)
+    
+    // Update progress less frequently for large files to avoid UI flooding
+    if time.Since(lastProgressUpdate) > 200*time.Millisecond {
+        percentage := int((float64(totalSent) / float64(fileSize)) * 100)
+        c.ui.ShowFileTransfer(fmt.Sprintf("Sending %s (%d/%d bytes) - %d%%",
+            fileInfo.Name(), totalSent, fileSize, percentage))
+        lastProgressUpdate = time.Now()
+    }
 }
 
 // Send file complete message

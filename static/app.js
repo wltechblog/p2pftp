@@ -295,10 +295,11 @@ function initiatePeerConnection(isInitiator) {
     console.debug('[WebRTC] Creating peer connection with config:', config);
     peerConnection = new RTCPeerConnection(config);
 
-    // Set common WebRTC options for consistency
+    // Set common WebRTC options for consistency and reliability
     const dataChannelConfig = {
-        ordered: true,
-        maxRetransmits: 3
+        ordered: true,          // Guarantee order of messages
+        maxRetransmits: 10,     // Increased retransmits for reliability
+        maxPacketLifeTime: 3000 // 3 seconds max packet lifetime
     };
 
     // Log RTCPeerConnection state changes
