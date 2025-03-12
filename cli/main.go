@@ -586,14 +586,23 @@ func (c *Client) handleMessages() {
                 continue
             }
 
-            var offer webrtc.SessionDescription
-            if err := json.Unmarshal([]byte(msg.SDP), &offer); err != nil {
-                c.ui.ShowError(fmt.Sprintf("Failed to parse offer: %v", err))
+            // Parse the double-wrapped SDP
+            var sdpObj struct {
+                Type string `json:"type"`
+                SDP  string `json:"sdp"`
+            }
+            if err := json.Unmarshal([]byte(msg.SDP), &sdpObj); err != nil {
+                c.ui.ShowError(fmt.Sprintf("Failed to parse SDP object: %v", err))
                 c.ui.LogDebug(fmt.Sprintf("Raw SDP: %s", msg.SDP))
                 continue
             }
 
-            c.ui.LogDebug(fmt.Sprintf("Received offer SDP: %s", offer.SDP))
+            offer := webrtc.SessionDescription{
+                Type: webrtc.SDPTypeOffer,
+                SDP:  sdpObj.SDP,
+            }
+
+            c.ui.LogDebug(fmt.Sprintf("Received offer SDP: %s", sdpObj.SDP))
             err = c.webrtc.peerConn.SetRemoteDescription(offer)
             if err != nil {
                 c.ui.ShowError(fmt.Sprintf("Failed to set remote description: %v", err))
@@ -638,14 +647,23 @@ func (c *Client) handleMessages() {
             }
 
         case "answer":
-            var answer webrtc.SessionDescription
-            if err := json.Unmarshal([]byte(msg.SDP), &answer); err != nil {
-                c.ui.ShowError(fmt.Sprintf("Failed to parse answer: %v", err))
+            // Parse the double-wrapped SDP
+            var sdpObj struct {
+                Type string `json:"type"`
+                SDP  string `json:"sdp"`
+            }
+            if err := json.Unmarshal([]byte(msg.SDP), &sdpObj); err != nil {
+                c.ui.ShowError(fmt.Sprintf("Failed to parse SDP object: %v", err))
                 c.ui.LogDebug(fmt.Sprintf("Raw SDP: %s", msg.SDP))
                 continue
             }
 
-            c.ui.LogDebug(fmt.Sprintf("Received answer SDP: %s", answer.SDP))
+            answer := webrtc.SessionDescription{
+                Type: webrtc.SDPTypeAnswer,
+                SDP:  sdpObj.SDP,
+            }
+
+            c.ui.LogDebug(fmt.Sprintf("Received answer SDP: %s", sdpObj.SDP))
             err = c.webrtc.peerConn.SetRemoteDescription(answer)
             if err != nil {
                 c.ui.ShowError(fmt.Sprintf("Failed to set remote description: %v", err))
