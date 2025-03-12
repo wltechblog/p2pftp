@@ -208,6 +208,16 @@ function initiatePeerConnection(isInitiator) {
         }
     };
 
+    // Monitor SCTP transport state
+    peerConnection.addEventListener('connectionstatechange', () => {
+        const sctp = peerConnection.sctp;
+        if (sctp) {
+            console.debug(`[WebRTC] SCTP transport state: ${sctp.state}`);
+            console.debug(`[WebRTC] SCTP max channels: ${sctp.maxChannels}`);
+            console.debug(`[WebRTC] SCTP max message size: ${sctp.maxMessageSize}`);
+        }
+    });
+
     // Create data channel before offer/answer exchange
     const ordered = true;
     const maxRetransmits = 30;
