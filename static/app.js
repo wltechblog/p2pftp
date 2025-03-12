@@ -519,16 +519,27 @@ function setupDataChannel(channel) {
                 if (messageObj.type === 'message') {
                     addPeerMessage(messageObj.content);
                 } else if (messageObj.type === 'file-info') {
-                    // Prepare to receive a file
-                    receiveBuffer = [];
+                    // Prepare to receive a file with ordered chunks
+                    receiveBuffer = new Array(Math.ceil(messageObj.info.size / CHUNK_SIZE)); // Pre-allocate array
                     receivedSize = 0;
                     fileReceiveInfo = messageObj.info;
                     
                     addSystemMessage(`Receiving file: ${fileReceiveInfo.name} (${formatBytes(fileReceiveInfo.size)})`);
                     updateStatus(`Receiving file...`);
-                } else if (messageObj.type === 'file-complete') {
-                    // File transfer is complete
-                    receiveFile();
+                } else if (messageObj.type === 'chunk') {
+                    // Store chunk at correct position
+                    receiveBuffer[messageObj.sequence] = new Uint8Array(messageObj.data);
+                    receivedSize += messageObj.data.byteLength;
+
+                    const percentage = Math.min(Math.floor((receivedSize / fileReceiveInfo.size) * 100), 100);
+                    progressBar.style.width = `${percentage}%`;
+                    transferPercentage.textContent = `${percentage}%`;
+                    transferStatus.textContent = `Receiving ${fileReceiveInfo.name} - Chunk ${messageObj.sequence + 1}/${messageObj.total}`;
+                    
+                    // Check if we received all chunks
+                    if (receivedSize >= fileReceiveInfo.size) {
+                        receiveFile();
+                    }
                 }
             } catch (e) {
                 // Not JSON, treat as a regular message
@@ -696,28 +707,40 @@ async function sendFile(file) {
     sendFileBtn.disabled = true;
     sendFileBtn.classList.add('opacity-50');
     
-    // Read and send file in chunks
+    // Read and send file in chunks with sequence numbers
     const reader = new FileReader();
     let offset = 0;
+    let sequence = 0;
+    const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
     
     reader.onload = function(event) {
         if (dataChannel.readyState === 'open') {
-            // Check if the channel's buffer is too full
+            // Flow control: wait for buffer to clear
             if (dataChannel.bufferedAmount > CHUNK_SIZE * 8) {
-                // Wait for buffer to clear before sending more data
                 setTimeout(() => {
                     reader.onload(event);
                 }, 100);
                 return;
             }
 
-            dataChannel.send(event.target.result);
+            // Send chunk with sequence number
+            const chunk = {
+                type: 'chunk',
+                sequence: sequence,
+                total: totalChunks,
+                data: event.target.result
+            };
+            
+            dataChannel.send(JSON.stringify(chunk));
+            sequence++;
             
             offset += event.target.result.byteLength;
             const percentage = Math.floor((offset / file.size) * 100);
             
+            // Update UI
             progressBar.style.width = `${percentage}%`;
             transferPercentage.textContent = `${percentage}%`;
+            transferStatus.textContent = `Sending ${file.name} - Chunk ${sequence}/${totalChunks}`;
             
     if (offset < file.size) {
         // More to send
@@ -761,8 +784,18 @@ async function sendFile(file) {
 
 // Complete file reception and show download link
 async function receiveFile() {
-    // Combine received buffer into a single Blob
-    const received = new Blob(receiveBuffer);
+    // Pre-allocate array for the complete file
+    const allData = new Uint8Array(fileReceiveInfo.size);
+    let offset = 0;
+    
+    // Copy chunks in order
+    for (const chunk of receiveBuffer) {
+        allData.set(chunk, offset);
+        offset += chunk.length;
+    }
+    
+    // Create blob from the complete array
+    const received = new Blob([allData]);
     
     // Validate MD5 checksum if provided
     if (fileReceiveInfo.md5) {
