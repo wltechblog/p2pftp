@@ -210,9 +210,12 @@ function initiatePeerConnection(isInitiator) {
 
     // Create data channel if initiator, or prepare to receive it
     if (isInitiator) {
-        const dataChannel = peerConnection.createDataChannel('p2pftp');
-        dataChannel.ordered = true;
-        dataChannel.maxRetransmits = 30;
+        const ordered = true;
+        const maxRetransmits = 30;
+        const dataChannel = peerConnection.createDataChannel('p2pftp', {
+            ordered,
+            maxRetransmits
+        });
         setupDataChannel(dataChannel);
         
         peerConnection.createOffer()
@@ -229,10 +232,7 @@ function initiatePeerConnection(isInitiator) {
             });
     } else {
         peerConnection.ondatachannel = (event) => {
-            const channel = event.channel;
-            channel.ordered = true;
-            channel.maxRetransmits = 30;
-            setupDataChannel(channel);
+            setupDataChannel(event.channel);
         };
     }
 }
