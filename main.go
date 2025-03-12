@@ -305,9 +305,15 @@ func serveStatic(w http.ResponseWriter, r *http.Request) {
 
 	// Set content type
 	ext := filepath.Ext(path)
-	contentType := mime.TypeByExtension(ext)
-	if contentType == "" {
-		contentType = "application/octet-stream"
+	var contentType string
+	switch ext {
+	case ".js":
+		contentType = "application/javascript"
+	default:
+		contentType = mime.TypeByExtension(ext)
+		if contentType == "" {
+			contentType = "application/octet-stream"
+		}
 	}
 	w.Header().Set("Content-Type", contentType)
 
