@@ -755,11 +755,12 @@ async function sendFile(file) {
                 return;
             }
 
-            // Send binary chunk directly, no JSON wrapping
-            dataChannel.send(event.target.result);
+            // Send binary chunk directly
+            const chunk = event.target.result;
+            dataChannel.send(chunk);
             sequence++;
             
-            const bytesSent = event.target.result.byteLength;
+            const bytesSent = chunk.byteLength;
             offset += bytesSent;
             const percentage = Math.floor((offset / file.size) * 100);
 
