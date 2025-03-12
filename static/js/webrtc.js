@@ -208,36 +208,26 @@ function initiatePeerConnection(isInitiator) {
         }
     };
 
-    // Wait for SCTP transport to be ready
-    const waitForSCTP = () => {
-        const sctp = peerConnection.sctp;
-        if (sctp) {
-            console.debug(`[WebRTC] SCTP transport state: ${sctp.state}`);
-            console.debug(`[WebRTC] SCTP max channels: ${sctp.maxChannels}`);
-            console.debug(`[WebRTC] SCTP max message size: ${sctp.maxMessageSize}`);
-            
-            // Create data channel once SCTP is available
-            const dataChannel = peerConnection.createDataChannel('p2pftp', {
-                negotiated: true,
-                id: 1
-            });
-            setupDataChannel(dataChannel);
-        } else {
-            console.debug('[WebRTC] Waiting for SCTP transport...');
-            setTimeout(waitForSCTP, 100);
-        }
-    };
-    waitForSCTP();
+    // Create data channel
+    const dataChannel = peerConnection.createDataChannel('p2pftp', {
+        negotiated: true,
+        id: 1
+    });
+    setupDataChannel(dataChannel);
     
     // Create offer if initiator
     if (isInitiator) {
         peerConnection.createOffer()
             .then(offer => peerConnection.setLocalDescription(offer))
             .then(() => {
+                const sdpObj = {
+                    type: peerConnection.localDescription.type,
+                    sdp: peerConnection.localDescription.sdp
+                };
                 sendSignalingMessage({
                     type: 'offer',
                     peerToken: peerToken,
-                    sdp: JSON.stringify(peerConnection.localDescription)
+                    sdp: JSON.stringify(sdpObj)
                 });
             })
             .catch(error => {
@@ -291,10 +281,14 @@ function handleOffer(message) {
         .then(() => peerConnection.createAnswer())
         .then(answer => peerConnection.setLocalDescription(answer))
         .then(() => {
+            const sdpObj = {
+                type: peerConnection.localDescription.type,
+                sdp: peerConnection.localDescription.sdp
+            };
             sendSignalingMessage({
                 type: 'answer',
                 peerToken: peerToken,
-                sdp: JSON.stringify(peerConnection.localDescription)
+                sdp: JSON.stringify(sdpObj)
             });
         })
         .catch(error => {
