@@ -208,28 +208,32 @@ function initiatePeerConnection(isInitiator) {
         }
     };
 
-    // Monitor SCTP transport state
-    peerConnection.addEventListener('connectionstatechange', () => {
+    // Wait for SCTP transport to be ready
+    const waitForSCTP = () => {
         const sctp = peerConnection.sctp;
         if (sctp) {
             console.debug(`[WebRTC] SCTP transport state: ${sctp.state}`);
             console.debug(`[WebRTC] SCTP max channels: ${sctp.maxChannels}`);
             console.debug(`[WebRTC] SCTP max message size: ${sctp.maxMessageSize}`);
+            
+            // Create data channel once SCTP is available
+            const ordered = true;
+            const maxRetransmits = 30;
+            const negotiated = true;
+            const id = 1;
+            const dataChannel = peerConnection.createDataChannel('p2pftp', {
+                ordered,
+                maxRetransmits,
+                negotiated,
+                id
+            });
+            setupDataChannel(dataChannel);
+        } else {
+            console.debug('[WebRTC] Waiting for SCTP transport...');
+            setTimeout(waitForSCTP, 100);
         }
-    });
-
-    // Create data channel before offer/answer exchange
-    const ordered = true;
-    const maxRetransmits = 30;
-    const negotiated = true;
-    const id = 1;
-    const dataChannel = peerConnection.createDataChannel('p2pftp', {
-        ordered,
-        maxRetransmits,
-        negotiated,
-        id
-    });
-    setupDataChannel(dataChannel);
+    };
+    waitForSCTP();
     
     // Create offer if initiator
     if (isInitiator) {
