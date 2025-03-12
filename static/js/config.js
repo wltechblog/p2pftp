@@ -34,5 +34,6 @@ export const DATA_CHANNEL_CONFIG = {
     ordered: true,        // Guarantee order of messages
     maxRetransmits: 30,   // Increased retransmits for better reliability
     negotiated: true,     // Match CLI's negotiated channel
-    id: 1                 // Use same ID as CLI
+    id: 1,               // Use same ID as CLI
+    protocol: "p2pftp"   // Match CLI's protocol
 };
