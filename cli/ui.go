@@ -129,7 +129,7 @@ func NewUI(client *Client) *UI {
     ui.inputField = inputField
 
     // Set up tab completion for file paths
-    ui.inputField.SetAutocompleteFunc(ui.fileAutocomplete)
+    ui.inputField.SetAutocompleteFunc(ui.FileAutocomplete)
 
     // Set up input handling with history
     ui.inputField.SetDoneFunc(func(key tcell.Key) {
@@ -141,7 +141,7 @@ func NewUI(client *Client) *UI {
             }
         }
         historyIndex = -1
-        ui.handleInput(key)
+        ui.HandleInput(key)
     })
 
     // Create layout with resizable panels
@@ -171,7 +171,7 @@ func NewUI(client *Client) *UI {
     return ui
 }
 
-func (ui *UI) fileAutocomplete(currentText string) []string {
+func (ui *UI) FileAutocomplete(currentText string) []string {
     if !strings.HasPrefix(currentText, "/send ") {
         return nil
     }
@@ -204,7 +204,7 @@ func (ui *UI) fileAutocomplete(currentText string) []string {
     return matches
 }
 
-func (ui *UI) handleInput(key tcell.Key) {
+func (ui *UI) HandleInput(key tcell.Key) {
     text := ui.inputField.GetText()
     if text == "" {
         return
@@ -216,9 +216,16 @@ func (ui *UI) handleInput(key tcell.Key) {
     // Handle input
     text = strings.TrimSpace(text)
     if !strings.HasPrefix(text, "/") {
+        // Show sent message first
+        ui.ShowChat(ui.token, text)
+        
+        // Send to peer
         if err := ui.client.SendChat(text); err != nil {
             ui.ShowError(fmt.Sprintf("Error sending message: %v", err))
         }
+
+        // Ensure input remains focused
+        ui.app.SetFocus(ui.inputField)
         return
     }
 
@@ -237,8 +244,9 @@ func (ui *UI) handleInput(key tcell.Key) {
         if ui.token == "" {
             ui.ShowError("Token not yet received. Please wait...")
         } else {
-            ui.appendChat(fmt.Sprintf("Your token: %s", ui.token))
+            ui.AppendChat(fmt.Sprintf("[::b]Your token[white] (click to copy):\n[blue]%s[::-]", ui.token))
         }
+        ui.app.SetFocus(ui.inputField)
 
     case "/connect":
         if len(parts) != 2 {
@@ -249,6 +257,7 @@ func (ui *UI) handleInput(key tcell.Key) {
             if err := ui.client.Connect(parts[1]); err != nil {
                 ui.ShowError(fmt.Sprintf("Error connecting: %v", err))
             }
+            ui.app.SetFocus(ui.inputField)
         }
 
     case "/accept":
@@ -270,6 +279,7 @@ func (ui *UI) handleInput(key tcell.Key) {
             } else {
                 ui.lastRequest = ""
             }
+            ui.app.SetFocus(ui.inputField)
         }
 
     case "/reject":
@@ -291,6 +301,7 @@ func (ui *UI) handleInput(key tcell.Key) {
             } else {
                 ui.lastRequest = ""
             }
+            ui.app.SetFocus(ui.inputField)
         }
 
     case "/send":
@@ -300,7 +311,10 @@ func (ui *UI) handleInput(key tcell.Key) {
         }
         if err := ui.client.SendFile(parts[1]); err != nil {
             ui.ShowError(fmt.Sprintf("Error sending file: %v", err))
+        } else {
+            ui.ShowFileTransfer("[blue]✓ File sent successfully[white]")
         }
+        ui.app.SetFocus(ui.inputField)
 
     default:
         ui.ShowError(fmt.Sprintf("Unknown command: %s", cmd))
@@ -353,7 +367,7 @@ func (ui *UI) SetToken(token string) {
                             if err := copyToClipboard(token); err != nil {
                                 ui.ShowError(fmt.Sprintf("Failed to copy token: %v", err))
                             } else {
-                                ui.appendChat("[green]Token copied to clipboard![white]")
+                                ui.AppendChat("[green]Token copied to clipboard![white]")
                             }
                         }()
                         return action, nil
@@ -377,20 +391,23 @@ func (ui *UI) SetToken(token string) {
         return action, event
     })
 
-    ui.appendChat(tokenMsg)
+    ui.AppendChat(tokenMsg)
 }
 
 func (ui *UI) ShowConnectionRequest(token string) {
     ui.lastRequest = token
-    ui.appendChat(fmt.Sprintf("Connection request from: %s (use /accept to accept)", token))
+    ui.AppendChat("[yellow]Peer[white] wants to connect (use [blue]/accept[white] to connect)")
+    ui.app.SetFocus(ui.inputField)
 }
 
 func (ui *UI) ShowConnectionAccepted(msg string) {
-    ui.appendChat(msg)
+    ui.AppendChat("[green]✓ Connected to Peer[white]")
+    ui.app.SetFocus(ui.inputField)
 }
 
 func (ui *UI) ShowConnectionRejected(token string) {
-    ui.appendChat(fmt.Sprintf("Connection rejected by %s", token))
+    ui.AppendChat("[red]× Connection rejected by Peer[white]")
+    ui.app.SetFocus(ui.inputField)
 }
 
 func (ui *UI) ShowError(msg string) {
@@ -410,7 +427,11 @@ func (ui *UI) LogDebug(msg string) {
 }
 
 func (ui *UI) ShowChat(from string, msg string) {
-    ui.appendChat(fmt.Sprintf("[yellow]%s[white] %s", from, msg))
+    if from == ui.token {
+        ui.AppendChat(fmt.Sprintf("[yellow]You[white] %s", msg))
+    } else {
+        ui.AppendChat(fmt.Sprintf("[yellow]Peer[white] %s", msg))
+    }
 }
 
 func (ui *UI) ShowFileTransfer(msg string) {
@@ -421,7 +442,7 @@ func (ui *UI) ShowFileTransfer(msg string) {
     })
 }
 
-func (ui *UI) appendChat(msg string) {
+func (ui *UI) AppendChat(msg string) {
     ui.app.QueueUpdateDraw(func() {
         timestamp := time.Now().Format("15:04:05")
         fmt.Fprintf(ui.chatView, "[gray]%s[white] %s\n", timestamp, msg)
