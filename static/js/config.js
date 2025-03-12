@@ -33,6 +33,6 @@ export const RTC_CONFIG = {
 export const DATA_CHANNEL_CONFIG = {
     ordered: true,        // Guarantee order of messages
     maxRetransmits: 30,   // Increased retransmits for better reliability
-    negotiated: false,    // Let WebRTC handle the negotiation
-    id: 0                 // Use default data channel ID
+    negotiated: true,     // Match CLI's negotiated channel
+    id: 1                 // Use same ID as CLI
 };
