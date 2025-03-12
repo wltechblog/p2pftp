@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -54,6 +55,8 @@ type WebRTCState struct {
 	receivedSize  int64
 	fileTransfer  *FileTransfer
 	startTime     time.Time // Added for tracking transfer start time
+	chunks       [][]byte   // Buffer for receiving file chunks in order
+	totalChunks  int       // Total number of expected chunks
 }
 
 type Client struct {
@@ -379,7 +382,10 @@ func (c *Client) setupDataChannel(channel *webrtc.DataChannel) {
 						return
 					}
 
-					// Initialize file transfer state
+					// Initialize file transfer state with pre-allocated chunk buffer
+					totalChunks := int(math.Ceil(float64(dataMsg.Info.Size) / float64(maxChunkSize)))
+					c.webrtc.chunks = make([][]byte, totalChunks)
+					c.webrtc.totalChunks = totalChunks
 					c.webrtc.fileTransfer = &FileTransfer{
 						FileInfo: &dataMsg.Info,
 						file:     file,
@@ -387,6 +393,8 @@ func (c *Client) setupDataChannel(channel *webrtc.DataChannel) {
 					}
 					c.webrtc.receivedSize = 0
 					c.webrtc.startTime = time.Now()
+					
+					c.ui.LogDebug(fmt.Sprintf("Prepared to receive %d chunks", totalChunks))
 
 					c.ui.ShowFileTransfer(fmt.Sprintf("Receiving file: %s (0/%d bytes)", dataMsg.Info.Name, dataMsg.Info.Size))
 
@@ -442,7 +450,24 @@ func (c *Client) setupDataChannel(channel *webrtc.DataChannel) {
 				return
 			}
 
-			// Write chunk directly to file
+			// Ensure data channel is still open
+			if c.webrtc.dataChannel.ReadyState() != webrtc.DataChannelStateOpen {
+				c.ui.ShowError("Data channel closed during transfer")
+				return
+			}
+
+			// Calculate chunk index based on received size
+			chunkIndex := int(c.webrtc.receivedSize / int64(maxChunkSize))
+			if chunkIndex >= c.webrtc.totalChunks {
+				c.ui.ShowError("Received more chunks than expected")
+				return
+			}
+
+			// Store chunk in buffer
+			c.webrtc.chunks[chunkIndex] = make([]byte, len(msg.Data))
+			copy(c.webrtc.chunks[chunkIndex], msg.Data)
+
+			// Write chunk to file
 			n, err := c.webrtc.fileTransfer.file.Write(msg.Data)
 			if err != nil {
 				c.ui.ShowError(fmt.Sprintf("Failed to write chunk: %v", err))
