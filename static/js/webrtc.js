@@ -217,16 +217,7 @@ function initiatePeerConnection(isInitiator) {
             console.debug(`[WebRTC] SCTP max message size: ${sctp.maxMessageSize}`);
             
             // Create data channel once SCTP is available
-            const ordered = true;
-            const maxRetransmits = 30;
-            const negotiated = true;
-            const id = 1;
-            const dataChannel = peerConnection.createDataChannel('p2pftp', {
-                ordered,
-                maxRetransmits,
-                negotiated,
-                id
-            });
+            const dataChannel = peerConnection.createDataChannel('p2pftp');
             setupDataChannel(dataChannel);
         } else {
             console.debug('[WebRTC] Waiting for SCTP transport...');
@@ -282,12 +273,10 @@ function setupDataChannel(channel) {
         ui.addSystemMessage(`Data channel error: ${error}`);
     };
     
-    // Initialize file transfer and set up message handling
+    // Set up message handling through file transfer module
     import('/static/js/filetransfer.js').then(module => {
         module.init();
-        dataChannel.onmessage = (event) => {
-            window.dispatchEvent(new CustomEvent('datachannel-message', { detail: event }));
-        };
+        dataChannel.onmessage = module.handleDataChannelMessage;
     });
 }
 

@@ -132,7 +132,6 @@ export async function sendFile(file) {
     
     // Read and send file in chunks
     const reader = new FileReader();
-    const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
     
     reader.onload = function(event) {
         if (dataChannel.readyState === 'open') {
