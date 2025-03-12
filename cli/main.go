@@ -343,6 +343,7 @@ func (c *Client) handleFileInfo(info map[string]interface{}) {
         return
     }
 
+    totalChunks := int(math.Ceil(float64(size) / float64(maxChunkSize)))
     c.webrtc.fileTransfer = &FileTransfer{
         FileInfo: &FileInfo{
             Name: name,
@@ -352,7 +353,8 @@ func (c *Client) handleFileInfo(info map[string]interface{}) {
         filePath: filePath,
     }
     c.webrtc.receivedSize = 0
-    c.webrtc.chunks = make([][]byte, int(math.Ceil(float64(size)/float64(maxChunkSize))))
+    c.webrtc.chunks = make([][]byte, totalChunks)
+    c.ui.ShowFileTransfer(fmt.Sprintf("Receiving %s (0/%d bytes) - 0%%", name, int64(size)))
 }
 
 func (c *Client) handleBinaryData(data []byte) {
