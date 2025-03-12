@@ -47,6 +47,7 @@ dataChannel  *webrtc.DataChannel
 receiveBuffer [][]byte
 receivedSize int64
 fileInfo     *FileInfo
+startTime    time.Time // Added for tracking transfer start time
 }
 
 type Client struct {
@@ -207,11 +208,12 @@ channel.OnMessage(func(msg webrtc.DataChannelMessage) {
             case "message":
                 c.ui.ShowChat(c.webrtc.peerToken, dataMsg.Content)
 
-            case "file-info":
-                c.webrtc.fileInfo = &dataMsg.Info
-                c.webrtc.receiveBuffer = make([][]byte, 0)
-                c.webrtc.receivedSize = 0
-                c.ui.ShowFileTransfer(fmt.Sprintf("Receiving file: %s (0/%d bytes)", dataMsg.Info.Name, dataMsg.Info.Size))
+case "file-info":
+c.webrtc.fileInfo = &dataMsg.Info
+c.webrtc.receiveBuffer = make([][]byte, 0)
+c.webrtc.receivedSize = 0
+c.webrtc.startTime = time.Now() // Initialize start time
+c.ui.ShowFileTransfer(fmt.Sprintf("Receiving file: %s (0/%d bytes)", dataMsg.Info.Name, dataMsg.Info.Size))
 
             case "file-complete":
                 if c.webrtc.fileInfo == nil {
@@ -289,12 +291,17 @@ channel.OnMessage(func(msg webrtc.DataChannelMessage) {
         c.webrtc.receivedSize += int64(len(data))
 
         // Show progress
-        percentage := int((float64(c.webrtc.receivedSize) / float64(c.webrtc.fileInfo.Size)) * 100)
-        c.ui.ShowFileTransfer(fmt.Sprintf("Receiving %s (%d/%d bytes) - %d%%",
-            c.webrtc.fileInfo.Name,
-            c.webrtc.receivedSize,
-            c.webrtc.fileInfo.Size,
-            percentage))
+percentage := int((float64(c.webrtc.receivedSize) / float64(c.webrtc.fileInfo.Size)) * 100)
+elapsed := time.Since(c.webrtc.startTime)
+rate := float64(c.webrtc.receivedSize) / elapsed.Seconds()
+rateKB := rate / 1024
+rateStr := fmt.Sprintf("%.1f KB/s", rateKB)
+c.ui.ShowFileTransfer(fmt.Sprintf("Receiving %s (%d/%d bytes) - %d%% (%s)",
+    c.webrtc.fileInfo.Name,
+    c.webrtc.receivedSize,
+    c.webrtc.fileInfo.Size,
+    percentage,
+    rateStr))
     }
 })
 }
