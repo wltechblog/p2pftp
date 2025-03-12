@@ -132,20 +132,88 @@ func main() {
 }
 
 func (c *Client) setupPeerConnection() error {
+	// Use multiple STUN servers and public TURN servers for better NAT traversal
 	config := webrtc.Configuration{
 		ICEServers: []webrtc.ICEServer{
+			// Primary STUN servers
 			{
-				URLs: []string{"stun:stun.l.google.com:19302"},
+				URLs: []string{
+					"stun:stun.l.google.com:19302",
+					"stun:stun1.l.google.com:19302",
+				},
+			},
+			// Public TURN servers for NAT traversal with TCP fallback
+			{
+				URLs: []string{
+					"turn:openrelay.metered.ca:80",
+					"turn:openrelay.metered.ca:443",
+					"turn:openrelay.metered.ca:443?transport=tcp",
+				},
+				Username:   "openrelayproject",
+				Credential: "openrelayproject",
 			},
 		},
+		ICETransportPolicy:    webrtc.ICETransportPolicyAll,
+		BundlePolicy:          webrtc.BundlePolicyMaxBundle,
+		ICECandidatePoolSize:  2,
 	}
+
+	c.ui.LogDebug("Setting up WebRTC with enhanced ICE configuration")
 
 	peerConn, err := webrtc.NewPeerConnection(config)
 	if err != nil {
 		return fmt.Errorf("failed to create peer connection: %v", err)
 	}
 
+	// Monitor connection state changes
+	peerConn.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {
+		c.ui.LogDebug(fmt.Sprintf("WebRTC connection state changed to: %s", state))
+		if state == webrtc.PeerConnectionStateFailed {
+			c.ui.ShowError("WebRTC connection failed - try reconnecting")
+			c.disconnectPeer()
+		}
+	})
+
+	// Monitor ICE connection state
+	peerConn.OnICEConnectionStateChange(func(state webrtc.ICEConnectionState) {
+		c.ui.LogDebug(fmt.Sprintf("ICE connection state changed to: %s", state))
+		if state == webrtc.ICEConnectionStateFailed {
+			c.ui.ShowError("ICE connection failed - try reconnecting")
+			// Create new offer to restart ICE
+			offer, err := peerConn.CreateOffer(&webrtc.OfferOptions{
+				ICERestart: true,
+			})
+			if err != nil {
+				c.ui.ShowError(fmt.Sprintf("Failed to create ICE restart offer: %v", err))
+				c.disconnectPeer()
+				return
+			}
+			err = peerConn.SetLocalDescription(offer)
+			if err != nil {
+				c.ui.ShowError(fmt.Sprintf("Failed to set local description for ICE restart: %v", err))
+				c.disconnectPeer()
+				return
+			}
+			err = c.SendMessage(Message{
+				Type:      "offer",
+				PeerToken: c.webrtc.peerToken,
+				SDP:       string(offer.SDP),
+			})
+			if err != nil {
+				c.ui.ShowError(fmt.Sprintf("Failed to send ICE restart offer: %v", err))
+				c.disconnectPeer()
+			}
+		}
+	})
+
+	// Monitor ICE gathering state
+	peerConn.OnICEGatheringStateChange(func(state webrtc.ICEGathererState) {
+		c.ui.LogDebug(fmt.Sprintf("ICE gathering state changed to: %s", state))
+	})
+
+	// Send ICE candidates to peer
 	peerConn.OnICECandidate(func(candidate *webrtc.ICECandidate) {
+		c.ui.LogDebug("Got ICE candidate")
 		if candidate != nil {
 			candidateJSON, err := json.Marshal(candidate.ToJSON())
 			if err != nil {
@@ -480,6 +548,7 @@ func (c *Client) disconnectPeer() {
 	c.webrtc = &WebRTCState{}
 }
 
+// SendMessage sends a message through the WebSocket connection
 func (c *Client) SendMessage(msg Message) error {
 	err := c.conn.WriteJSON(msg)
 	if err != nil {
@@ -489,6 +558,7 @@ func (c *Client) SendMessage(msg Message) error {
 	return nil
 }
 
+// Connect initiates a connection to a peer
 func (c *Client) Connect(peerToken string) error {
 	if c.webrtc.connected {
 		return fmt.Errorf("already connected to a peer")
@@ -500,6 +570,7 @@ func (c *Client) Connect(peerToken string) error {
 	return c.SendMessage(Message{Type: "connect", PeerToken: peerToken})
 }
 
+// Accept accepts a connection request from a peer
 func (c *Client) Accept(peerToken string) error {
 	if c.webrtc.connected {
 		return fmt.Errorf("already connected to a peer")
@@ -508,6 +579,7 @@ func (c *Client) Accept(peerToken string) error {
 	return c.SendMessage(Message{Type: "accept", PeerToken: peerToken})
 }
 
+// Reject rejects a connection request from a peer
 func (c *Client) Reject(peerToken string) error {
 	if c.webrtc.connected {
 		c.disconnectPeer()
@@ -515,6 +587,7 @@ func (c *Client) Reject(peerToken string) error {
 	return c.SendMessage(Message{Type: "reject", PeerToken: peerToken})
 }
 
+// SendChat sends a chat message to the connected peer
 func (c *Client) SendChat(text string) error {
 	if !c.webrtc.connected || c.webrtc.dataChannel == nil {
 		return fmt.Errorf("not connected to peer")
@@ -540,6 +613,7 @@ func (c *Client) SendChat(text string) error {
 	return nil
 }
 
+// SendFile sends a file to the connected peer
 func (c *Client) SendFile(filePath string) error {
 	if !c.webrtc.connected || c.webrtc.dataChannel == nil {
 		return fmt.Errorf("not connected to peer")
