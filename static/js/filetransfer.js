@@ -132,13 +132,12 @@ export async function sendFile(file) {
     
     // Read and send file in chunks
     const reader = new FileReader();
-    let sequence = 0;
     const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
     
     reader.onload = function(event) {
         if (dataChannel.readyState === 'open') {
-            // Send chunk with sequence number
-            const chunk = new Uint8Array(event.target.result);
+            // Send binary chunk with flow control
+            const chunk = event.target.result;
             const maxBufferSize = CHUNK_SIZE * 8;
 
             // If buffer is getting full, wait for it to clear
@@ -149,14 +148,7 @@ export async function sendFile(file) {
                         return;
                     }
                     try {
-                        // Send chunk info as JSON
-                        dataChannel.send(JSON.stringify({
-                            type: 'chunk',
-                            sequence: sequence,
-                            total: totalChunks,
-                            data: Array.from(chunk) // Convert Uint8Array to regular array for JSON
-                        }));
-                        sequence++;
+                        dataChannel.send(chunk);
                         const bytesSent = chunk.byteLength;
                         currentOffset += bytesSent;
                         updateProgress();
@@ -177,14 +169,7 @@ export async function sendFile(file) {
 
             // Buffer is clear enough, send immediately
             try {
-                // Send chunk info as JSON
-                dataChannel.send(JSON.stringify({
-                    type: 'chunk',
-                    sequence: sequence,
-                    total: totalChunks,
-                    data: Array.from(chunk) // Convert Uint8Array to regular array for JSON
-                }));
-                sequence++;
+                dataChannel.send(chunk);
             } catch (error) {
                 ui.addSystemMessage(`Error sending chunk: ${error}`);
                 ui.hideTransferProgress();
