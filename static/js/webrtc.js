@@ -242,8 +242,13 @@ function initiatePeerConnection(isInitiator) {
 function setupDataChannel(channel) {
     dataChannel = channel;
     
+    console.debug(`[WebRTC] Setting up data channel (ID: ${channel.id}, Label: ${channel.label})`);
+    console.debug(`[WebRTC] Channel config - Ordered: ${channel.ordered}, MaxRetransmits: ${channel.maxRetransmits}`);
+    console.debug(`[WebRTC] Channel negotiated: ${channel.negotiated}, Protocol: ${channel.protocol}`);
+
     dataChannel.onopen = () => {
         isConnecting = false;
+        console.debug(`[WebRTC] Data channel opened (State: ${channel.readyState})`);
         ui.addSystemMessage('Peer connection established');
         ui.updateConnectionStatus('Connected to peer');
         ui.showChatAndFileInterface();
@@ -251,6 +256,7 @@ function setupDataChannel(channel) {
     };
     
     dataChannel.onclose = () => {
+        console.debug(`[WebRTC] Data channel closed (Last state: ${channel.readyState})`);
         ui.addSystemMessage('Peer connection closed');
         ui.updateConnectionStatus('Disconnected from peer');
         ui.hideChatAndFileInterface();
@@ -258,6 +264,7 @@ function setupDataChannel(channel) {
     };
     
     dataChannel.onerror = (error) => {
+        console.error(`[WebRTC] Data channel error:`, error);
         ui.addSystemMessage(`Data channel error: ${error}`);
     };
     
