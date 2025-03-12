@@ -154,14 +154,14 @@ export async function sendFile(file) {
                         setTimeout(waitAndSend, 100);
                         return;
                     }
-                    sendChunk(chunk);
+                    sendChunk(chunk, readSlice);
                 };
                 setTimeout(waitAndSend, 100);
                 return;
             }
 
             // Buffer is clear enough, send immediately
-            sendChunk(chunk);
+            sendChunk(chunk, readSlice);
         }
     };
     
@@ -180,7 +180,7 @@ export async function sendFile(file) {
 }
 
 // Send a chunk with metadata
-function sendChunk(chunk) {
+function sendChunk(chunk, readSlice) {
     const dataChannel = getDataChannel();
     if (!dataChannel || dataChannel.readyState !== 'open') return;
 
