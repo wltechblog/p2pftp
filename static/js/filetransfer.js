@@ -43,17 +43,12 @@ export function handleDataChannelMessage(event) {
                 ui.updateConnectionStatus(`Receiving file...`);
                 ui.updateTransferProgress(0, `Receiving ${fileReceiveInfo.name}`);
             } else if (messageObj.type === 'chunk') {
-                // Store chunk at correct position
-                receiveBuffer[messageObj.sequence] = new Uint8Array(messageObj.data);
-                receivedSize += messageObj.data.byteLength;
-
-                const percentage = Math.min(Math.floor((receivedSize / fileReceiveInfo.size) * 100), 100);
-                ui.updateTransferProgress(percentage, `Receiving ${fileReceiveInfo.name} - Chunk ${messageObj.sequence + 1}/${messageObj.total}`);
-                
-                // Check if we received all chunks
-                if (receivedSize >= fileReceiveInfo.size) {
-                    receiveFile();
-                }
+                // Store metadata for next binary chunk
+                fileReceiveInfo.currentChunk = {
+                    sequence: messageObj.sequence,
+                    total: messageObj.total,
+                    size: messageObj.size
+                };
             }
         } catch (e) {
             // Not JSON, treat as a regular message
@@ -61,13 +56,22 @@ export function handleDataChannelMessage(event) {
         }
     } else {
         // Handle binary chunk
-        if (!fileReceiveInfo) {
-            console.error('[WebRTC] Received binary data without file info');
+        if (!fileReceiveInfo || !fileReceiveInfo.currentChunk) {
+            console.error('[WebRTC] Received binary data without chunk info');
             return;
         }
 
         const chunk = new Uint8Array(event.data);
-        receiveBuffer.push(chunk);
+        const { sequence, total, size } = fileReceiveInfo.currentChunk;
+        
+        // Verify chunk size
+        if (chunk.byteLength !== size) {
+            console.error(`[WebRTC] Chunk size mismatch. Expected: ${size}, Got: ${chunk.byteLength}`);
+            return;
+        }
+
+        // Store chunk at correct position
+        receiveBuffer[sequence] = chunk;
         receivedSize += chunk.byteLength;
 
         // Progress and transfer rate tracking
@@ -78,11 +82,17 @@ export function handleDataChannelMessage(event) {
             bytesPerSecond = bytesPerSecond * (1 - BYTES_PER_SEC_SMOOTHING) + instantRate * BYTES_PER_SEC_SMOOTHING;
 
             const percentage = Math.min(Math.floor((receivedSize / fileReceiveInfo.size) * 100), 100);
-            ui.updateTransferProgress(percentage, `Receiving ${fileReceiveInfo.name} - ${formatBytes(bytesPerSecond)}/s`);
+            ui.updateTransferProgress(percentage, `Receiving ${fileReceiveInfo.name} - Chunk ${sequence + 1}/${total} - ${formatBytes(bytesPerSecond)}/s`);
 
             console.debug(`[WebRTC] Transfer rate: ${formatBytes(bytesPerSecond)}/s`);
             lastProgressUpdate = now;
+        } else {
+            const percentage = Math.min(Math.floor((receivedSize / fileReceiveInfo.size) * 100), 100);
+            ui.updateTransferProgress(percentage, `Receiving ${fileReceiveInfo.name} - Chunk ${sequence + 1}/${total}`);
         }
+
+        // Clear chunk info
+        delete fileReceiveInfo.currentChunk;
 
         // Check if transfer is complete
         if (receivedSize >= fileReceiveInfo.size) {
@@ -134,52 +144,31 @@ export async function sendFile(file) {
     
     reader.onload = function(event) {
         if (dataChannel.readyState === 'open') {
-            // Send binary chunk with flow control
             const chunk = event.target.result;
-            const maxBufferSize = CHUNK_SIZE * 8;
-
-            // If buffer is getting full, wait for it to clear
-            if (dataChannel.bufferedAmount > maxBufferSize) {
-                const waitAndSend = () => {
-                    if (dataChannel.bufferedAmount > maxBufferSize) {
-                        setTimeout(waitAndSend, 100);
-                        return;
-                    }
-                    try {
-                        dataChannel.send(chunk);
-                        const bytesSent = chunk.byteLength;
-                        currentOffset += bytesSent;
-                        updateProgress();
-                        
-                        if (currentOffset < file.size) {
-                            readSlice(currentOffset);
-                        } else {
-                            finishTransfer();
-                        }
-                    } catch (error) {
-                        ui.addSystemMessage(`Error sending chunk: ${error}`);
-                        ui.hideTransferProgress();
-                    }
-                };
-                setTimeout(waitAndSend, 100);
-                return;
-            }
-
-            // Buffer is clear enough, send immediately
-            try {
-                dataChannel.send(chunk);
-            } catch (error) {
-                ui.addSystemMessage(`Error sending chunk: ${error}`);
-                ui.hideTransferProgress();
-                return;
-            }
+            const chunkIndex = Math.floor(currentOffset / CHUNK_SIZE);
+            const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
             
-            const bytesSent = chunk.byteLength;
-            currentOffset += bytesSent;
+            // Send chunk metadata first
+            dataChannel.send(JSON.stringify({
+                type: 'chunk',
+                sequence: chunkIndex,
+                total: totalChunks,
+                size: chunk.byteLength
+            }));
+
+            // Then send the binary chunk
+            dataChannel.send(chunk);
+
+            currentOffset += chunk.byteLength;
             updateProgress();
             
+            // Flow control
             if (currentOffset < file.size) {
-                readSlice(currentOffset);
+                if (dataChannel.bufferedAmount > CHUNK_SIZE * 8) {
+                    setTimeout(() => readSlice(currentOffset), 100);
+                } else {
+                    readSlice(currentOffset);
+                }
             } else {
                 finishTransfer();
             }
