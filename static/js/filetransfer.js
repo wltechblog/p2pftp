@@ -9,6 +9,7 @@ let receivedSize = 0;
 let fileReceiveInfo = null;
 let transferStartTime = 0;
 let lastProgressUpdate = 0;
+let lastOffset = 0;
 let bytesPerSecond = 0;
 
 // Initialize file transfer functionality
@@ -120,6 +121,7 @@ export async function sendFile(file) {
     // Initialize transfer state and show progress UI
     transferStartTime = Date.now();
     lastProgressUpdate = transferStartTime;
+    lastOffset = 0;
     bytesPerSecond = 0;
     ui.updateTransferProgress(0, `Sending ${file.name}`);
     
@@ -131,52 +133,56 @@ export async function sendFile(file) {
     
     reader.onload = function(event) {
         if (dataChannel.readyState === 'open') {
-            // Flow control: wait for buffer to clear
-            if (dataChannel.bufferedAmount > CHUNK_SIZE * 8) {
-                setTimeout(() => {
-                    reader.onload(event);
-                }, 100);
+            // Send binary chunk with flow control
+            const chunk = event.target.result;
+            const maxBufferSize = CHUNK_SIZE * 8;
+
+            // If buffer is getting full, wait for it to clear
+            if (dataChannel.bufferedAmount > maxBufferSize) {
+                const waitAndSend = () => {
+                    if (dataChannel.bufferedAmount > maxBufferSize) {
+                        setTimeout(waitAndSend, 100);
+                        return;
+                    }
+                    try {
+                        dataChannel.send(chunk);
+                        sequence++;
+                        const bytesSent = chunk.byteLength;
+                        offset += bytesSent;
+                        updateProgress();
+                        
+                        if (offset < file.size) {
+                            readSlice(offset);
+                        } else {
+                            finishTransfer();
+                        }
+                    } catch (error) {
+                        ui.addSystemMessage(`Error sending chunk: ${error}`);
+                        ui.hideTransferProgress();
+                    }
+                };
+                setTimeout(waitAndSend, 100);
                 return;
             }
 
-            // Send binary chunk directly
-            const chunk = event.target.result;
-            dataChannel.send(chunk);
-            sequence++;
+            // Buffer is clear enough, send immediately
+            try {
+                dataChannel.send(chunk);
+                sequence++;
+            } catch (error) {
+                ui.addSystemMessage(`Error sending chunk: ${error}`);
+                ui.hideTransferProgress();
+                return;
+            }
             
             const bytesSent = chunk.byteLength;
             offset += bytesSent;
-            const percentage = Math.floor((offset / file.size) * 100);
-
-            // Update progress and transfer rate
-            const now = Date.now();
-            if (now - lastProgressUpdate >= PROGRESS_UPDATE_INTERVAL) {
-                const instantRate = bytesSent / (now - lastProgressUpdate) * 1000; // bytes per second
-                bytesPerSecond = bytesPerSecond * (1 - BYTES_PER_SEC_SMOOTHING) + instantRate * BYTES_PER_SEC_SMOOTHING;
-
-                ui.updateTransferProgress(percentage, `Sending ${file.name} - ${formatBytes(bytesPerSecond)}/s`);
-                console.debug(`[WebRTC] Upload rate: ${formatBytes(bytesPerSecond)}/s`);
-                lastProgressUpdate = now;
-            }
+            updateProgress();
             
             if (offset < file.size) {
-                // More to send
                 readSlice(offset);
             } else {
-                // Done sending
-                dataChannel.send(JSON.stringify({
-                    type: 'file-complete'
-                }));
-                
-                ui.addSystemMessage(`File sent: ${file.name}`);
-                showNotification('File Sent', `${file.name} was sent successfully`);
-                updateTitleWithSpinner(false);
-                
-                // Reset UI after a brief delay
-                setTimeout(() => {
-                    ui.hideTransferProgress();
-                    ui.resetFileInterface();
-                }, 2000);
+                finishTransfer();
             }
         }
     };
@@ -193,6 +199,51 @@ export async function sendFile(file) {
     
     // Start reading
     readSlice(0);
+}
+
+// Update transfer progress
+function updateProgress() {
+    const percentage = Math.floor((offset / file.size) * 100);
+    const now = Date.now();
+    
+    if (now - lastProgressUpdate >= PROGRESS_UPDATE_INTERVAL) {
+        const timeDiff = now - lastProgressUpdate;
+        const instantRate = (offset - lastOffset) / timeDiff * 1000; // bytes per second
+        bytesPerSecond = bytesPerSecond * (1 - BYTES_PER_SEC_SMOOTHING) + instantRate * BYTES_PER_SEC_SMOOTHING;
+
+        ui.updateTransferProgress(percentage, `Sending ${file.name} - ${formatBytes(bytesPerSecond)}/s`);
+        console.debug(`[WebRTC] Upload rate: ${formatBytes(bytesPerSecond)}/s`);
+        
+        lastProgressUpdate = now;
+        lastOffset = offset;
+    } else {
+        ui.updateTransferProgress(percentage, `Sending ${file.name}`);
+    }
+}
+
+// Finish file transfer
+function finishTransfer() {
+    const dataChannel = getDataChannel();
+    if (!dataChannel || dataChannel.readyState !== 'open') return;
+
+    try {
+        dataChannel.send(JSON.stringify({
+            type: 'file-complete'
+        }));
+        
+        ui.addSystemMessage(`File sent: ${file.name}`);
+        showNotification('File Sent', `${file.name} was sent successfully`);
+        updateTitleWithSpinner(false);
+        
+        // Reset UI after a brief delay
+        setTimeout(() => {
+            ui.hideTransferProgress();
+            ui.resetFileInterface();
+        }, 2000);
+    } catch (error) {
+        ui.addSystemMessage(`Error completing transfer: ${error}`);
+        ui.hideTransferProgress();
+    }
 }
 
 // Complete file reception and show download link
