@@ -2,6 +2,12 @@
 const CHUNK_SIZE = 65536; // 64KB chunks for better performance
 const PROGRESS_UPDATE_INTERVAL = 200; // Update progress every 200ms
 const WS_URL = `wss://${window.location.host}/ws`;
+const BYTES_PER_SEC_SMOOTHING = 0.1; // EMA smoothing factor for transfer rate
+
+// Transfer state tracking
+let transferStartTime = 0;
+let lastProgressUpdate = 0;
+let bytesPerSecond = 0;
 
 
 // WebRTC connection variables
@@ -558,12 +564,21 @@ function setupDataChannel(channel) {
             receiveBuffer.push(chunk);
             receivedSize += chunk.byteLength;
 
-            // Progress tracking
-            const percentage = Math.min(Math.floor((receivedSize / fileReceiveInfo.size) * 100), 100);
-            console.debug(`[WebRTC] File transfer progress: ${receivedSize}/${fileReceiveInfo.size} bytes (${percentage}%)`);
-            progressBar.style.width = `${percentage}%`;
-            transferPercentage.textContent = `${percentage}%`;
-            transferStatus.textContent = `Receiving ${fileReceiveInfo.name} (${formatBytes(receivedSize)} / ${formatBytes(fileReceiveInfo.size)})`;
+            // Progress and transfer rate tracking
+            const now = Date.now();
+            if (now - lastProgressUpdate >= PROGRESS_UPDATE_INTERVAL) {
+                const timeDiff = (now - transferStartTime) / 1000; // seconds
+                const instantRate = chunk.byteLength / (now - lastProgressUpdate) * 1000; // bytes per second
+                bytesPerSecond = bytesPerSecond * (1 - BYTES_PER_SEC_SMOOTHING) + instantRate * BYTES_PER_SEC_SMOOTHING;
+
+                const percentage = Math.min(Math.floor((receivedSize / fileReceiveInfo.size) * 100), 100);
+                progressBar.style.width = `${percentage}%`;
+                transferPercentage.textContent = `${percentage}%`;
+                transferStatus.textContent = `Receiving ${fileReceiveInfo.name} - ${formatBytes(bytesPerSecond)}/s`;
+
+                console.debug(`[WebRTC] Transfer rate: ${formatBytes(bytesPerSecond)}/s`);
+                lastProgressUpdate = now;
+            }
             transferProgress.classList.remove('hidden');
 
             // Check if transfer is complete
@@ -857,6 +872,9 @@ async function receiveFile() {
     receiveBuffer = [];
     fileReceiveInfo = null;
     transferProgress.classList.add('hidden');
+    bytesPerSecond = 0;
+    transferStartTime = 0;
+    lastProgressUpdate = 0;
 }
 
 // Add system message to chat
