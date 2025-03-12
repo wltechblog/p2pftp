@@ -16,13 +16,12 @@ let currentOffset = 0;
 
 // Initialize file transfer functionality
 export function init() {
-    // Listen for data channel messages
-    window.addEventListener('datachannel-message', handleDataChannelMessage);
+    // No initialization needed now that we handle messages directly
 }
 
 // Handle incoming data channel messages
-function handleDataChannelMessage(event) {
-    const data = event.detail.data;
+export function handleDataChannelMessage(event) {
+    const data = event.data;
     
     // If the data is a string, it's either a message or control data
     if (typeof data === 'string') {
@@ -67,7 +66,7 @@ function handleDataChannelMessage(event) {
             return;
         }
 
-        const chunk = new Uint8Array(event.detail.data);
+        const chunk = new Uint8Array(event.data);
         receiveBuffer.push(chunk);
         receivedSize += chunk.byteLength;
 
