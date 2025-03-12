@@ -212,9 +212,13 @@ function initiatePeerConnection(isInitiator) {
     if (isInitiator) {
         const ordered = true;
         const maxRetransmits = 30;
+        const negotiated = true;
+        const id = 1;
         const dataChannel = peerConnection.createDataChannel('p2pftp', {
             ordered,
-            maxRetransmits
+            maxRetransmits,
+            negotiated,
+            id
         });
         setupDataChannel(dataChannel);
         
