@@ -759,13 +759,23 @@ async function sendFile(file) {
             dataChannel.send(event.target.result);
             sequence++;
             
-            offset += event.target.result.byteLength;
+            const bytesSent = event.target.result.byteLength;
+            offset += bytesSent;
             const percentage = Math.floor((offset / file.size) * 100);
-            
-            // Update UI
-            progressBar.style.width = `${percentage}%`;
-            transferPercentage.textContent = `${percentage}%`;
-            transferStatus.textContent = `Sending ${file.name} - Chunk ${sequence}/${totalChunks}`;
+
+            // Update progress and transfer rate
+            const now = Date.now();
+            if (now - lastProgressUpdate >= PROGRESS_UPDATE_INTERVAL) {
+                const instantRate = bytesSent / (now - lastProgressUpdate) * 1000; // bytes per second
+                bytesPerSecond = bytesPerSecond * (1 - BYTES_PER_SEC_SMOOTHING) + instantRate * BYTES_PER_SEC_SMOOTHING;
+
+                progressBar.style.width = `${percentage}%`;
+                transferPercentage.textContent = `${percentage}%`;
+                transferStatus.textContent = `Sending ${file.name} - ${formatBytes(bytesPerSecond)}/s`;
+
+                console.debug(`[WebRTC] Upload rate: ${formatBytes(bytesPerSecond)}/s`);
+                lastProgressUpdate = now;
+            }
             
     if (offset < file.size) {
         // More to send
