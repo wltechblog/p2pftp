@@ -160,13 +160,11 @@ c.ui.ShowError(fmt.Sprintf("Failed to send ICE candidate: %v", err))
 if c.webrtc.isInitiator {
     // Configure data channel for reliability with large files
     dataChannelConfig := &webrtc.DataChannelInit{
-        Ordered:           new(bool),   // Guarantee order of messages
-        MaxRetransmits:    new(uint16), // Increased retransmits for reliability
-        MaxPacketLifeTime: new(uint16), // 3 seconds max packet lifetime
+        Ordered:        new(bool),   // Guarantee order of messages
+        MaxRetransmits: new(uint16), // Increased retransmits for reliability
     }
     *dataChannelConfig.Ordered = true
-    *dataChannelConfig.MaxRetransmits = 10
-    *dataChannelConfig.MaxPacketLifeTime = 3000
+    *dataChannelConfig.MaxRetransmits = 30 // Increased for better reliability
     
     dataChannel, err := peerConn.CreateDataChannel("p2pftp", dataChannelConfig)
     if err != nil {
