@@ -24,13 +24,24 @@ type UI struct {
     fileView    *tview.TextView
     inputField  *tview.InputField
     layout      *tview.Flex
+    
+    // Channel for async operations
+    opChan      chan func()
 }
 
 func NewUI(client *Client) *UI {
     ui := &UI{
         client: client,
         app:    tview.NewApplication(),
+        opChan: make(chan func(), 100),
     }
+
+    // Start operations handler
+    go func() {
+        for op := range ui.opChan {
+            ui.app.QueueUpdateDraw(op)
+        }
+    }()
 
     // Initialize components
     // Create command history
@@ -212,21 +223,18 @@ func (ui *UI) HandleInput(key tcell.Key) {
 
     // Clear input field
     ui.inputField.SetText("")
+    ui.app.SetFocus(ui.inputField)
 
     // Handle input
     text = strings.TrimSpace(text)
     if !strings.HasPrefix(text, "/") {
-        // Send chat message asynchronously
-        go func() {
-            if err := ui.client.SendChat(text); err != nil {
+        // Queue chat message sending
+        ui.ShowChat(ui.token, text)
+        go func(msg string) {
+            if err := ui.client.SendChat(msg); err != nil {
                 ui.ShowError(fmt.Sprintf("Error sending message: %v", err))
-            } else {
-                ui.ShowChat(ui.token, text)
             }
-        }()
-
-        // Ensure input remains focused
-        ui.app.SetFocus(ui.inputField)
+        }(text)
         return
     }
 
@@ -238,6 +246,7 @@ func (ui *UI) HandleInput(key tcell.Key) {
     cmd := parts[0]
     switch cmd {
     case "/quit":
+        close(ui.opChan)
         ui.app.Stop()
         os.Exit(0)
 
@@ -247,97 +256,84 @@ func (ui *UI) HandleInput(key tcell.Key) {
         } else {
             ui.AppendChat(fmt.Sprintf("[::b]Your token[white] (click to copy):\n[blue]%s[::-]", ui.token))
         }
-        ui.app.SetFocus(ui.inputField)
 
     case "/connect":
         if len(parts) != 2 {
             ui.ShowError("Usage: /connect <token>")
-        } else if ui.token == "" {
-            ui.ShowError("Please wait for your token before connecting")
-        } else {
-            go func(token string) {
-                if err := ui.client.Connect(token); err != nil {
-                    ui.ShowError(fmt.Sprintf("Error connecting: %v", err))
-                }
-            }(parts[1])
-            ui.LogDebug("Connecting to peer...")
-            ui.app.SetFocus(ui.inputField)
+            return
         }
+        if ui.token == "" {
+            ui.ShowError("Please wait for your token before connecting")
+            return
+        }
+        ui.LogDebug("Connecting to peer...")
+        go func(token string) {
+            if err := ui.client.Connect(token); err != nil {
+                ui.ShowError(fmt.Sprintf("Error connecting: %v", err))
+            }
+        }(parts[1])
 
     case "/accept":
         if ui.token == "" {
             ui.ShowError("Please wait for your token before accepting")
-        } else {
-            var tokenToAccept string
-            if len(parts) > 1 {
-                tokenToAccept = parts[1]
-            } else if ui.lastRequest != "" {
-                tokenToAccept = ui.lastRequest
-            } else {
-                ui.ShowError("No pending request to accept")
-                return
-            }
-
-            req := ui.lastRequest // Copy for goroutine
-            ui.lastRequest = "" // Clear immediately in main thread
-            ui.LogDebug("Accepting connection request...")
-            ui.app.SetFocus(ui.inputField)
-            
-            go func(token string) {
-                if err := ui.client.Accept(token); err != nil {
-                    ui.ShowError(fmt.Sprintf("Error accepting: %v", err))
-                    // Restore lastRequest on error
-                    ui.app.QueueUpdateDraw(func() {
-                        ui.lastRequest = req
-                    })
-                }
-            }(tokenToAccept)
+            return
         }
+        var tokenToAccept string
+        if len(parts) > 1 {
+            tokenToAccept = parts[1]
+        } else if ui.lastRequest != "" {
+            tokenToAccept = ui.lastRequest
+        } else {
+            ui.ShowError("No pending request to accept")
+            return
+        }
+        ui.LogDebug("Accepting connection request...")
+        toAccept := tokenToAccept
+        lastReq := ui.lastRequest
+        ui.lastRequest = ""
+        go func() {
+            if err := ui.client.Accept(toAccept); err != nil {
+                ui.ShowError(fmt.Sprintf("Error accepting: %v", err))
+                ui.lastRequest = lastReq
+            }
+        }()
 
     case "/reject":
         if ui.token == "" {
             ui.ShowError("Please wait for your token before rejecting")
-        } else {
-            var tokenToReject string
-            if len(parts) > 1 {
-                tokenToReject = parts[1]
-            } else if ui.lastRequest != "" {
-                tokenToReject = ui.lastRequest
-            } else {
-                ui.ShowError("No pending request to reject")
-                return
-            }
-
-            req := ui.lastRequest // Copy for goroutine
-            ui.lastRequest = "" // Clear immediately in main thread
-            ui.LogDebug("Rejecting connection request...")
-            ui.app.SetFocus(ui.inputField)
-            
-            go func(token string) {
-                if err := ui.client.Reject(token); err != nil {
-                    ui.ShowError(fmt.Sprintf("Error rejecting: %v", err))
-                    // Restore lastRequest on error
-                    ui.app.QueueUpdateDraw(func() {
-                        ui.lastRequest = req
-                    })
-                }
-            }(tokenToReject)
+            return
         }
+        var tokenToReject string
+        if len(parts) > 1 {
+            tokenToReject = parts[1]
+        } else if ui.lastRequest != "" {
+            tokenToReject = ui.lastRequest
+        } else {
+            ui.ShowError("No pending request to reject")
+            return
+        }
+        ui.LogDebug("Rejecting connection request...")
+        toReject := tokenToReject
+        lastReq := ui.lastRequest
+        ui.lastRequest = ""
+        go func() {
+            if err := ui.client.Reject(toReject); err != nil {
+                ui.ShowError(fmt.Sprintf("Error rejecting: %v", err))
+                ui.lastRequest = lastReq
+            }
+        }()
 
     case "/send":
         if len(parts) != 2 {
             ui.ShowError("Usage: /send <path>")
             return
         }
+        ui.LogDebug("Starting file transfer...")
         go func(path string) {
             if err := ui.client.SendFile(path); err != nil {
                 ui.ShowError(fmt.Sprintf("Error sending file: %v", err))
-            } else {
-                ui.ShowFileTransfer("[blue]✓ File sent successfully[white]")
             }
         }(parts[1])
-        ui.LogDebug("Starting file transfer...")
-        ui.app.SetFocus(ui.inputField)
 
     default:
         ui.ShowError(fmt.Sprintf("Unknown command: %s", cmd))
@@ -345,6 +341,7 @@ func (ui *UI) HandleInput(key tcell.Key) {
 }
 
 func (ui *UI) Run() error {
+    defer close(ui.opChan)
     return ui.app.SetRoot(ui.layout, true).Run()
 }
 
@@ -434,19 +431,19 @@ func (ui *UI) ShowConnectionRejected(token string) {
 }
 
 func (ui *UI) ShowError(msg string) {
-    ui.app.QueueUpdateDraw(func() {
+    ui.opChan <- func() {
         timestamp := time.Now().Format("15:04:05")
         fmt.Fprintf(ui.debugView, "[gray]%s [red]Error:[white] %s\n", timestamp, msg)
         ui.debugView.ScrollToEnd()
-    })
+    }
 }
 
 func (ui *UI) LogDebug(msg string) {
-    ui.app.QueueUpdateDraw(func() {
+    ui.opChan <- func() {
         timestamp := time.Now().Format("15:04:05")
         fmt.Fprintf(ui.debugView, "[gray]%s[white] %s\n", timestamp, msg)
         ui.debugView.ScrollToEnd()
-    })
+    }
 }
 
 func (ui *UI) ShowChat(from string, msg string) {
@@ -458,17 +455,17 @@ func (ui *UI) ShowChat(from string, msg string) {
 }
 
 func (ui *UI) ShowFileTransfer(msg string) {
-    ui.app.QueueUpdateDraw(func() {
+    ui.opChan <- func() {
         timestamp := time.Now().Format("15:04:05")
         fmt.Fprintf(ui.fileView, "[gray]%s[white] %s\n", timestamp, msg)
         ui.fileView.ScrollToEnd()
-    })
+    }
 }
 
 func (ui *UI) AppendChat(msg string) {
-    ui.app.QueueUpdateDraw(func() {
+    ui.opChan <- func() {
         timestamp := time.Now().Format("15:04:05")
         fmt.Fprintf(ui.chatView, "[gray]%s[white] %s\n", timestamp, msg)
         ui.chatView.ScrollToEnd()
-    })
+    }
 }
