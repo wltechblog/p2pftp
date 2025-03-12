@@ -11,6 +11,7 @@ let transferStartTime = 0;
 let lastProgressUpdate = 0;
 let lastOffset = 0;
 let bytesPerSecond = 0;
+let currentFile = null;
 
 // Initialize file transfer functionality
 export function init() {
@@ -94,6 +95,8 @@ function handleDataChannelMessage(event) {
 export async function sendFile(file) {
     const dataChannel = getDataChannel();
     if (!dataChannel || dataChannel.readyState !== 'open') return;
+    
+    currentFile = file;
     
     // Calculate MD5 hash before sending
     let md5Hash = '';
@@ -203,7 +206,8 @@ export async function sendFile(file) {
 
 // Update transfer progress
 function updateProgress() {
-    const percentage = Math.floor((offset / file.size) * 100);
+    if (!currentFile) return;
+    const percentage = Math.floor((offset / currentFile.size) * 100);
     const now = Date.now();
     
     if (now - lastProgressUpdate >= PROGRESS_UPDATE_INTERVAL) {
@@ -211,13 +215,13 @@ function updateProgress() {
         const instantRate = (offset - lastOffset) / timeDiff * 1000; // bytes per second
         bytesPerSecond = bytesPerSecond * (1 - BYTES_PER_SEC_SMOOTHING) + instantRate * BYTES_PER_SEC_SMOOTHING;
 
-        ui.updateTransferProgress(percentage, `Sending ${file.name} - ${formatBytes(bytesPerSecond)}/s`);
+        ui.updateTransferProgress(percentage, `Sending ${currentFile.name} - ${formatBytes(bytesPerSecond)}/s`);
         console.debug(`[WebRTC] Upload rate: ${formatBytes(bytesPerSecond)}/s`);
         
         lastProgressUpdate = now;
         lastOffset = offset;
     } else {
-        ui.updateTransferProgress(percentage, `Sending ${file.name}`);
+        ui.updateTransferProgress(percentage, `Sending ${currentFile.name}`);
     }
 }
 
@@ -231,8 +235,8 @@ function finishTransfer() {
             type: 'file-complete'
         }));
         
-        ui.addSystemMessage(`File sent: ${file.name}`);
-        showNotification('File Sent', `${file.name} was sent successfully`);
+        ui.addSystemMessage(`File sent: ${currentFile.name}`);
+        showNotification('File Sent', `${currentFile.name} was sent successfully`);
         updateTitleWithSpinner(false);
         
         // Reset UI after a brief delay
@@ -240,6 +244,9 @@ function finishTransfer() {
             ui.hideTransferProgress();
             ui.resetFileInterface();
         }, 2000);
+        
+        // Reset file state
+        currentFile = null;
     } catch (error) {
         ui.addSystemMessage(`Error completing transfer: ${error}`);
         ui.hideTransferProgress();
