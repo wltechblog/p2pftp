@@ -663,14 +663,16 @@ async function sendFile(file) {
     if (!dataChannel || dataChannel.readyState !== 'open') return;
     
     // Calculate MD5 hash before sending
-    let md5Hash;
+    let md5Hash = '';
     try {
+        addSystemMessage('Calculating file checksum...');
         md5Hash = await calculateMD5(file);
         console.debug(`[WebRTC] File MD5 hash: ${md5Hash}`);
+        addSystemMessage(`File checksum calculated: ${md5Hash}`);
     } catch (error) {
         console.error('[WebRTC] Error calculating MD5:', error);
-        addSystemMessage(`Error calculating file checksum: ${error.message}`);
-        return;
+        addSystemMessage(`Warning: Could not calculate file checksum. Integrity validation will be skipped.`);
+        // Continue without MD5 validation
     }
     
     // Send file info first with MD5 hash
@@ -939,22 +941,36 @@ function formatBytes(bytes, decimals = 2) {
 }
 
 // Calculate MD5 hash of a file or blob
+// Note: Web Crypto API doesn't support MD5 in some browsers as it's considered cryptographically weak
+// This is a fallback implementation using SparkMD5 library
 async function calculateMD5(file) {
     return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = async function(event) {
-            try {
-                const arrayBuffer = event.target.result;
-                const hashBuffer = await crypto.subtle.digest('MD5', arrayBuffer);
-                const hashArray = Array.from(new Uint8Array(hashBuffer));
-                const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-                resolve(hashHex);
-            } catch (error) {
-                reject(error);
-            }
-        };
-        reader.onerror = error => reject(error);
-        reader.readAsArrayBuffer(file);
+        try {
+            // Create a script element to load SparkMD5
+            const script = document.createElement('script');
+            script.src = 'https://cdnjs.cloudflare.com/ajax/libs/spark-md5/3.0.2/spark-md5.min.js';
+            script.onload = () => {
+                const reader = new FileReader();
+                const spark = new SparkMD5.ArrayBuffer();
+                
+                reader.onload = function(event) {
+                    spark.append(event.target.result);
+                    const hashHex = spark.end();
+                    resolve(hashHex);
+                };
+                
+                reader.onerror = error => reject(error);
+                reader.readAsArrayBuffer(file);
+            };
+            
+            script.onerror = () => {
+                reject(new Error("Failed to load SparkMD5 library"));
+            };
+            
+            document.head.appendChild(script);
+        } catch (error) {
+            reject(error);
+        }
     });
 }
 
