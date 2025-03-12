@@ -306,7 +306,9 @@ function initiatePeerConnection(isInitiator) {
     // Set common WebRTC options for reliability
     const dataChannelConfig = {
         ordered: true,        // Guarantee order of messages
-        maxRetransmits: 30    // Increased retransmits for better reliability
+        maxRetransmits: 30,   // Increased retransmits for better reliability
+        negotiated: false,    // Let WebRTC handle the negotiation
+        id: 0                 // Use default data channel ID
     };
 
     // Log RTCPeerConnection state changes
