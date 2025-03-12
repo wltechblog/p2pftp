@@ -527,13 +527,17 @@ function setupDataChannel(channel) {
                 if (messageObj.type === 'message') {
                     addPeerMessage(messageObj.content);
                 } else if (messageObj.type === 'file-info') {
-                    // Prepare to receive a file with ordered chunks
+                    // Prepare to receive a file with ordered chunks and initialize transfer state
                     receiveBuffer = new Array(Math.ceil(messageObj.info.size / CHUNK_SIZE)); // Pre-allocate array
                     receivedSize = 0;
                     fileReceiveInfo = messageObj.info;
+                    transferStartTime = Date.now();
+                    lastProgressUpdate = transferStartTime;
+                    bytesPerSecond = 0;
                     
                     addSystemMessage(`Receiving file: ${fileReceiveInfo.name} (${formatBytes(fileReceiveInfo.size)})`);
                     updateStatus(`Receiving file...`);
+                    transferProgress.classList.remove('hidden');
                 } else if (messageObj.type === 'chunk') {
                     // Store chunk at correct position
                     receiveBuffer[messageObj.sequence] = new Uint8Array(messageObj.data);
@@ -722,7 +726,10 @@ async function sendFile(file) {
         }
     }));
     
-    // Show progress UI
+    // Initialize transfer state and show progress UI
+    transferStartTime = Date.now();
+    lastProgressUpdate = transferStartTime;
+    bytesPerSecond = 0;
     transferProgress.classList.remove('hidden');
     transferStatus.textContent = `Sending ${file.name}`;
     progressBar.style.width = '0%';
