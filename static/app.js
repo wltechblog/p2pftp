@@ -546,19 +546,27 @@ function setupDataChannel(channel) {
                 addPeerMessage(data);
             }
         } else {
-            // Binary data - assume it's an ArrayBuffer
-            const binaryData = new Uint8Array(event.data);
-            receiveBuffer.push(binaryData);
-            receivedSize += binaryData.byteLength;
-            
-            // Update progress
-            if (fileReceiveInfo && fileReceiveInfo.size > 0) {
-                const percentage = Math.min(Math.floor((receivedSize / fileReceiveInfo.size) * 100), 100);
-                console.debug(`[WebRTC] File transfer progress: ${receivedSize}/${fileReceiveInfo.size} bytes (${percentage}%)`);
-                progressBar.style.width = `${percentage}%`;
-                transferPercentage.textContent = `${percentage}%`;
-                transferStatus.textContent = `Receiving ${fileReceiveInfo.name} (${formatBytes(receivedSize)} / ${formatBytes(fileReceiveInfo.size)})`;
-                transferProgress.classList.remove('hidden');
+            // Handle binary chunk
+            if (!fileReceiveInfo) {
+                console.error('[WebRTC] Received binary data without file info');
+                return;
+            }
+
+            const chunk = new Uint8Array(event.data);
+            receiveBuffer.push(chunk);
+            receivedSize += chunk.byteLength;
+
+            // Progress tracking
+            const percentage = Math.min(Math.floor((receivedSize / fileReceiveInfo.size) * 100), 100);
+            console.debug(`[WebRTC] File transfer progress: ${receivedSize}/${fileReceiveInfo.size} bytes (${percentage}%)`);
+            progressBar.style.width = `${percentage}%`;
+            transferPercentage.textContent = `${percentage}%`;
+            transferStatus.textContent = `Receiving ${fileReceiveInfo.name} (${formatBytes(receivedSize)} / ${formatBytes(fileReceiveInfo.size)})`;
+            transferProgress.classList.remove('hidden');
+
+            // Check if transfer is complete
+            if (receivedSize >= fileReceiveInfo.size) {
+                receiveFile();
             }
         }
     };
