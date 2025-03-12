@@ -235,9 +235,17 @@ function initiatePeerConnection(isInitiator) {
                 ui.addSystemMessage(`Error creating offer: ${error}`);
             });
     } else {
-        peerConnection.ondatachannel = (event) => {
-            setupDataChannel(event.channel);
-        };
+        const ordered = true;
+        const maxRetransmits = 30;
+        const negotiated = true;
+        const id = 1;
+        const dataChannel = peerConnection.createDataChannel('p2pftp', {
+            ordered,
+            maxRetransmits,
+            negotiated,
+            id
+        });
+        setupDataChannel(dataChannel);
     }
 }
 
