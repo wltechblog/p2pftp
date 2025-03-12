@@ -216,13 +216,14 @@ func (ui *UI) HandleInput(key tcell.Key) {
     // Handle input
     text = strings.TrimSpace(text)
     if !strings.HasPrefix(text, "/") {
-        // Show sent message first
-        ui.ShowChat(ui.token, text)
-        
-        // Send to peer
-        if err := ui.client.SendChat(text); err != nil {
-            ui.ShowError(fmt.Sprintf("Error sending message: %v", err))
-        }
+        // Send chat message asynchronously
+        go func() {
+            if err := ui.client.SendChat(text); err != nil {
+                ui.ShowError(fmt.Sprintf("Error sending message: %v", err))
+            } else {
+                ui.ShowChat(ui.token, text)
+            }
+        }()
 
         // Ensure input remains focused
         ui.app.SetFocus(ui.inputField)
@@ -254,9 +255,12 @@ func (ui *UI) HandleInput(key tcell.Key) {
         } else if ui.token == "" {
             ui.ShowError("Please wait for your token before connecting")
         } else {
-            if err := ui.client.Connect(parts[1]); err != nil {
-                ui.ShowError(fmt.Sprintf("Error connecting: %v", err))
-            }
+            go func(token string) {
+                if err := ui.client.Connect(token); err != nil {
+                    ui.ShowError(fmt.Sprintf("Error connecting: %v", err))
+                }
+            }(parts[1])
+            ui.LogDebug("Connecting to peer...")
             ui.app.SetFocus(ui.inputField)
         }
 
@@ -274,11 +278,14 @@ func (ui *UI) HandleInput(key tcell.Key) {
                 return
             }
 
-            if err := ui.client.Accept(tokenToAccept); err != nil {
-                ui.ShowError(fmt.Sprintf("Error accepting: %v", err))
-            } else {
-                ui.lastRequest = ""
-            }
+            go func(token string) {
+                if err := ui.client.Accept(token); err != nil {
+                    ui.ShowError(fmt.Sprintf("Error accepting: %v", err))
+                } else {
+                    ui.lastRequest = ""
+                }
+            }(tokenToAccept)
+            ui.LogDebug("Accepting connection request...")
             ui.app.SetFocus(ui.inputField)
         }
 
@@ -296,11 +303,14 @@ func (ui *UI) HandleInput(key tcell.Key) {
                 return
             }
 
-            if err := ui.client.Reject(tokenToReject); err != nil {
-                ui.ShowError(fmt.Sprintf("Error rejecting: %v", err))
-            } else {
-                ui.lastRequest = ""
-            }
+            go func(token string) {
+                if err := ui.client.Reject(token); err != nil {
+                    ui.ShowError(fmt.Sprintf("Error rejecting: %v", err))
+                } else {
+                    ui.lastRequest = ""
+                }
+            }(tokenToReject)
+            ui.LogDebug("Rejecting connection request...")
             ui.app.SetFocus(ui.inputField)
         }
 
@@ -309,11 +319,14 @@ func (ui *UI) HandleInput(key tcell.Key) {
             ui.ShowError("Usage: /send <path>")
             return
         }
-        if err := ui.client.SendFile(parts[1]); err != nil {
-            ui.ShowError(fmt.Sprintf("Error sending file: %v", err))
-        } else {
-            ui.ShowFileTransfer("[blue]✓ File sent successfully[white]")
-        }
+        go func(path string) {
+            if err := ui.client.SendFile(path); err != nil {
+                ui.ShowError(fmt.Sprintf("Error sending file: %v", err))
+            } else {
+                ui.ShowFileTransfer("[blue]✓ File sent successfully[white]")
+            }
+        }(parts[1])
+        ui.LogDebug("Starting file transfer...")
         ui.app.SetFocus(ui.inputField)
 
     default:
