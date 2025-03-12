@@ -41,7 +41,7 @@ type FileTransfer struct {
 }
 
 const (
-	maxChunkSize = 16384 // 16KB chunks for file transfer
+	maxChunkSize = 65536 // 64KB chunks to match web UI
 )
 
 type WebRTCState struct {
@@ -758,9 +758,15 @@ func (c *Client) SendFile(filePath string) error {
 			return fmt.Errorf("failed to read file: %v", err)
 		}
 
-		// Flow control: wait if the buffer is getting full
-		for c.webrtc.dataChannel.BufferedAmount() > maxChunkSize*8 {
-			time.Sleep(50 * time.Millisecond)
+		// Flow control: wait if buffer is getting too full
+		// Match web UI's buffering strategy
+		for c.webrtc.dataChannel.BufferedAmount() > maxChunkSize*16 {
+			time.Sleep(100 * time.Millisecond)
+			
+			// Check connection state
+			if c.webrtc.dataChannel.ReadyState() != webrtc.DataChannelStateOpen {
+				return fmt.Errorf("data channel closed during transfer")
+			}
 		}
 
 		// Send chunk as binary data
