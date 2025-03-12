@@ -1,3 +1,21 @@
+// Constants
+const CHUNK_SIZE = 65536; // 64KB chunks for better performance
+const PROGRESS_UPDATE_INTERVAL = 200; // Update progress every 200ms
+const WS_URL = `wss://${window.location.host}/ws`;
+
+
+// WebRTC connection variables
+let peerConnection;
+let dataChannel;
+let myToken = '';
+let peerToken = '';
+let websocket;
+let selectedFile = null;
+let receiveBuffer = [];
+let receivedSize = 0;
+let fileReceiveInfo = null;
+let isConnecting = false;
+
 // DOM Elements
 const connectionPanel = document.getElementById('connection-panel');
 const requestPanel = document.getElementById('request-panel');
@@ -25,22 +43,6 @@ const transferProgress = document.getElementById('transfer-progress');
 const transferStatus = document.getElementById('transfer-status');
 const transferPercentage = document.getElementById('transfer-percentage');
 const progressBar = document.getElementById('progress-bar');
-
-// WebRTC connection variables
-let peerConnection;
-let dataChannel;
-let myToken = '';
-let peerToken = '';
-let websocket;
-let selectedFile = null;
-let receiveBuffer = [];
-let receivedSize = 0;
-let fileReceiveInfo = null;
-let isConnecting = false;
-
-// Constants
-const CHUNK_SIZE = 16384; // 16KB chunks
-const WS_URL = `wss://${window.location.host}/ws`;
 
 // Initialize the application
 function init() {
