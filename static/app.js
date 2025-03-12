@@ -534,24 +534,19 @@ function setupDataChannel(channel) {
                 // Not JSON, treat as a regular message
                 addPeerMessage(data);
             }
-        } else {
-            // Binary data - file chunk
-            receiveBuffer.push(data);
-            receivedSize += data.byteLength;
+        } else if (messageObj.type === 'file-data') {
+            // Base64 encoded file chunk
+            const binaryData = Uint8Array.from(atob(messageObj.content), c => c.charCodeAt(0));
+            receiveBuffer.push(binaryData);
+            receivedSize += binaryData.byteLength;
             
-            // Update progress if we have file info
+            // Update progress
             if (fileReceiveInfo && fileReceiveInfo.size > 0) {
                 const percentage = Math.min(Math.floor((receivedSize / fileReceiveInfo.size) * 100), 100);
                 console.debug(`[WebRTC] File transfer progress: ${receivedSize}/${fileReceiveInfo.size} bytes (${percentage}%)`);
                 progressBar.style.width = `${percentage}%`;
                 transferPercentage.textContent = `${percentage}%`;
                 transferStatus.textContent = `Receiving ${fileReceiveInfo.name} (${formatBytes(receivedSize)} / ${formatBytes(fileReceiveInfo.size)})`;
-                transferProgress.classList.remove('hidden');
-            } else {
-                console.warn('[WebRTC] Missing or invalid file info during transfer');
-                progressBar.style.width = '0%';
-                transferPercentage.textContent = '-%';
-                transferStatus.textContent = `Receiving file...`;
                 transferProgress.classList.remove('hidden');
             }
         }

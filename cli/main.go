@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/base64"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -151,89 +150,84 @@ c.webrtc.connected = false
 })
 
 channel.OnMessage(func(msg webrtc.DataChannelMessage) {
-if !msg.IsString {
-c.ui.ShowError("Received binary data - not supported")
-return
-}
+    if msg.IsString {
+        var dataMsg struct {
+            Type    string   `json:"type"`
+            Content string   `json:"content"`
+            Info    FileInfo `json:"info"`
+        }
 
-var dataMsg struct {
-Type    string   `json:"type"`
-Content string   `json:"content"`
-Info    FileInfo `json:"info"`
-}
+        if err := json.Unmarshal([]byte(msg.Data), &dataMsg); err == nil {
+            switch dataMsg.Type {
+            case "message":
+                c.ui.ShowChat(c.webrtc.peerToken, dataMsg.Content)
 
-if err := json.Unmarshal([]byte(msg.Data), &dataMsg); err == nil {
-switch dataMsg.Type {
-case "message":
-c.ui.ShowChat(c.webrtc.peerToken, dataMsg.Content)
+            case "file-info":
+                c.webrtc.fileInfo = &dataMsg.Info
+                c.webrtc.receiveBuffer = make([][]byte, 0)
+                c.webrtc.receivedSize = 0
+                c.ui.ShowFileTransfer(fmt.Sprintf("Receiving file: %s (0/%d bytes)", dataMsg.Info.Name, dataMsg.Info.Size))
 
-case "file-info":
-c.webrtc.fileInfo = &dataMsg.Info
-c.webrtc.receiveBuffer = make([][]byte, 0)
-c.webrtc.receivedSize = 0
-c.ui.ShowFileTransfer(fmt.Sprintf("Receiving file: %s (0/%d bytes)", dataMsg.Info.Name, dataMsg.Info.Size))
+            case "file-complete":
+                if c.webrtc.fileInfo == nil {
+                    c.ui.ShowError("Received file complete without file info")
+                    return
+                }
 
-case "file-data":
-if c.webrtc.fileInfo == nil {
-c.ui.ShowError("Received file data without file info")
-return
-}
+                // Combine all chunks
+                allData := make([]byte, 0, c.webrtc.receivedSize)
+                for _, chunk := range c.webrtc.receiveBuffer {
+                    allData = append(allData, chunk...)
+                }
 
-data, err := base64.StdEncoding.DecodeString(dataMsg.Content)
-if err != nil {
-c.ui.ShowError(fmt.Sprintf("Failed to decode file chunk: %v", err))
-return
-}
+                // Create downloads directory if it doesn't exist
+                downloadDir := "downloads"
+                if err := os.MkdirAll(downloadDir, 0755); err != nil {
+                    c.ui.ShowError(fmt.Sprintf("Failed to create downloads directory: %v", err))
+                    return
+                }
 
-c.webrtc.receiveBuffer = append(c.webrtc.receiveBuffer, data)
-c.webrtc.receivedSize += int64(len(data))
+                // Save file
+                filePath := filepath.Join(downloadDir, c.webrtc.fileInfo.Name)
+                err := os.WriteFile(filePath, allData, 0644)
+                if err != nil {
+                    c.ui.ShowError(fmt.Sprintf("Failed to save file: %v", err))
+                    return
+                }
 
-// Show progress
-percentage := int((float64(c.webrtc.receivedSize) / float64(c.webrtc.fileInfo.Size)) * 100)
-c.ui.ShowFileTransfer(fmt.Sprintf("Receiving %s (%d/%d bytes) - %d%%",
-c.webrtc.fileInfo.Name,
-c.webrtc.receivedSize,
-c.webrtc.fileInfo.Size,
-percentage))
+                c.ui.ShowFileTransfer(fmt.Sprintf("Saved file from peer to: %s", filePath))
 
-case "file-complete":
-if c.webrtc.fileInfo == nil {
-c.ui.ShowError("Received file complete without file info")
-return
-}
+                // Reset file transfer state
+                c.webrtc.fileInfo = nil
+                c.webrtc.receiveBuffer = nil
+                c.webrtc.receivedSize = 0
+            }
+        } else {
+            // Just a plain text message
+            c.ui.ShowChat(c.webrtc.peerToken, string(msg.Data))
+        }
+    } else {
+        // Binary data - file chunk
+        if c.webrtc.fileInfo == nil {
+            c.ui.ShowError("Received file data without file info")
+            return
+        }
 
-// Combine all chunks
-allData := make([]byte, 0, c.webrtc.receivedSize)
-for _, chunk := range c.webrtc.receiveBuffer {
-allData = append(allData, chunk...)
-}
+        // Make a copy of the data since it might be reused by the WebRTC implementation
+        data := make([]byte, len(msg.Data))
+        copy(data, msg.Data)
+        
+        c.webrtc.receiveBuffer = append(c.webrtc.receiveBuffer, data)
+        c.webrtc.receivedSize += int64(len(data))
 
-// Create downloads directory if it doesn't exist
-downloadDir := "downloads"
-if err := os.MkdirAll(downloadDir, 0755); err != nil {
-c.ui.ShowError(fmt.Sprintf("Failed to create downloads directory: %v", err))
-return
-}
-
-// Save file
-filePath := filepath.Join(downloadDir, c.webrtc.fileInfo.Name)
-err := os.WriteFile(filePath, allData, 0644)
-if err != nil {
-c.ui.ShowError(fmt.Sprintf("Failed to save file: %v", err))
-return
-}
-
-c.ui.ShowFileTransfer(fmt.Sprintf("Saved file from peer to: %s", filePath))
-
-// Reset file transfer state
-c.webrtc.fileInfo = nil
-c.webrtc.receiveBuffer = nil
-c.webrtc.receivedSize = 0
-}
-} else {
-// Just a plain text message
-c.ui.ShowChat(c.webrtc.peerToken, string(msg.Data))
-}
+        // Show progress
+        percentage := int((float64(c.webrtc.receivedSize) / float64(c.webrtc.fileInfo.Size)) * 100)
+        c.ui.ShowFileTransfer(fmt.Sprintf("Receiving %s (%d/%d bytes) - %d%%",
+            c.webrtc.fileInfo.Name,
+            c.webrtc.receivedSize,
+            c.webrtc.fileInfo.Size,
+            percentage))
+    }
 })
 }
 
@@ -506,28 +500,8 @@ if err != nil {
 return fmt.Errorf("failed to read file: %v", err)
 }
 
-chunk := buffer[:n]
-fileData := base64.StdEncoding.EncodeToString(chunk)
-
-dataMsg := struct {
-Type    string   `json:"type"`
-Content string   `json:"content"`
-Info    FileInfo `json:"info"`
-}{
-Type:    "file-data",
-Content: fileData,
-Info: FileInfo{
-Name: fileInfo.Name(),
-Size: fileSize,
-},
-}
-
-dataJSON, err := json.Marshal(dataMsg)
-if err != nil {
-return fmt.Errorf("failed to marshal file chunk: %v", err)
-}
-
-err = c.webrtc.dataChannel.SendText(string(dataJSON))
+// Send chunk as binary data
+err = c.webrtc.dataChannel.Send(buffer[:n])
 if err != nil {
 return fmt.Errorf("failed to send file chunk: %v", err)
 }
