@@ -291,7 +291,6 @@ func (c *Client) setupDataChannel(channel *webrtc.DataChannel) {
 	// Wait for data channel to be ready
 	channel.OnOpen(func() {
 		c.ui.LogDebug(fmt.Sprintf("Data channel opened (ID: %d, Label: %s)", channel.ID(), channel.Label()))
-		c.webrtc.connected = true
 
 		// Log data channel configuration
 		c.ui.LogDebug(fmt.Sprintf("Data channel config - Ordered: %v, MaxRetransmits: %v, State: %s", 
@@ -307,18 +306,43 @@ func (c *Client) setupDataChannel(channel *webrtc.DataChannel) {
 		} else {
 			c.ui.LogDebug("SCTP transport not yet available")
 		}
+
+		// Only set connected after all checks pass
+		c.webrtc.connected = true
+		c.ui.LogDebug("Data channel ready for transfer")
 	})
 
 	channel.OnClose(func() {
 		c.ui.LogDebug(fmt.Sprintf("Data channel closed (Last state: %s)", channel.ReadyState().String()))
-		c.webrtc.connected = false
-		
-		// Close file if transfer was in progress
-		if c.webrtc.fileTransfer != nil && c.webrtc.fileTransfer.file != nil {
-			c.ui.LogDebug(fmt.Sprintf("Closing incomplete file transfer (%d/%d bytes received)", 
-				c.webrtc.receivedSize, c.webrtc.fileTransfer.Size))
-			c.webrtc.fileTransfer.file.Close()
-			c.webrtc.fileTransfer = nil
+
+		// Only disconnect if we were previously connected
+		if c.webrtc.connected {
+			c.webrtc.connected = false
+			
+			// Close file if transfer was in progress
+			if c.webrtc.fileTransfer != nil && c.webrtc.fileTransfer.file != nil {
+				c.ui.LogDebug(fmt.Sprintf("Closing incomplete file transfer (%d/%d bytes received)", 
+					c.webrtc.receivedSize, c.webrtc.fileTransfer.Size))
+				c.webrtc.fileTransfer.file.Close()
+				c.webrtc.fileTransfer = nil
+			}
+
+			// Try to reconnect if this wasn't an intentional close
+			if c.webrtc.peerConn != nil && c.webrtc.peerConn.ConnectionState() != webrtc.PeerConnectionStateClosed {
+				c.ui.LogDebug("Data channel closed unexpectedly, attempting to recreate")
+				// Create new data channel with same config
+				ordered := true
+				maxRetransmits := uint16(30)
+				dataChannelConfig := &webrtc.DataChannelInit{
+					Ordered:        &ordered,
+					MaxRetransmits: &maxRetransmits,
+				}
+				if newChannel, err := c.webrtc.peerConn.CreateDataChannel("p2pftp", dataChannelConfig); err == nil {
+					c.setupDataChannel(newChannel)
+				} else {
+					c.ui.ShowError(fmt.Sprintf("Failed to recreate data channel: %v", err))
+				}
+			}
 		}
 	})
 
