@@ -61,8 +61,24 @@ export function handleDataChannelMessage(event) {
             return;
         }
 
-        const chunk = new Uint8Array(event.data);
+        // Log raw data for debugging
+        console.debug('[WebRTC] Raw binary data:', event.data);
+        console.debug('[WebRTC] Current chunk info:', fileReceiveInfo.currentChunk);
+
+        // Convert ArrayBuffer to Uint8Array
+        let chunk;
+        if (event.data instanceof ArrayBuffer) {
+            chunk = new Uint8Array(event.data);
+        } else if (event.data instanceof Blob) {
+            console.error('[WebRTC] Received Blob instead of ArrayBuffer');
+            return;
+        } else {
+            console.error('[WebRTC] Received unknown data type:', typeof event.data);
+            return;
+        }
+
         const { sequence, total, size } = fileReceiveInfo.currentChunk;
+        console.debug(`[WebRTC] Processing chunk ${sequence + 1}/${total}, size: ${size}`);
         
         // Verify chunk size matches metadata
         if (chunk.byteLength !== size) {
@@ -76,9 +92,9 @@ export function handleDataChannelMessage(event) {
             return;
         }
 
-        // Store chunk at correct position with actual size
-        receiveBuffer[sequence] = new Uint8Array(chunk);
-        receivedSize += size;
+        // Store chunk at correct position
+        receiveBuffer[sequence] = chunk;
+        receivedSize += chunk.byteLength;
 
         // Progress and transfer rate tracking
         const now = Date.now();

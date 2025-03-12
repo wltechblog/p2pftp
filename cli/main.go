@@ -549,8 +549,13 @@ func (c *Client) SendFile(filePath string) error {
             return fmt.Errorf("failed to send chunk info: %v", err)
         }
 
-        // Send binary chunk (no need to pad to maxChunkSize)
-        err = c.webrtc.dataChannel.Send(buffer[:n])
+        // Small delay to ensure metadata is processed before binary data
+        time.Sleep(10 * time.Millisecond)
+
+        // Convert to ArrayBuffer for WebRTC
+        chunk := buffer[:n]
+        c.ui.LogDebug(fmt.Sprintf("Sending chunk %d/%d, size: %d", chunkIndex+1, totalChunks, len(chunk)))
+        err = c.webrtc.dataChannel.Send(chunk)
         if err != nil {
             return fmt.Errorf("failed to send chunk: %v", err)
         }
