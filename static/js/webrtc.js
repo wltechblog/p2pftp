@@ -217,7 +217,10 @@ function initiatePeerConnection(isInitiator) {
             console.debug(`[WebRTC] SCTP max message size: ${sctp.maxMessageSize}`);
             
             // Create data channel once SCTP is available
-            const dataChannel = peerConnection.createDataChannel('p2pftp');
+            const dataChannel = peerConnection.createDataChannel('p2pftp', {
+                negotiated: true,
+                id: 1
+            });
             setupDataChannel(dataChannel);
         } else {
             console.debug('[WebRTC] Waiting for SCTP transport...');
