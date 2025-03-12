@@ -1,5 +1,5 @@
-import { RTC_CONFIG, DATA_CHANNEL_CONFIG, WS_URL } from './config.js';
-import * as ui from './ui.js';
+import { RTC_CONFIG, DATA_CHANNEL_CONFIG, WS_URL } from '/static/js/config.js';
+import * as ui from '/static/js/ui.js';
 
 // WebRTC connection variables
 let peerConnection;

@@ -1,7 +1,7 @@
-import { CHUNK_SIZE, PROGRESS_UPDATE_INTERVAL, BYTES_PER_SEC_SMOOTHING } from './config.js';
-import { calculateMD5, formatBytes, showNotification, updateTitleWithSpinner } from './utils.js';
-import * as ui from './ui.js';
-import { getDataChannel } from './webrtc.js';
+import { CHUNK_SIZE, PROGRESS_UPDATE_INTERVAL, BYTES_PER_SEC_SMOOTHING } from '/static/js/config.js';
+import { calculateMD5, formatBytes, showNotification, updateTitleWithSpinner } from '/static/js/utils.js';
+import * as ui from '/static/js/ui.js';
+import { getDataChannel } from '/static/js/webrtc.js';
 
 // File transfer state
 let receiveBuffer = [];

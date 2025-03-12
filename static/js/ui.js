@@ -1,4 +1,4 @@
-import { formatBytes, showNotification, updateTitleWithSpinner } from './utils.js';
+import { formatBytes, showNotification, updateTitleWithSpinner } from '/static/js/utils.js';
 
 // DOM Elements
 const connectionPanel = document.getElementById('connection-panel');
