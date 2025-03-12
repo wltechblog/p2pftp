@@ -208,20 +208,21 @@ function initiatePeerConnection(isInitiator) {
         }
     };
 
-    // Create data channel if initiator, or prepare to receive it
+    // Create data channel before offer/answer exchange
+    const ordered = true;
+    const maxRetransmits = 30;
+    const negotiated = true;
+    const id = 1;
+    const dataChannel = peerConnection.createDataChannel('p2pftp', {
+        ordered,
+        maxRetransmits,
+        negotiated,
+        id
+    });
+    setupDataChannel(dataChannel);
+    
+    // Create offer if initiator
     if (isInitiator) {
-        const ordered = true;
-        const maxRetransmits = 30;
-        const negotiated = true;
-        const id = 1;
-        const dataChannel = peerConnection.createDataChannel('p2pftp', {
-            ordered,
-            maxRetransmits,
-            negotiated,
-            id
-        });
-        setupDataChannel(dataChannel);
-        
         peerConnection.createOffer()
             .then(offer => peerConnection.setLocalDescription(offer))
             .then(() => {
@@ -234,18 +235,6 @@ function initiatePeerConnection(isInitiator) {
             .catch(error => {
                 ui.addSystemMessage(`Error creating offer: ${error}`);
             });
-    } else {
-        const ordered = true;
-        const maxRetransmits = 30;
-        const negotiated = true;
-        const id = 1;
-        const dataChannel = peerConnection.createDataChannel('p2pftp', {
-            ordered,
-            maxRetransmits,
-            negotiated,
-            id
-        });
-        setupDataChannel(dataChannel);
     }
 }
 
