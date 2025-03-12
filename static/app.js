@@ -545,9 +545,9 @@ function setupDataChannel(channel) {
                 // Not JSON, treat as a regular message
                 addPeerMessage(data);
             }
-        } else if (messageObj.type === 'file-data') {
-            // Base64 encoded file chunk
-            const binaryData = Uint8Array.from(atob(messageObj.content), c => c.charCodeAt(0));
+        } else {
+            // Binary data - assume it's an ArrayBuffer
+            const binaryData = new Uint8Array(event.data);
             receiveBuffer.push(binaryData);
             receivedSize += binaryData.byteLength;
             
@@ -723,15 +723,8 @@ async function sendFile(file) {
                 return;
             }
 
-            // Send chunk with sequence number
-            const chunk = {
-                type: 'chunk',
-                sequence: sequence,
-                total: totalChunks,
-                data: event.target.result
-            };
-            
-            dataChannel.send(JSON.stringify(chunk));
+            // Send binary chunk directly, no JSON wrapping
+            dataChannel.send(event.target.result);
             sequence++;
             
             offset += event.target.result.byteLength;
