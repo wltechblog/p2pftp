@@ -64,15 +64,21 @@ export function handleDataChannelMessage(event) {
         const chunk = new Uint8Array(event.data);
         const { sequence, total, size } = fileReceiveInfo.currentChunk;
         
-        // Verify chunk size
+        // Verify chunk size matches metadata
         if (chunk.byteLength !== size) {
             console.error(`[WebRTC] Chunk size mismatch. Expected: ${size}, Got: ${chunk.byteLength}`);
             return;
         }
 
-        // Store chunk at correct position
-        receiveBuffer[sequence] = chunk;
-        receivedSize += chunk.byteLength;
+        // Verify sequence is within bounds
+        if (sequence >= receiveBuffer.length) {
+            console.error(`[WebRTC] Invalid chunk sequence: ${sequence}, total chunks: ${receiveBuffer.length}`);
+            return;
+        }
+
+        // Store chunk at correct position with actual size
+        receiveBuffer[sequence] = new Uint8Array(chunk);
+        receivedSize += size;
 
         // Progress and transfer rate tracking
         const now = Date.now();
