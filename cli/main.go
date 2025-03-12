@@ -264,36 +264,34 @@ err = c.SendMessage(Message{
 		}
 	})
 
-	if c.webrtc.isInitiator {
-		// Configure data channel to match web UI settings
-		ordered := true
-		maxRetransmits := uint16(30)
-		dataChannelConfig := &webrtc.DataChannelInit{
-			Ordered:        &ordered,
-			MaxRetransmits: &maxRetransmits,
-		}
+// Configure data channel to match web UI settings
+ordered := true
+maxRetransmits := uint16(30)
+negotiated := true
+id := uint16(1)
+dataChannelConfig := &webrtc.DataChannelInit{
+    Ordered:        &ordered,
+    MaxRetransmits: &maxRetransmits,
+    Negotiated:     &negotiated,
+    ID:            &id,
+}
 
-		c.ui.LogDebug("Creating data channel with ordered delivery and retransmits")
-		dataChannel, err := peerConn.CreateDataChannel("p2pftp", dataChannelConfig)
-		if err != nil {
-			return fmt.Errorf("failed to create data channel: %v", err)
-		}
+c.ui.LogDebug("Creating data channel with ordered delivery and retransmits")
+dataChannel, err := peerConn.CreateDataChannel("p2pftp", dataChannelConfig)
+if err != nil {
+    return fmt.Errorf("failed to create data channel: %v", err)
+}
 
-		// Log data channel state
-		c.ui.LogDebug(fmt.Sprintf("Data channel created with state: %s", dataChannel.ReadyState().String()))
+// Log data channel state
+c.ui.LogDebug(fmt.Sprintf("Data channel created with state: %s", dataChannel.ReadyState().String()))
 
-		// Set buffered amount low threshold to help with flow control
-		dataChannel.SetBufferedAmountLowThreshold(maxChunkSize * 4)
-		dataChannel.OnBufferedAmountLow(func() {
-			c.ui.LogDebug("Data channel buffer low event")
-		})
+// Set buffered amount low threshold to help with flow control
+dataChannel.SetBufferedAmountLowThreshold(maxChunkSize * 4)
+dataChannel.OnBufferedAmountLow(func() {
+    c.ui.LogDebug("Data channel buffer low event")
+})
 
-		c.setupDataChannel(dataChannel)
-	} else {
-		peerConn.OnDataChannel(func(channel *webrtc.DataChannel) {
-			c.setupDataChannel(channel)
-		})
-	}
+c.setupDataChannel(dataChannel)
 
 	c.webrtc.peerConn = peerConn
 	return nil
@@ -348,13 +346,17 @@ func (c *Client) setupDataChannel(channel *webrtc.DataChannel) {
 			// Try to reconnect if this wasn't an intentional close
 			if c.webrtc.peerConn != nil && c.webrtc.peerConn.ConnectionState() != webrtc.PeerConnectionStateClosed {
 				c.ui.LogDebug("Data channel closed unexpectedly, attempting to recreate")
-				// Create new data channel with same config
-				ordered := true
-				maxRetransmits := uint16(30)
-				dataChannelConfig := &webrtc.DataChannelInit{
-					Ordered:        &ordered,
-					MaxRetransmits: &maxRetransmits,
-				}
+// Create new data channel with same config
+ordered := true
+maxRetransmits := uint16(30)
+negotiated := true
+id := uint16(1)
+dataChannelConfig := &webrtc.DataChannelInit{
+    Ordered:        &ordered,
+    MaxRetransmits: &maxRetransmits,
+    Negotiated:     &negotiated,
+    ID:            &id,
+}
 				if newChannel, err := c.webrtc.peerConn.CreateDataChannel("p2pftp", dataChannelConfig); err == nil {
 					c.setupDataChannel(newChannel)
 				} else {
