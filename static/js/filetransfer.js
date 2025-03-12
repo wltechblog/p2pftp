@@ -12,6 +12,7 @@ let lastProgressUpdate = 0;
 let lastOffset = 0;
 let bytesPerSecond = 0;
 let currentFile = null;
+let currentOffset = 0;
 
 // Initialize file transfer functionality
 export function init() {
@@ -97,6 +98,7 @@ export async function sendFile(file) {
     if (!dataChannel || dataChannel.readyState !== 'open') return;
     
     currentFile = file;
+    currentOffset = 0;
     
     // Calculate MD5 hash before sending
     let md5Hash = '';
@@ -130,7 +132,6 @@ export async function sendFile(file) {
     
     // Read and send file in chunks
     const reader = new FileReader();
-    let offset = 0;
     let sequence = 0;
     const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
     
@@ -151,11 +152,11 @@ export async function sendFile(file) {
                         dataChannel.send(chunk);
                         sequence++;
                         const bytesSent = chunk.byteLength;
-                        offset += bytesSent;
+                        currentOffset += bytesSent;
                         updateProgress();
                         
-                        if (offset < file.size) {
-                            readSlice(offset);
+                        if (currentOffset < file.size) {
+                            readSlice(currentOffset);
                         } else {
                             finishTransfer();
                         }
@@ -179,11 +180,11 @@ export async function sendFile(file) {
             }
             
             const bytesSent = chunk.byteLength;
-            offset += bytesSent;
+            currentOffset += bytesSent;
             updateProgress();
             
-            if (offset < file.size) {
-                readSlice(offset);
+            if (currentOffset < file.size) {
+                readSlice(currentOffset);
             } else {
                 finishTransfer();
             }
@@ -207,19 +208,19 @@ export async function sendFile(file) {
 // Update transfer progress
 function updateProgress() {
     if (!currentFile) return;
-    const percentage = Math.floor((offset / currentFile.size) * 100);
+    const percentage = Math.floor((currentOffset / currentFile.size) * 100);
     const now = Date.now();
     
     if (now - lastProgressUpdate >= PROGRESS_UPDATE_INTERVAL) {
         const timeDiff = now - lastProgressUpdate;
-        const instantRate = (offset - lastOffset) / timeDiff * 1000; // bytes per second
+        const instantRate = (currentOffset - lastOffset) / timeDiff * 1000; // bytes per second
         bytesPerSecond = bytesPerSecond * (1 - BYTES_PER_SEC_SMOOTHING) + instantRate * BYTES_PER_SEC_SMOOTHING;
 
         ui.updateTransferProgress(percentage, `Sending ${currentFile.name} - ${formatBytes(bytesPerSecond)}/s`);
         console.debug(`[WebRTC] Upload rate: ${formatBytes(bytesPerSecond)}/s`);
         
         lastProgressUpdate = now;
-        lastOffset = offset;
+        lastOffset = currentOffset;
     } else {
         ui.updateTransferProgress(percentage, `Sending ${currentFile.name}`);
     }
@@ -247,6 +248,7 @@ function finishTransfer() {
         
         // Reset file state
         currentFile = null;
+        currentOffset = 0;
     } catch (error) {
         ui.addSystemMessage(`Error completing transfer: ${error}`);
         ui.hideTransferProgress();
