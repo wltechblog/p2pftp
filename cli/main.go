@@ -404,8 +404,23 @@ func (c *Client) setupDataChannel(channel *webrtc.DataChannel) {
 						return
 					}
 
-					// Close file
+					// Write all chunks to file in order
+					for i, chunk := range c.webrtc.chunks {
+						if chunk == nil {
+							c.ui.ShowError(fmt.Sprintf("Missing chunk %d/%d", i+1, c.webrtc.totalChunks))
+							c.webrtc.fileTransfer.file.Close()
+							return
+						}
+						if _, err := c.webrtc.fileTransfer.file.Write(chunk); err != nil {
+							c.ui.ShowError(fmt.Sprintf("Failed to write chunk %d: %v", i+1, err))
+							c.webrtc.fileTransfer.file.Close()
+							return
+						}
+					}
+
+					// Close file and clear chunk buffer
 					c.webrtc.fileTransfer.file.Close()
+					c.webrtc.chunks = nil
 
 					// Verify file size
 					expectedSize := c.webrtc.fileTransfer.Size
@@ -467,14 +482,8 @@ func (c *Client) setupDataChannel(channel *webrtc.DataChannel) {
 			c.webrtc.chunks[chunkIndex] = make([]byte, len(msg.Data))
 			copy(c.webrtc.chunks[chunkIndex], msg.Data)
 
-			// Write chunk to file
-			n, err := c.webrtc.fileTransfer.file.Write(msg.Data)
-			if err != nil {
-				c.ui.ShowError(fmt.Sprintf("Failed to write chunk: %v", err))
-				return
-			}
-			
-			c.webrtc.receivedSize += int64(n)
+			// Update received size
+			c.webrtc.receivedSize += int64(len(msg.Data))
 
 			// Show progress
 			percentage := int((float64(c.webrtc.receivedSize) / float64(c.webrtc.fileTransfer.Size)) * 100)
