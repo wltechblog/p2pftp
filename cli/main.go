@@ -38,6 +38,11 @@ type FileTransfer struct {
     *FileInfo
     file     *os.File
     filePath string
+    currentChunk struct {
+        sequence int
+        total   int
+        size    int
+    }
 }
 
 const (
@@ -267,6 +272,8 @@ func (c *Client) setupDataChannel(channel *webrtc.DataChannel) {
     channel.OnOpen(func() {
         c.webrtc.connected = true
         c.ui.LogDebug("Data channel ready for transfer")
+        c.ui.ShowChat(c.webrtc.peerToken, "Connected to peer")
+        c.ui.ShowFileTransfer("Ready for file transfer")
     })
 
     channel.OnClose(func() {
@@ -294,6 +301,17 @@ func (c *Client) setupDataChannel(channel *webrtc.DataChannel) {
                 case "file-info":
                     // Handle file info
                     c.handleFileInfo(data)
+                case "chunk":
+                    // Store chunk metadata for next binary message
+                    if seq, ok := data["sequence"].(float64); ok {
+                        c.webrtc.fileTransfer.currentChunk.sequence = int(seq)
+                    }
+                    if total, ok := data["total"].(float64); ok {
+                        c.webrtc.fileTransfer.currentChunk.total = int(total)
+                    }
+                    if size, ok := data["size"].(float64); ok {
+                        c.webrtc.fileTransfer.currentChunk.size = int(size)
+                    }
                 case "file-complete":
                     c.handleFileComplete()
                 }
@@ -342,18 +360,26 @@ func (c *Client) handleBinaryData(data []byte) {
         return
     }
 
-    chunkIndex := int(c.webrtc.receivedSize / int64(maxChunkSize))
-    if chunkIndex >= len(c.webrtc.chunks) {
+    // Verify chunk size matches metadata
+    if len(data) != c.webrtc.fileTransfer.currentChunk.size {
+        c.ui.ShowError(fmt.Sprintf("Chunk size mismatch. Expected: %d, Got: %d",
+            c.webrtc.fileTransfer.currentChunk.size, len(data)))
         return
     }
 
-    c.webrtc.chunks[chunkIndex] = make([]byte, len(data))
-    copy(c.webrtc.chunks[chunkIndex], data)
+    sequence := c.webrtc.fileTransfer.currentChunk.sequence
+    total := c.webrtc.fileTransfer.currentChunk.total
+
+    // Store chunk at correct position
+    c.webrtc.chunks[sequence] = make([]byte, len(data))
+    copy(c.webrtc.chunks[sequence], data)
     c.webrtc.receivedSize += int64(len(data))
 
     percentage := int((float64(c.webrtc.receivedSize) / float64(c.webrtc.fileTransfer.Size)) * 100)
-    c.ui.ShowFileTransfer(fmt.Sprintf("Receiving %s (%d/%d bytes) - %d%%",
+    c.ui.ShowFileTransfer(fmt.Sprintf("Receiving %s - Chunk %d/%d (%d/%d bytes) - %d%%",
         c.webrtc.fileTransfer.Name,
+        sequence + 1,
+        total,
         c.webrtc.receivedSize,
         c.webrtc.fileTransfer.Size,
         percentage))
@@ -461,6 +487,8 @@ func (c *Client) SendFile(filePath string) error {
     buffer := make([]byte, maxChunkSize)
     totalSent := int64(0)
     startTime := time.Now()
+    totalChunks := int(math.Ceil(float64(info.Size()) / float64(maxChunkSize)))
+    chunkIndex := 0
 
     for {
         n, err := file.Read(buffer)
@@ -476,17 +504,43 @@ func (c *Client) SendFile(filePath string) error {
             time.Sleep(100 * time.Millisecond)
         }
 
+        // Send chunk metadata
+        chunkInfo := struct {
+            Type     string `json:"type"`
+            Sequence int    `json:"sequence"`
+            Total    int    `json:"total"`
+            Size     int    `json:"size"`
+        }{
+            Type:     "chunk",
+            Sequence: chunkIndex,
+            Total:    totalChunks,
+            Size:     n,
+        }
+
+        chunkInfoJSON, err := json.Marshal(chunkInfo)
+        if err != nil {
+            return fmt.Errorf("failed to marshal chunk info: %v", err)
+        }
+
+        err = c.webrtc.dataChannel.SendText(string(chunkInfoJSON))
+        if err != nil {
+            return fmt.Errorf("failed to send chunk info: %v", err)
+        }
+
+        // Send binary chunk
         err = c.webrtc.dataChannel.Send(buffer[:n])
         if err != nil {
             return fmt.Errorf("failed to send chunk: %v", err)
         }
 
         totalSent += int64(n)
+        chunkIndex++
+
         if time.Since(startTime) > 200*time.Millisecond {
             percentage := int((float64(totalSent) / float64(info.Size())) * 100)
             rate := float64(totalSent) / time.Since(startTime).Seconds() / 1024 // KB/s
-            c.ui.ShowFileTransfer(fmt.Sprintf("Sending %s (%d/%d bytes) - %d%% (%.1f KB/s)",
-                info.Name(), totalSent, info.Size(), percentage, rate))
+            c.ui.ShowFileTransfer(fmt.Sprintf("Sending %s - Chunk %d/%d (%d/%d bytes) - %d%% (%.1f KB/s)",
+                info.Name(), chunkIndex, totalChunks, totalSent, info.Size(), percentage, rate))
             startTime = time.Now()
         }
     }
