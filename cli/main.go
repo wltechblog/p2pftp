@@ -56,7 +56,7 @@ ui       *UI
 webrtc   *WebRTCState
 }
 
-// Calculate MD5 hash of a file
+// Calculate MD5 hash of a file with chunking for large files
 func calculateMD5(filePath string) (string, error) {
 	file, err := os.Open(filePath)
 	if err != nil {
@@ -64,9 +64,21 @@ func calculateMD5(filePath string) (string, error) {
 	}
 	defer file.Close()
 
+	// Use a buffer to read the file in chunks
 	hash := md5.New()
-	if _, err := io.Copy(hash, file); err != nil {
-		return "", fmt.Errorf("failed to calculate MD5: %v", err)
+	buffer := make([]byte, 32*1024) // 32KB chunks for MD5 calculation
+	
+	for {
+		n, err := file.Read(buffer)
+		if n > 0 {
+			hash.Write(buffer[:n])
+		}
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return "", fmt.Errorf("error reading file for MD5 calculation: %v", err)
+		}
 	}
 
 	return hex.EncodeToString(hash.Sum(nil)), nil

@@ -942,7 +942,7 @@ function formatBytes(bytes, decimals = 2) {
 
 // Calculate MD5 hash of a file or blob
 // Note: Web Crypto API doesn't support MD5 in some browsers as it's considered cryptographically weak
-// This is a fallback implementation using SparkMD5 library
+// This is a fallback implementation using SparkMD5 library with chunking for large files
 async function calculateMD5(file) {
     return new Promise((resolve, reject) => {
         try {
@@ -950,17 +950,42 @@ async function calculateMD5(file) {
             const script = document.createElement('script');
             script.src = 'https://cdnjs.cloudflare.com/ajax/libs/spark-md5/3.0.2/spark-md5.min.js';
             script.onload = () => {
-                const reader = new FileReader();
-                const spark = new SparkMD5.ArrayBuffer();
+                // For large files, we need to process in chunks to avoid memory issues
+                const chunkSize = 2097152; // 2MB chunks for MD5 calculation
+                const chunks = Math.ceil(file.size / chunkSize);
+                let currentChunk = 0;
                 
-                reader.onload = function(event) {
-                    spark.append(event.target.result);
-                    const hashHex = spark.end();
-                    resolve(hashHex);
+                const spark = new SparkMD5.ArrayBuffer();
+                const fileReader = new FileReader();
+                
+                fileReader.onload = function(e) {
+                    console.debug(`[WebRTC] MD5: Read chunk ${currentChunk + 1} of ${chunks}`);
+                    spark.append(e.target.result); // Append chunk
+                    currentChunk++;
+                    
+                    if (currentChunk < chunks) {
+                        loadNext();
+                    } else {
+                        // Finalize hash calculation
+                        const hashHex = spark.end();
+                        console.debug(`[WebRTC] MD5 calculation complete: ${hashHex}`);
+                        resolve(hashHex);
+                    }
                 };
                 
-                reader.onerror = error => reject(error);
-                reader.readAsArrayBuffer(file);
+                fileReader.onerror = function(e) {
+                    reject(new Error("Error reading file for MD5 calculation"));
+                };
+                
+                function loadNext() {
+                    const start = currentChunk * chunkSize;
+                    const end = Math.min(start + chunkSize, file.size);
+                    const chunk = file.slice(start, end);
+                    fileReader.readAsArrayBuffer(chunk);
+                }
+                
+                // Start reading the first chunk
+                loadNext();
             };
             
             script.onerror = () => {
