@@ -17,8 +17,14 @@ export function init() {
         handleAccept: acceptConnection,
         handleReject: rejectConnection,
         handleSendMessage: sendMessage,
-        handleFileSelected: (file) => {}, // Handled by filetransfer.js
-        handleSendFile: (file) => {}, // Handled by filetransfer.js
+        handleFileSelected: () => {}, // No special handling needed for file selection
+        handleSendFile: (file) => {
+            if (file && dataChannel?.readyState === 'open') {
+                import('/static/js/filetransfer.js').then(module => {
+                    module.sendFile(file);
+                });
+            }
+        },
         disconnectFromPeer,
         isConnected: () => dataChannel?.readyState === 'open'
     });
@@ -248,11 +254,13 @@ function setupDataChannel(channel) {
         ui.addSystemMessage(`Data channel error: ${error}`);
     };
     
-    // Message handling is done in filetransfer.js
-    dataChannel.onmessage = (event) => {
-        // Forward to filetransfer.js
-        window.dispatchEvent(new CustomEvent('datachannel-message', { detail: event }));
-    };
+    // Initialize file transfer and set up message handling
+    import('/static/js/filetransfer.js').then(module => {
+        module.init();
+        dataChannel.onmessage = (event) => {
+            window.dispatchEvent(new CustomEvent('datachannel-message', { detail: event }));
+        };
+    });
 }
 
 // Handle WebRTC offer
