@@ -526,7 +526,7 @@ func (c *Client) SendFile(filePath string) error {
             time.Sleep(100 * time.Millisecond)
         }
 
-        // Send chunk metadata
+        // Send chunk metadata with actual size
         chunkInfo := struct {
             Type     string `json:"type"`
             Sequence int    `json:"sequence"`
@@ -549,7 +549,7 @@ func (c *Client) SendFile(filePath string) error {
             return fmt.Errorf("failed to send chunk info: %v", err)
         }
 
-        // Send binary chunk
+        // Send binary chunk (no need to pad to maxChunkSize)
         err = c.webrtc.dataChannel.Send(buffer[:n])
         if err != nil {
             return fmt.Errorf("failed to send chunk: %v", err)
