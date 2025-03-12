@@ -28,11 +28,3 @@ export const RTC_CONFIG = {
     sdpSemantics: 'unified-plan',
     iceServersPolicy: 'all'  // Try all servers, not just the first working one
 };
-
-// Data channel configuration
-export const DATA_CHANNEL_CONFIG = {
-    ordered: true,        // Guarantee order of messages
-    maxRetransmits: 30,   // Increased retransmits for better reliability
-    negotiated: true,     // Match CLI's negotiated channel
-    id: 1                // Use same ID as CLI
-};
