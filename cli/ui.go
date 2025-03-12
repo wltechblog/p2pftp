@@ -278,15 +278,20 @@ func (ui *UI) HandleInput(key tcell.Key) {
                 return
             }
 
+            req := ui.lastRequest // Copy for goroutine
+            ui.lastRequest = "" // Clear immediately in main thread
+            ui.LogDebug("Accepting connection request...")
+            ui.app.SetFocus(ui.inputField)
+            
             go func(token string) {
                 if err := ui.client.Accept(token); err != nil {
                     ui.ShowError(fmt.Sprintf("Error accepting: %v", err))
-                } else {
-                    ui.lastRequest = ""
+                    // Restore lastRequest on error
+                    ui.app.QueueUpdateDraw(func() {
+                        ui.lastRequest = req
+                    })
                 }
             }(tokenToAccept)
-            ui.LogDebug("Accepting connection request...")
-            ui.app.SetFocus(ui.inputField)
         }
 
     case "/reject":
@@ -303,15 +308,20 @@ func (ui *UI) HandleInput(key tcell.Key) {
                 return
             }
 
+            req := ui.lastRequest // Copy for goroutine
+            ui.lastRequest = "" // Clear immediately in main thread
+            ui.LogDebug("Rejecting connection request...")
+            ui.app.SetFocus(ui.inputField)
+            
             go func(token string) {
                 if err := ui.client.Reject(token); err != nil {
                     ui.ShowError(fmt.Sprintf("Error rejecting: %v", err))
-                } else {
-                    ui.lastRequest = ""
+                    // Restore lastRequest on error
+                    ui.app.QueueUpdateDraw(func() {
+                        ui.lastRequest = req
+                    })
                 }
             }(tokenToReject)
-            ui.LogDebug("Rejecting connection request...")
-            ui.app.SetFocus(ui.inputField)
         }
 
     case "/send":
