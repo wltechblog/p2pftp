@@ -174,6 +174,20 @@ func (c *Client) setupPeerConnection() error {
 		}
 	})
 
+	// Monitor SCTP transport
+	go func() {
+		// Wait for SCTP transport to be established
+		for peerConn.SCTP() == nil {
+			time.Sleep(100 * time.Millisecond)
+		}
+		c.ui.LogDebug(fmt.Sprintf("SCTP transport established with state: %s", peerConn.SCTP().State()))
+	}()
+
+	// Log signaling state changes
+	peerConn.OnSignalingStateChange(func(state webrtc.SignalingState) {
+		c.ui.LogDebug(fmt.Sprintf("Signaling state changed to: %s", state))
+	})
+
 	// Monitor ICE connection state
 	peerConn.OnICEConnectionStateChange(func(state webrtc.ICEConnectionState) {
 		c.ui.LogDebug(fmt.Sprintf("ICE connection state changed to: %s", state))
@@ -233,18 +247,29 @@ func (c *Client) setupPeerConnection() error {
 	})
 
 	if c.webrtc.isInitiator {
-		// Configure data channel for reliability with large files
+		// Configure data channel to match web UI settings
+		ordered := true
+		maxRetransmits := uint16(30)
 		dataChannelConfig := &webrtc.DataChannelInit{
-			Ordered:        new(bool),   // Guarantee order of messages
-			MaxRetransmits: new(uint16), // Increased retransmits for reliability
+			Ordered:        &ordered,
+			MaxRetransmits: &maxRetransmits,
 		}
-		*dataChannelConfig.Ordered = true
-		*dataChannelConfig.MaxRetransmits = 30 // Increased for better reliability
-		
+
+		c.ui.LogDebug("Creating data channel with ordered delivery and retransmits")
 		dataChannel, err := peerConn.CreateDataChannel("p2pftp", dataChannelConfig)
 		if err != nil {
 			return fmt.Errorf("failed to create data channel: %v", err)
 		}
+
+		// Log data channel state
+		c.ui.LogDebug(fmt.Sprintf("Data channel created with state: %s", dataChannel.ReadyState().String()))
+
+		// Set buffered amount low threshold to help with flow control
+		dataChannel.SetBufferedAmountLowThreshold(maxChunkSize * 4)
+		dataChannel.OnBufferedAmountLow(func() {
+			c.ui.LogDebug("Data channel buffer low event")
+		})
+
 		c.setupDataChannel(dataChannel)
 	} else {
 		peerConn.OnDataChannel(func(channel *webrtc.DataChannel) {
@@ -259,18 +284,46 @@ func (c *Client) setupPeerConnection() error {
 func (c *Client) setupDataChannel(channel *webrtc.DataChannel) {
 	c.webrtc.dataChannel = channel
 
+	// Log initial state
+	c.ui.LogDebug(fmt.Sprintf("Setting up data channel (ID: %d, Label: %s, State: %s)", 
+		channel.ID(), channel.Label(), channel.ReadyState().String()))
+
+	// Wait for data channel to be ready
 	channel.OnOpen(func() {
-		c.ui.LogDebug("Data channel opened")
+		c.ui.LogDebug(fmt.Sprintf("Data channel opened (ID: %d, Label: %s)", channel.ID(), channel.Label()))
 		c.webrtc.connected = true
+
+		// Log data channel configuration
+		c.ui.LogDebug(fmt.Sprintf("Data channel config - Ordered: %v, MaxRetransmits: %v, State: %s", 
+			channel.Ordered(), channel.MaxRetransmits(), channel.ReadyState().String()))
+
+		// Log negotiated vs non-negotiated
+		c.ui.LogDebug(fmt.Sprintf("Data channel negotiated: %v, Protocol: %s", 
+			channel.Negotiated(), channel.Protocol()))
+
+		// Log SCTP transport state
+		if transport := c.webrtc.peerConn.SCTP(); transport != nil {
+			c.ui.LogDebug(fmt.Sprintf("SCTP transport state on data channel open: %s", transport.State()))
+		} else {
+			c.ui.LogDebug("SCTP transport not yet available")
+		}
 	})
 
 	channel.OnClose(func() {
-		c.ui.LogDebug("Data channel closed")
+		c.ui.LogDebug(fmt.Sprintf("Data channel closed (Last state: %s)", channel.ReadyState().String()))
 		c.webrtc.connected = false
+		
 		// Close file if transfer was in progress
 		if c.webrtc.fileTransfer != nil && c.webrtc.fileTransfer.file != nil {
+			c.ui.LogDebug(fmt.Sprintf("Closing incomplete file transfer (%d/%d bytes received)", 
+				c.webrtc.receivedSize, c.webrtc.fileTransfer.Size))
 			c.webrtc.fileTransfer.file.Close()
+			c.webrtc.fileTransfer = nil
 		}
+	})
+
+	channel.OnError(func(err error) {
+		c.ui.LogDebug(fmt.Sprintf("Data channel error: %v", err))
 	})
 
 	channel.OnMessage(func(msg webrtc.DataChannelMessage) {
