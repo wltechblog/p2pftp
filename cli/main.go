@@ -527,9 +527,9 @@ defer file.Close()
 
 fileInfo, err := file.Stat()
 if err != nil {
-return fmt.Errorf("failed to get file info: %v", err)
+    return fmt.Errorf("failed to get file info: %v", err)
 }
-
+startTime := time.Now()
 fileSize := fileInfo.Size()
 
 // Calculate MD5 hash for file integrity validation
@@ -596,10 +596,14 @@ for {
     
     // Update progress less frequently for large files to avoid UI flooding
     if time.Since(lastProgressUpdate) > 200*time.Millisecond {
-        percentage := int((float64(totalSent) / float64(fileSize)) * 100)
-        c.ui.ShowFileTransfer(fmt.Sprintf("Sending %s (%d/%d bytes) - %d%%",
-            fileInfo.Name(), totalSent, fileSize, percentage))
-        lastProgressUpdate = time.Now()
+percentage := int((float64(totalSent) / float64(fileSize)) * 100)
+elapsed := time.Since(startTime)
+rate := float64(totalSent) / elapsed.Seconds()
+rateKB := rate / 1024
+rateStr := fmt.Sprintf("%.1f KB/s", rateKB)
+c.ui.ShowFileTransfer(fmt.Sprintf("Sending %s (%d/%d bytes) - %d%% (%s)",
+    fileInfo.Name(), totalSent, fileSize, percentage, rateStr))
+lastProgressUpdate = time.Now()
     }
 }
 
