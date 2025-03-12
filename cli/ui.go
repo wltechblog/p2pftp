@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -159,7 +160,7 @@ func NewUI(client *Client) *UI {
 
     // Add help text to chat view
     fmt.Fprintf(ui.chatView, "Commands:\n")
-    fmt.Fprintf(ui.chatView, "  /token - Show your token\n")
+    fmt.Fprintf(ui.chatView, "  /token - Show your token (click on token to copy)\n")
     fmt.Fprintf(ui.chatView, "  /connect <token> - Connect to a peer\n")
     fmt.Fprintf(ui.chatView, "  /accept [token] - Accept connection request\n")
     fmt.Fprintf(ui.chatView, "  /reject [token] - Reject connection request\n")
@@ -310,9 +311,73 @@ func (ui *UI) Run() error {
     return ui.app.SetRoot(ui.layout, true).Run()
 }
 
+func copyToClipboard(text string) error {
+    // Try xclip first (X11)
+    if _, err := exec.LookPath("xclip"); err == nil {
+        cmd := exec.Command("xclip", "-selection", "clipboard")
+        cmd.Stdin = strings.NewReader(text)
+        return cmd.Run()
+    }
+
+    // Try pbcopy (macOS)
+    if _, err := exec.LookPath("pbcopy"); err == nil {
+        cmd := exec.Command("pbcopy")
+        cmd.Stdin = strings.NewReader(text)
+        return cmd.Run()
+    }
+
+    return fmt.Errorf("no clipboard command available")
+}
+
 func (ui *UI) SetToken(token string) {
     ui.token = token
-    ui.appendChat(fmt.Sprintf("Token received: %s", token))
+
+    // Create a clickable token message
+    tokenMsg := fmt.Sprintf("Token received: [::u]%s[::-]", token)
+    
+    // Add click handler for the token
+    ui.chatView.SetMouseCapture(func(action tview.MouseAction, event *tcell.EventMouse) (tview.MouseAction, *tcell.EventMouse) {
+        if action == tview.MouseLeftClick {
+            x, y := event.Position()
+            text := ui.chatView.GetText(false)
+            lines := strings.Split(text, "\n")
+            
+            // Find the token line
+            for i, line := range lines {
+                if strings.Contains(line, token) && y == i {
+                    // Check if click is within token bounds
+                    tokenStart := strings.Index(line, token)
+                    tokenEnd := tokenStart + len(token)
+                    if x >= tokenStart && x < tokenEnd {
+                        go func() {
+                            if err := copyToClipboard(token); err != nil {
+                                ui.ShowError(fmt.Sprintf("Failed to copy token: %v", err))
+                            } else {
+                                ui.appendChat("[green]Token copied to clipboard![white]")
+                            }
+                        }()
+                        return action, nil
+                    }
+                }
+            }
+        }
+        
+        // Handle scrolling
+        switch action {
+        case tview.MouseScrollUp:
+            row, _ := ui.chatView.GetScrollOffset()
+            ui.chatView.ScrollTo(row-1, 0)
+            return action, nil
+        case tview.MouseScrollDown:
+            row, _ := ui.chatView.GetScrollOffset()
+            ui.chatView.ScrollTo(row+1, 0)
+            return action, nil
+        }
+        
+        return action, event
+    })
+
+    ui.appendChat(tokenMsg)
 }
 
 func (ui *UI) ShowConnectionRequest(token string) {
