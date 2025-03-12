@@ -46,7 +46,7 @@ type FileTransfer struct {
 }
 
 const (
-    maxChunkSize = 65536 // 64KB chunks
+    maxChunkSize = 16384 // 16KB chunks for WebRTC compatibility
 )
 
 type WebRTCState struct {

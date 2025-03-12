@@ -1,5 +1,5 @@
 // WebRTC configuration
-export const CHUNK_SIZE = 65536; // 64KB chunks for better performance
+export const CHUNK_SIZE = 16384; // 16KB chunks for WebRTC compatibility
 export const PROGRESS_UPDATE_INTERVAL = 200; // Update progress every 200ms
 export const WS_URL = `wss://${window.location.host}/ws`;
 export const BYTES_PER_SEC_SMOOTHING = 0.1; // EMA smoothing factor for transfer rate
