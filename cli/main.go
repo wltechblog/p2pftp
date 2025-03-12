@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/md5"
+	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -28,6 +30,7 @@ type FileInfo struct {
 Name string `json:"name"`
 Size int64  `json:"size"`
 Type string `json:"type"`
+MD5  string `json:"md5,omitempty"` // MD5 hash for file integrity validation
 }
 
 const (
@@ -51,6 +54,28 @@ conn     *websocket.Conn
 token    string
 ui       *UI
 webrtc   *WebRTCState
+}
+
+// Calculate MD5 hash of a file
+func calculateMD5(filePath string) (string, error) {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return "", fmt.Errorf("failed to open file for MD5 calculation: %v", err)
+	}
+	defer file.Close()
+
+	hash := md5.New()
+	if _, err := io.Copy(hash, file); err != nil {
+		return "", fmt.Errorf("failed to calculate MD5: %v", err)
+	}
+
+	return hex.EncodeToString(hash.Sum(nil)), nil
+}
+
+// Calculate MD5 hash of a byte slice
+func calculateMD5FromBytes(data []byte) string {
+	hash := md5.Sum(data)
+	return hex.EncodeToString(hash[:])
 }
 
 func main() {
@@ -193,6 +218,18 @@ channel.OnMessage(func(msg webrtc.DataChannelMessage) {
                 if err != nil {
                     c.ui.ShowError(fmt.Sprintf("Failed to save file: %v", err))
                     return
+                }
+
+                // Validate MD5 checksum if provided
+                if c.webrtc.fileInfo.MD5 != "" {
+                    receivedMD5 := calculateMD5FromBytes(allData)
+                    if receivedMD5 != c.webrtc.fileInfo.MD5 {
+                        c.ui.ShowError(fmt.Sprintf("File integrity check failed! MD5 mismatch: expected %s, got %s", 
+                            c.webrtc.fileInfo.MD5, receivedMD5))
+                        c.ui.ShowFileTransfer(fmt.Sprintf("⚠️ Warning: File may be corrupted: %s", filePath))
+                    } else {
+                        c.ui.ShowFileTransfer(fmt.Sprintf("✓ File integrity verified (MD5: %s)", receivedMD5))
+                    }
                 }
 
                 c.ui.ShowFileTransfer(fmt.Sprintf("Saved file from peer to: %s", filePath))
@@ -464,7 +501,18 @@ return fmt.Errorf("failed to get file info: %v", err)
 
 fileSize := fileInfo.Size()
 
-// Send file info message first
+// Calculate MD5 hash for file integrity validation
+c.ui.ShowFileTransfer("Calculating MD5 checksum...")
+md5Hash, err := calculateMD5(filePath)
+if err != nil {
+c.ui.ShowError(fmt.Sprintf("Failed to calculate MD5: %v", err))
+// Continue without MD5 validation
+md5Hash = ""
+} else {
+c.ui.ShowFileTransfer(fmt.Sprintf("File MD5: %s", md5Hash))
+}
+
+// Send file info message first with MD5 hash
 infoMsg := struct {
 Type string   `json:"type"`
 Info FileInfo `json:"info"`
@@ -474,6 +522,7 @@ Info: FileInfo{
 Name: fileInfo.Name(),
 Size: fileSize,
 Type: "", // Not critical for CLI
+MD5:  md5Hash,
 },
 }
 

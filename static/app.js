@@ -659,16 +659,28 @@ function sendMessage() {
 }
 
 // Send a file over the data channel
-function sendFile(file) {
+async function sendFile(file) {
     if (!dataChannel || dataChannel.readyState !== 'open') return;
     
-    // Send file info first
+    // Calculate MD5 hash before sending
+    let md5Hash;
+    try {
+        md5Hash = await calculateMD5(file);
+        console.debug(`[WebRTC] File MD5 hash: ${md5Hash}`);
+    } catch (error) {
+        console.error('[WebRTC] Error calculating MD5:', error);
+        addSystemMessage(`Error calculating file checksum: ${error.message}`);
+        return;
+    }
+    
+    // Send file info first with MD5 hash
     dataChannel.send(JSON.stringify({
         type: 'file-info',
         info: {
             name: file.name,
             size: file.size,
-            type: file.type
+            type: file.type,
+            md5: md5Hash
         }
     }));
     
@@ -746,11 +758,35 @@ function sendFile(file) {
 }
 
 // Complete file reception and show download link
-function receiveFile() {
+async function receiveFile() {
     // Combine received buffer into a single Blob
     const received = new Blob(receiveBuffer);
-    receiveBuffer = [];
-
+    
+    // Validate MD5 checksum if provided
+    if (fileReceiveInfo.md5) {
+        updateStatus('Validating file integrity...');
+        try {
+            const receivedMD5 = await calculateMD5(received);
+            console.debug(`[WebRTC] Received file MD5: ${receivedMD5}, Expected: ${fileReceiveInfo.md5}`);
+            
+            if (receivedMD5 !== fileReceiveInfo.md5) {
+                addSystemMessage(`⚠️ File integrity check failed! The file may be corrupted.`);
+                showNotification('File Integrity Error', `${fileReceiveInfo.name} failed checksum validation`);
+                
+                // Still provide the file, but with a warning
+                const messageElement = document.createElement('div');
+                messageElement.className = 'text-red-500 dark:text-red-400 text-sm py-1';
+                messageElement.textContent = `Warning: File integrity check failed. The file may be corrupted or incomplete.`;
+                messagesContainer.appendChild(messageElement);
+            } else {
+                addSystemMessage(`✓ File integrity verified (MD5: ${receivedMD5})`);
+            }
+        } catch (error) {
+            console.error('[WebRTC] Error validating file MD5:', error);
+            addSystemMessage(`Error validating file integrity: ${error.message}`);
+        }
+    }
+    
     // Show notification and update title
     showNotification('File Received', `${fileReceiveInfo.name} is ready to download`);
     updateTitleWithSpinner(false);
@@ -780,6 +816,7 @@ function receiveFile() {
     updateStatus('Connected to peer');
     
     // Reset file transfer state
+    receiveBuffer = [];
     fileReceiveInfo = null;
     transferProgress.classList.add('hidden');
 }
@@ -899,6 +936,26 @@ function formatBytes(bytes, decimals = 2) {
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     
     return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+}
+
+// Calculate MD5 hash of a file or blob
+async function calculateMD5(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = async function(event) {
+            try {
+                const arrayBuffer = event.target.result;
+                const hashBuffer = await crypto.subtle.digest('MD5', arrayBuffer);
+                const hashArray = Array.from(new Uint8Array(hashBuffer));
+                const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+                resolve(hashHex);
+            } catch (error) {
+                reject(error);
+            }
+        };
+        reader.onerror = error => reject(error);
+        reader.readAsArrayBuffer(file);
+    });
 }
 
 // Initialize the application when the page loads
