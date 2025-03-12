@@ -142,6 +142,38 @@ export async function sendFile(file) {
     // Read and send file in chunks
     const reader = new FileReader();
     
+    const sendChunk = (chunk) => {
+        if (!dataChannel || dataChannel.readyState !== 'open') return;
+
+        const chunkIndex = Math.floor(currentOffset / CHUNK_SIZE);
+        const totalChunks = Math.ceil(currentFile.size / CHUNK_SIZE);
+        
+        // Send chunk metadata first
+        dataChannel.send(JSON.stringify({
+            type: 'chunk',
+            sequence: chunkIndex,
+            total: totalChunks,
+            size: chunk.byteLength
+        }));
+
+        // Then send the binary chunk
+        dataChannel.send(chunk);
+
+        currentOffset += chunk.byteLength;
+        updateProgress();
+        
+        if (currentOffset < currentFile.size) {
+            readNextSlice();
+        } else {
+            finishTransfer();
+        }
+    };
+
+    const readNextSlice = () => {
+        const slice = file.slice(currentOffset, currentOffset + CHUNK_SIZE);
+        reader.readAsArrayBuffer(slice);
+    };
+    
     reader.onload = function(event) {
         if (dataChannel.readyState === 'open') {
             const chunk = event.target.result;
@@ -154,14 +186,14 @@ export async function sendFile(file) {
                         setTimeout(waitAndSend, 100);
                         return;
                     }
-                    sendChunk(chunk, readSlice);
+                    sendChunk(chunk);
                 };
                 setTimeout(waitAndSend, 100);
                 return;
             }
 
             // Buffer is clear enough, send immediately
-            sendChunk(chunk, readSlice);
+            sendChunk(chunk);
         }
     };
     
@@ -170,42 +202,8 @@ export async function sendFile(file) {
         ui.hideTransferProgress();
     };
     
-    function readSlice(offset) {
-        const slice = file.slice(offset, offset + CHUNK_SIZE);
-        reader.readAsArrayBuffer(slice);
-    }
-    
     // Start reading
-    readSlice(0);
-}
-
-// Send a chunk with metadata
-function sendChunk(chunk, readSlice) {
-    const dataChannel = getDataChannel();
-    if (!dataChannel || dataChannel.readyState !== 'open') return;
-
-    const chunkIndex = Math.floor(currentOffset / CHUNK_SIZE);
-    const totalChunks = Math.ceil(currentFile.size / CHUNK_SIZE);
-    
-    // Send chunk metadata first
-    dataChannel.send(JSON.stringify({
-        type: 'chunk',
-        sequence: chunkIndex,
-        total: totalChunks,
-        size: chunk.byteLength
-    }));
-
-    // Then send the binary chunk
-    dataChannel.send(chunk);
-
-    currentOffset += chunk.byteLength;
-    updateProgress();
-    
-    if (currentOffset < currentFile.size) {
-        readSlice(currentOffset);
-    } else {
-        finishTransfer();
-    }
+    readNextSlice();
 }
 
 // Update transfer progress
