@@ -62,12 +62,17 @@ function processChunk(chunk) {
         const instantRate = chunk.byteLength / (now - receiveState.lastUpdate) * 1000; // bytes per second
         receiveState.bytesPerSecond = receiveState.bytesPerSecond * (1 - BYTES_PER_SEC_SMOOTHING) + instantRate * BYTES_PER_SEC_SMOOTHING;
 
-        const percentage = Math.min(Math.floor((receiveState.receivedSize / receiveState.fileInfo.size) * 100), 100);
+        // Use BigInt for precise calculation with large files
+        const received = BigInt(receiveState.receivedSize);
+        const total = BigInt(receiveState.fileInfo.size);
+        const percentage = Math.min(Number((received * BigInt(100)) / total), 100);
         ui.updateTransferProgress(percentage, `⬇ ${receiveState.fileInfo.name} - ${formatBytes(receiveState.bytesPerSecond)}/s`, "receive");
 
         receiveState.lastUpdate = now;
     } else {
-        const percentage = Math.min(Math.floor((receiveState.receivedSize / receiveState.fileInfo.size) * 100), 100);
+        const received = BigInt(receiveState.receivedSize);
+        const total = BigInt(receiveState.fileInfo.size);
+        const percentage = Math.min(Number((received * BigInt(100)) / total), 100);
         ui.updateTransferProgress(percentage, `⬇ ${receiveState.fileInfo.name}`, "receive");
     }
 
@@ -94,8 +99,11 @@ export function handleDataChannelMessage(event) {
                     return;
                 }
                 
-                // Prepare to receive a file
-                receiveState.buffer = new Array(Math.ceil(messageObj.info.size / CHUNK_SIZE));
+                // Prepare to receive a file - use BigInt for large file calculations
+                const fileSize = BigInt(messageObj.info.size);
+                const chunkSize = BigInt(CHUNK_SIZE);
+                const numChunks = Number((fileSize + chunkSize - BigInt(1)) / chunkSize);
+                receiveState.buffer = new Array(numChunks);
                 receiveState.receivedSize = 0;
                 receiveState.fileInfo = messageObj.info;
                 receiveState.startTime = Date.now();
@@ -186,8 +194,12 @@ export async function sendFile(file) {
     const sendChunk = (chunk) => {
         if (!dataChannel || dataChannel.readyState !== 'open') return;
 
-        const chunkIndex = Math.floor(sendState.offset / CHUNK_SIZE);
-        const totalChunks = Math.ceil(sendState.currentFile.size / CHUNK_SIZE);
+        // Use BigInt for large file handling
+        const offset = BigInt(sendState.offset);
+        const chunkSize = BigInt(CHUNK_SIZE);
+        const fileSize = BigInt(sendState.currentFile.size);
+        const chunkIndex = Number(offset / chunkSize);
+        const totalChunks = Number((fileSize + chunkSize - BigInt(1)) / chunkSize);
         
         dataChannel.send(JSON.stringify({
             type: 'chunk',
@@ -245,7 +257,10 @@ export async function sendFile(file) {
 // Update transfer progress
 function updateProgress() {
     if (!sendState.currentFile) return;
-    const percentage = Math.floor((sendState.offset / sendState.currentFile.size) * 100);
+    // Use BigInt for precise calculation with large files
+    const offset = BigInt(sendState.offset);
+    const size = BigInt(sendState.currentFile.size);
+    const percentage = Number((offset * BigInt(100)) / size);
     const now = Date.now();
     
     if (now - sendState.lastUpdate >= PROGRESS_UPDATE_INTERVAL) {
