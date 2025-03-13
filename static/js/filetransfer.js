@@ -19,6 +19,58 @@ export function init() {
     // No initialization needed now that we handle messages directly
 }
 
+// Process a chunk after converting to Uint8Array
+function processChunk(chunk) {
+    if (!fileReceiveInfo || !fileReceiveInfo.currentChunk) {
+        console.error('[WebRTC] Missing chunk metadata');
+        return;
+    }
+
+    const { sequence, total, size } = fileReceiveInfo.currentChunk;
+    console.debug(`[WebRTC] Processing chunk ${sequence + 1}/${total}, size: ${size}`);
+
+    // Verify chunk size matches metadata
+    if (chunk.byteLength !== size) {
+        console.error(`[WebRTC] Chunk size mismatch. Expected: ${size}, Got: ${chunk.byteLength}`);
+        return;
+    }
+
+    // Verify sequence is within bounds
+    if (sequence >= receiveBuffer.length) {
+        console.error(`[WebRTC] Invalid chunk sequence: ${sequence}, total chunks: ${receiveBuffer.length}`);
+        return;
+    }
+
+    // Store chunk at correct position
+    receiveBuffer[sequence] = chunk;
+    receivedSize += chunk.byteLength;
+
+    // Progress and transfer rate tracking
+    const now = Date.now();
+    if (now - lastProgressUpdate >= PROGRESS_UPDATE_INTERVAL) {
+        const timeDiff = (now - transferStartTime) / 1000; // seconds
+        const instantRate = chunk.byteLength / (now - lastProgressUpdate) * 1000; // bytes per second
+        bytesPerSecond = bytesPerSecond * (1 - BYTES_PER_SEC_SMOOTHING) + instantRate * BYTES_PER_SEC_SMOOTHING;
+
+        const percentage = Math.min(Math.floor((receivedSize / fileReceiveInfo.size) * 100), 100);
+        ui.updateTransferProgress(percentage, `Receiving ${fileReceiveInfo.name} - Chunk ${sequence + 1}/${total} - ${formatBytes(bytesPerSecond)}/s`);
+
+        console.debug(`[WebRTC] Transfer rate: ${formatBytes(bytesPerSecond)}/s`);
+        lastProgressUpdate = now;
+    } else {
+        const percentage = Math.min(Math.floor((receivedSize / fileReceiveInfo.size) * 100), 100);
+        ui.updateTransferProgress(percentage, `Receiving ${fileReceiveInfo.name} - Chunk ${sequence + 1}/${total}`);
+    }
+
+    // Clear chunk info
+    delete fileReceiveInfo.currentChunk;
+
+    // Check if transfer is complete
+    if (receivedSize >= fileReceiveInfo.size) {
+        receiveFile();
+    }
+}
+
 // Handle incoming data channel messages
 export function handleDataChannelMessage(event) {
     const data = event.data;
@@ -65,60 +117,23 @@ export function handleDataChannelMessage(event) {
         console.debug('[WebRTC] Raw binary data:', event.data);
         console.debug('[WebRTC] Current chunk info:', fileReceiveInfo.currentChunk);
 
-        // Convert ArrayBuffer to Uint8Array
-        let chunk;
+        // Convert data to Uint8Array
         if (event.data instanceof ArrayBuffer) {
-            chunk = new Uint8Array(event.data);
+            processChunk(new Uint8Array(event.data));
         } else if (event.data instanceof Blob) {
-            console.error('[WebRTC] Received Blob instead of ArrayBuffer');
-            return;
+            // Convert Blob to ArrayBuffer then Uint8Array
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const arrayBuffer = e.target.result;
+                if (arrayBuffer instanceof ArrayBuffer) {
+                    processChunk(new Uint8Array(arrayBuffer));
+                } else {
+                    console.error('[WebRTC] FileReader result is not an ArrayBuffer');
+                }
+            };
+            reader.readAsArrayBuffer(event.data);
         } else {
             console.error('[WebRTC] Received unknown data type:', typeof event.data);
-            return;
-        }
-
-        const { sequence, total, size } = fileReceiveInfo.currentChunk;
-        console.debug(`[WebRTC] Processing chunk ${sequence + 1}/${total}, size: ${size}`);
-        
-        // Verify chunk size matches metadata
-        if (chunk.byteLength !== size) {
-            console.error(`[WebRTC] Chunk size mismatch. Expected: ${size}, Got: ${chunk.byteLength}`);
-            return;
-        }
-
-        // Verify sequence is within bounds
-        if (sequence >= receiveBuffer.length) {
-            console.error(`[WebRTC] Invalid chunk sequence: ${sequence}, total chunks: ${receiveBuffer.length}`);
-            return;
-        }
-
-        // Store chunk at correct position
-        receiveBuffer[sequence] = chunk;
-        receivedSize += chunk.byteLength;
-
-        // Progress and transfer rate tracking
-        const now = Date.now();
-        if (now - lastProgressUpdate >= PROGRESS_UPDATE_INTERVAL) {
-            const timeDiff = (now - transferStartTime) / 1000; // seconds
-            const instantRate = chunk.byteLength / (now - lastProgressUpdate) * 1000; // bytes per second
-            bytesPerSecond = bytesPerSecond * (1 - BYTES_PER_SEC_SMOOTHING) + instantRate * BYTES_PER_SEC_SMOOTHING;
-
-            const percentage = Math.min(Math.floor((receivedSize / fileReceiveInfo.size) * 100), 100);
-            ui.updateTransferProgress(percentage, `Receiving ${fileReceiveInfo.name} - Chunk ${sequence + 1}/${total} - ${formatBytes(bytesPerSecond)}/s`);
-
-            console.debug(`[WebRTC] Transfer rate: ${formatBytes(bytesPerSecond)}/s`);
-            lastProgressUpdate = now;
-        } else {
-            const percentage = Math.min(Math.floor((receivedSize / fileReceiveInfo.size) * 100), 100);
-            ui.updateTransferProgress(percentage, `Receiving ${fileReceiveInfo.name} - Chunk ${sequence + 1}/${total}`);
-        }
-
-        // Clear chunk info
-        delete fileReceiveInfo.currentChunk;
-
-        // Check if transfer is complete
-        if (receivedSize >= fileReceiveInfo.size) {
-            receiveFile();
         }
     }
 }
