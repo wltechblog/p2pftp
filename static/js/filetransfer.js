@@ -13,6 +13,7 @@ let lastOffset = 0;
 let bytesPerSecond = 0;
 let currentFile = null;
 let currentOffset = 0;
+let transferInProgress = false;
 
 // Initialize file transfer functionality
 export function init() {
@@ -53,13 +54,13 @@ function processChunk(chunk) {
         bytesPerSecond = bytesPerSecond * (1 - BYTES_PER_SEC_SMOOTHING) + instantRate * BYTES_PER_SEC_SMOOTHING;
 
         const percentage = Math.min(Math.floor((receivedSize / fileReceiveInfo.size) * 100), 100);
-        ui.updateTransferProgress(percentage, `Receiving ${fileReceiveInfo.name} - Chunk ${sequence + 1}/${total} - ${formatBytes(bytesPerSecond)}/s`);
+        ui.updateTransferProgress(percentage, `Receiving ${fileReceiveInfo.name} - ${formatBytes(bytesPerSecond)}/s`);
 
         console.debug(`[WebRTC] Transfer rate: ${formatBytes(bytesPerSecond)}/s`);
         lastProgressUpdate = now;
     } else {
         const percentage = Math.min(Math.floor((receivedSize / fileReceiveInfo.size) * 100), 100);
-        ui.updateTransferProgress(percentage, `Receiving ${fileReceiveInfo.name} - Chunk ${sequence + 1}/${total}`);
+        ui.updateTransferProgress(percentage, `Receiving ${fileReceiveInfo.name}`);
     }
 
     // Clear chunk info
@@ -83,6 +84,11 @@ export function handleDataChannelMessage(event) {
             if (messageObj.type === 'message') {
                 ui.addPeerMessage(messageObj.content);
             } else if (messageObj.type === 'file-info') {
+                if (transferInProgress) {
+                    console.error('[WebRTC] Cannot receive file: Transfer already in progress');
+                    return;
+                }
+                
                 // Prepare to receive a file
                 receiveBuffer = new Array(Math.ceil(messageObj.info.size / CHUNK_SIZE)); // Pre-allocate array
                 receivedSize = 0;
@@ -90,6 +96,7 @@ export function handleDataChannelMessage(event) {
                 transferStartTime = Date.now();
                 lastProgressUpdate = transferStartTime;
                 bytesPerSecond = 0;
+                transferInProgress = true;
                 
                 ui.addSystemMessage(`Receiving file: ${fileReceiveInfo.name} (${formatBytes(fileReceiveInfo.size)})`);
                 ui.updateConnectionStatus(`Receiving file...`);
@@ -123,6 +130,12 @@ export async function sendFile(file) {
     const dataChannel = getDataChannel();
     if (!dataChannel || dataChannel.readyState !== 'open') return;
     
+    if (transferInProgress) {
+        ui.addSystemMessage("Cannot send file: Transfer already in progress");
+        return;
+    }
+    
+    transferInProgress = true;
     currentFile = file;
     currentOffset = 0;
     
@@ -215,6 +228,7 @@ export async function sendFile(file) {
     reader.onerror = (error) => {
         ui.addSystemMessage(`Error reading file: ${error}`);
         ui.hideTransferProgress();
+        transferInProgress = false;
     };
     
     // Start reading
@@ -233,8 +247,6 @@ function updateProgress() {
         bytesPerSecond = bytesPerSecond * (1 - BYTES_PER_SEC_SMOOTHING) + instantRate * BYTES_PER_SEC_SMOOTHING;
 
         ui.updateTransferProgress(percentage, `Sending ${currentFile.name} - ${formatBytes(bytesPerSecond)}/s`);
-        console.debug(`[WebRTC] Upload rate: ${formatBytes(bytesPerSecond)}/s`);
-        
         lastProgressUpdate = now;
         lastOffset = currentOffset;
     } else {
@@ -265,9 +277,11 @@ function finishTransfer() {
         // Reset file state
         currentFile = null;
         currentOffset = 0;
+        transferInProgress = false;
     } catch (error) {
         ui.addSystemMessage(`Error completing transfer: ${error}`);
         ui.hideTransferProgress();
+        transferInProgress = false;
     }
 }
 
@@ -320,6 +334,7 @@ async function receiveFile() {
         bytesPerSecond = 0;
         transferStartTime = 0;
         lastProgressUpdate = 0;
+        transferInProgress = false;
     };
 
     // Delay state reset until after all operations are complete

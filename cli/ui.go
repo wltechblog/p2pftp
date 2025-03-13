@@ -94,11 +94,11 @@ func NewUI(client *Client) *UI {
 
     fileView := tview.NewTextView()
     fileView.SetDynamicColors(true)
-    fileView.SetScrollable(true)
-    fileView.SetTitle("File Transfers")
+    fileView.SetScrollable(false)
+    fileView.SetTitle("Transfer Status")
     fileView.SetBorder(true)
     fileView.Box.SetTitleAlign(tview.AlignLeft)
-    fileView.SetWrap(true)
+    fileView.SetWrap(false)
     fileView.SetMouseCapture(func(action tview.MouseAction, event *tcell.EventMouse) (tview.MouseAction, *tcell.EventMouse) {
         switch action {
         case tview.MouseScrollUp:
@@ -454,11 +454,20 @@ func (ui *UI) ShowChat(from string, msg string) {
     }
 }
 
-func (ui *UI) ShowFileTransfer(msg string) {
+// UpdateTransferStatus shows current transfer status in a single line
+func (ui *UI) UpdateTransferStatus(status string) {
     ui.opChan <- func() {
-        timestamp := time.Now().Format("15:04:05")
-        fmt.Fprintf(ui.fileView, "[gray]%s[white] %s\n", timestamp, msg)
-        ui.fileView.ScrollToEnd()
+        ui.fileView.Clear()
+        if status != "" {
+            fmt.Fprintf(ui.fileView, "%s", status)
+        }
+    }
+}
+
+// ShowFileTransfer for backward compatibility
+func (ui *UI) ShowFileTransfer(msg string) {
+    if strings.Contains(msg, "Ready for") || strings.Contains(msg, "Validating") || strings.Contains(msg, "Saved") {
+        ui.UpdateTransferStatus(msg)
     }
 }
 

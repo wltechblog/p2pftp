@@ -39,11 +39,8 @@ type FileTransfer struct {
     *FileInfo
     file     *os.File
     filePath string
-    currentChunk struct {
-        sequence int
-        total   int
-        size    int
-    }
+    startTime time.Time
+    direction string // "send" or "receive"
 }
 
 const (
@@ -58,9 +55,9 @@ type WebRTCState struct {
     dataChannel  *webrtc.DataChannel
     receivedSize int64
     fileTransfer *FileTransfer
-    startTime    time.Time
     chunks       [][]byte
     totalChunks  int
+    transferInProgress bool
 }
 
 type Client struct {
@@ -174,6 +171,26 @@ func (c *Client) disconnectPeer() {
     c.webrtc = &WebRTCState{}
 }
 
+func formatBytes(bytes int64) string {
+    const unit = 1024
+    if bytes < unit {
+        return fmt.Sprintf("%d B", bytes)
+    }
+    div, exp := int64(unit), 0
+    for n := bytes / unit; n >= unit; n /= unit {
+        div *= unit
+        exp++
+    }
+    return fmt.Sprintf("%.1f %ciB", float64(bytes)/float64(div), "KMGTPE"[exp])
+}
+
+func calculateTransferSpeed(transferred int64, duration time.Duration) float64 {
+    if duration.Seconds() == 0 {
+        return 0
+    }
+    return float64(transferred) / duration.Seconds()
+}
+
 func (c *Client) setupPeerConnection() error {
     config := webrtc.Configuration{
         ICEServers: []webrtc.ICEServer{
@@ -191,13 +208,11 @@ func (c *Client) setupPeerConnection() error {
         return fmt.Errorf("failed to create peer connection: %v", err)
     }
 
-    // Monitor connection state changes
     peerConn.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {
         c.ui.LogDebug(fmt.Sprintf("Connection state changed to: %s", state))
         switch state {
         case webrtc.PeerConnectionStateFailed:
             c.ui.ShowError("Connection failed - attempting ICE restart")
-            // Try ICE restart
             if offer, err := peerConn.CreateOffer(&webrtc.OfferOptions{ICERestart: true}); err == nil {
                 if err := peerConn.SetLocalDescription(offer); err == nil {
                     c.SendMessage(Message{
@@ -213,14 +228,6 @@ func (c *Client) setupPeerConnection() error {
             c.ui.LogDebug("Connection closed")
             c.disconnectPeer()
         }
-    })
-
-    peerConn.OnSignalingStateChange(func(state webrtc.SignalingState) {
-        c.ui.LogDebug(fmt.Sprintf("Signaling state changed to: %s", state))
-    })
-
-    peerConn.OnICEGatheringStateChange(func(state webrtc.ICEGathererState) {
-        c.ui.LogDebug(fmt.Sprintf("ICE gathering state changed to: %s", state))
     })
 
     ordered := true
@@ -242,7 +249,6 @@ func (c *Client) setupPeerConnection() error {
     c.setupDataChannel(dataChannel)
     c.webrtc.peerConn = peerConn
 
-    // Add ICE candidate handler
     peerConn.OnICECandidate(func(candidate *webrtc.ICECandidate) {
         if candidate == nil {
             return
@@ -274,7 +280,7 @@ func (c *Client) setupDataChannel(channel *webrtc.DataChannel) {
         c.webrtc.connected = true
         c.ui.LogDebug("Data channel ready for transfer")
         c.ui.ShowChat(c.webrtc.peerToken, "Connected to peer")
-        c.ui.ShowFileTransfer("Ready for file transfer")
+        c.ui.UpdateTransferStatus("Ready for file transfer")
     })
 
     channel.OnClose(func() {
@@ -282,6 +288,7 @@ func (c *Client) setupDataChannel(channel *webrtc.DataChannel) {
         if c.webrtc.fileTransfer != nil && c.webrtc.fileTransfer.file != nil {
             c.webrtc.fileTransfer.file.Close()
             c.webrtc.fileTransfer = nil
+            c.webrtc.transferInProgress = false
         }
     })
 
@@ -297,7 +304,6 @@ func (c *Client) setupDataChannel(channel *webrtc.DataChannel) {
             return
         }
         
-        // Handle message based on type
         if msgType, ok := data["type"].(string); ok {
             switch msgType {
             case "message":
@@ -305,12 +311,17 @@ func (c *Client) setupDataChannel(channel *webrtc.DataChannel) {
                     c.ui.ShowChat(c.webrtc.peerToken, content)
                 }
             case "file-info":
-                // Handle file info
+                if c.webrtc.transferInProgress {
+                    c.ui.ShowError("Cannot receive file: Transfer already in progress")
+                    return
+                }
                 c.handleFileInfo(data)
             case "chunk":
-                // Handle chunk with base64 data
+                if !c.webrtc.transferInProgress {
+                    c.ui.ShowError("Received chunk but no transfer in progress")
+                    return
+                }
                 if seq, ok := data["sequence"].(float64); ok {
-                    sequence := int(seq)
                     if total, ok := data["total"].(float64); ok {
                         if size, ok := data["size"].(float64); ok {
                             if base64Data, ok := data["data"].(string); ok {
@@ -319,7 +330,7 @@ func (c *Client) setupDataChannel(channel *webrtc.DataChannel) {
                                     c.ui.ShowError(fmt.Sprintf("Failed to decode chunk data: %v", err))
                                     return
                                 }
-                                c.handleChunkData(sequence, int(total), int(size), binaryData)
+                                c.handleChunkData(int(seq), int(total), int(size), binaryData)
                             }
                         }
                     }
@@ -332,6 +343,11 @@ func (c *Client) setupDataChannel(channel *webrtc.DataChannel) {
 }
 
 func (c *Client) handleFileInfo(info map[string]interface{}) {
+    if c.webrtc.transferInProgress {
+        c.ui.ShowError("Cannot receive file: Transfer already in progress")
+        return
+    }
+
     // Create downloads directory if it doesn't exist
     downloadDir := "downloads"
     os.MkdirAll(downloadDir, 0755)
@@ -354,6 +370,7 @@ func (c *Client) handleFileInfo(info map[string]interface{}) {
     }
 
     totalChunks := int(math.Ceil(float64(size) / float64(maxChunkSize)))
+    c.webrtc.transferInProgress = true
     c.webrtc.fileTransfer = &FileTransfer{
         FileInfo: &FileInfo{
             Name: name,
@@ -362,10 +379,13 @@ func (c *Client) handleFileInfo(info map[string]interface{}) {
         },
         file:     file,
         filePath: filePath,
+        startTime: time.Now(),
+        direction: "receive",
     }
     c.webrtc.receivedSize = 0
     c.webrtc.chunks = make([][]byte, totalChunks)
-    c.ui.ShowFileTransfer(fmt.Sprintf("Receiving %s (0/%d bytes) - 0%%", name, int64(size)))
+    
+    c.ui.UpdateTransferStatus(fmt.Sprintf("⬇ %s [0%%] (0/s)", name))
 }
 
 func (c *Client) handleChunkData(sequence int, total int, size int, data []byte) {
@@ -385,14 +405,14 @@ func (c *Client) handleChunkData(sequence int, total int, size int, data []byte)
     copy(c.webrtc.chunks[sequence], data)
     c.webrtc.receivedSize += int64(len(data))
 
+    // Calculate transfer speed and percentage
+    speed := calculateTransferSpeed(c.webrtc.receivedSize, time.Since(c.webrtc.fileTransfer.startTime))
     percentage := int((float64(c.webrtc.receivedSize) / float64(c.webrtc.fileTransfer.Size)) * 100)
-    c.ui.ShowFileTransfer(fmt.Sprintf("Receiving %s - Chunk %d/%d (%d/%d bytes) - %d%%",
+    
+    c.ui.UpdateTransferStatus(fmt.Sprintf("⬇ %s [%d%%] (%s/s)",
         c.webrtc.fileTransfer.Name,
-        sequence + 1,
-        total,
-        c.webrtc.receivedSize,
-        c.webrtc.fileTransfer.Size,
-        percentage))
+        percentage,
+        formatBytes(int64(speed))))
 }
 
 func (c *Client) handleFileComplete() {
@@ -405,12 +425,18 @@ func (c *Client) handleFileComplete() {
         if chunk == nil {
             c.ui.ShowError(fmt.Sprintf("Missing chunk %d/%d", i+1, len(c.webrtc.chunks)))
             c.webrtc.fileTransfer.file.Close()
+            c.webrtc.fileTransfer = nil
+            c.webrtc.transferInProgress = false
+            c.ui.UpdateTransferStatus("Ready for file transfer")
             return
         }
 
         if _, err := c.webrtc.fileTransfer.file.Write(chunk); err != nil {
             c.ui.ShowError(fmt.Sprintf("Failed to write chunk: %v", err))
             c.webrtc.fileTransfer.file.Close()
+            c.webrtc.fileTransfer = nil
+            c.webrtc.transferInProgress = false
+            c.ui.UpdateTransferStatus("Ready for file transfer")
             return
         }
     }
@@ -418,24 +444,34 @@ func (c *Client) handleFileComplete() {
     // Close file before calculating MD5
     c.webrtc.fileTransfer.file.Close()
 
+    // Calculate average speed
+    totalTime := time.Since(c.webrtc.fileTransfer.startTime).Seconds()
+    avgSpeed := float64(c.webrtc.fileTransfer.Size) / totalTime
+
+    // Show completion status
+    c.ui.UpdateTransferStatus(fmt.Sprintf("⬇ %s [100%%] (avg: %s/s) - Validating...",
+        c.webrtc.fileTransfer.Name,
+        formatBytes(int64(avgSpeed))))
+
     // Validate MD5 checksum if provided
     if c.webrtc.fileTransfer.MD5 != "" {
-        c.ui.ShowFileTransfer("Validating file integrity...")
         receivedMD5, err := calculateMD5(c.webrtc.fileTransfer.filePath)
         if err != nil {
             c.ui.ShowError(fmt.Sprintf("Failed to calculate MD5: %v", err))
         } else if receivedMD5 != c.webrtc.fileTransfer.MD5 {
             c.ui.ShowError("⚠️ File integrity check failed! The file may be corrupted.")
-            c.ui.ShowFileTransfer(fmt.Sprintf("MD5 mismatch - Expected: %s, Got: %s", 
-                c.webrtc.fileTransfer.MD5, receivedMD5))
+            c.ui.UpdateTransferStatus(fmt.Sprintf("⬇ %s - FAILED CHECKSUM", c.webrtc.fileTransfer.Name))
         } else {
-            c.ui.ShowFileTransfer(fmt.Sprintf("✓ File integrity verified (MD5: %s)", receivedMD5))
+            c.ui.UpdateTransferStatus(fmt.Sprintf("⬇ %s - Complete ✓", c.webrtc.fileTransfer.Name))
+            time.Sleep(2 * time.Second)
         }
     }
 
-    c.ui.ShowFileTransfer(fmt.Sprintf("Saved file to: %s", c.webrtc.fileTransfer.filePath))
     c.webrtc.fileTransfer = nil
     c.webrtc.chunks = nil
+    c.webrtc.transferInProgress = false
+    time.Sleep(1 * time.Second)
+    c.ui.UpdateTransferStatus("Ready for file transfer")
 }
 
 func (c *Client) SendChat(text string) error {
@@ -469,6 +505,10 @@ func (c *Client) SendFile(filePath string) error {
         return fmt.Errorf("not connected to peer")
     }
 
+    if c.webrtc.transferInProgress {
+        return fmt.Errorf("file transfer already in progress")
+    }
+
     file, err := os.Open(filePath)
     if err != nil {
         return fmt.Errorf("failed to open file: %v", err)
@@ -479,6 +519,15 @@ func (c *Client) SendFile(filePath string) error {
     if err != nil {
         return fmt.Errorf("failed to get file info: %v", err)
     }
+
+    c.webrtc.transferInProgress = true
+    defer func() {
+        if err != nil {
+            c.webrtc.transferInProgress = false
+        }
+    }()
+
+    c.ui.UpdateTransferStatus(fmt.Sprintf("⬆ %s - Calculating checksum...", info.Name()))
 
     md5Hash, err := calculateMD5(filePath)
     if err != nil {
@@ -553,7 +602,6 @@ func (c *Client) SendFile(filePath string) error {
             return fmt.Errorf("failed to marshal chunk: %v", err)
         }
 
-        c.ui.LogDebug(fmt.Sprintf("Sending chunk %d/%d, size: %d", chunkIndex+1, totalChunks, n))
         err = c.webrtc.dataChannel.SendText(string(chunkJSON))
         if err != nil {
             return fmt.Errorf("failed to send chunk: %v", err)
@@ -564,9 +612,11 @@ func (c *Client) SendFile(filePath string) error {
 
         if time.Since(startTime) > 200*time.Millisecond {
             percentage := int((float64(totalSent) / float64(info.Size())) * 100)
-            rate := float64(totalSent) / time.Since(startTime).Seconds() / 1024 // KB/s
-            c.ui.ShowFileTransfer(fmt.Sprintf("Sending %s - Chunk %d/%d (%d/%d bytes) - %d%% (%.1f KB/s)",
-                info.Name(), chunkIndex, totalChunks, totalSent, info.Size(), percentage, rate))
+            speed := calculateTransferSpeed(totalSent, time.Since(startTime))
+            c.ui.UpdateTransferStatus(fmt.Sprintf("⬆ %s [%d%%] (%s/s)",
+                info.Name(),
+                percentage,
+                formatBytes(int64(speed))))
             startTime = time.Now()
         }
     }
@@ -587,6 +637,11 @@ func (c *Client) SendFile(filePath string) error {
     if err != nil {
         return fmt.Errorf("failed to send complete message: %v", err)
     }
+
+    c.ui.UpdateTransferStatus(fmt.Sprintf("⬆ %s - Complete ✓", info.Name()))
+    time.Sleep(2 * time.Second)
+    c.webrtc.transferInProgress = false
+    c.ui.UpdateTransferStatus("Ready for file transfer")
 
     return nil
 }
@@ -635,7 +690,6 @@ func (c *Client) handleMessages() {
                 continue
             }
 
-            // Send double wrapped SDP
             sdpObj := struct {
                 Type string `json:"type"`
                 SDP  string `json:"sdp"`
@@ -666,7 +720,6 @@ func (c *Client) handleMessages() {
                 continue
             }
 
-            // Parse the double-wrapped SDP
             var sdpObj struct {
                 Type string `json:"type"`
                 SDP  string `json:"sdp"`
@@ -682,7 +735,6 @@ func (c *Client) handleMessages() {
                 SDP:  sdpObj.SDP,
             }
 
-            c.ui.LogDebug(fmt.Sprintf("Received offer SDP: %s", sdpObj.SDP))
             err = c.webrtc.peerConn.SetRemoteDescription(offer)
             if err != nil {
                 c.ui.ShowError(fmt.Sprintf("Failed to set remote description: %v", err))
@@ -701,7 +753,6 @@ func (c *Client) handleMessages() {
                 continue
             }
 
-            // Convert answer to JSON
             answerMsg := struct {
                 Type string `json:"type"`
                 SDP  string `json:"sdp"`
@@ -727,7 +778,6 @@ func (c *Client) handleMessages() {
             }
 
         case "answer":
-            // Parse the double-wrapped SDP
             var sdpObj struct {
                 Type string `json:"type"`
                 SDP  string `json:"sdp"`
@@ -743,7 +793,6 @@ func (c *Client) handleMessages() {
                 SDP:  sdpObj.SDP,
             }
 
-            c.ui.LogDebug(fmt.Sprintf("Received answer SDP: %s", sdpObj.SDP))
             err = c.webrtc.peerConn.SetRemoteDescription(answer)
             if err != nil {
                 c.ui.ShowError(fmt.Sprintf("Failed to set remote description: %v", err))
