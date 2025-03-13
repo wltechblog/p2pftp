@@ -3,19 +3,21 @@
 A service providing secure and reliable P2P file transfers and chat
 
 ## Features
-
+- Web or CLI interfaces! 
 - Peer-to-peer file transfer over WebRTC data channels
 - Secure token-based authentication
 - Text chat between peers
 - Mobile-first responsive design (NOTE: Android browsers tend to kill webrtc connections when you switch away, so may not be reliable there!)
 - Real-time transfer progress indication
 - Direct end-to-end encrypted, peer-to-peer communication (no server involvement once connected)
+- Works through typical NAT situations
 
 ## What it isn't
 
 - A fully anonymous tool, unless you're using through a vpn, tor, etc that makes all your traffic anonymous. webrtc signaling reveals the public IPs of both endpoints, and webrtc support over VPN is not ubiquitous.
 - A robust chat app with emojis and such
 - Gluten free
+- Able to deal with complex, multi-layered NAT or VPNs that don't play well with WebRTC
 
 ## Motivations
 
@@ -52,7 +54,8 @@ go install github.com/wltechblog/p2pftp@latest
    p2pftp -addr 0.0.0.0 -port 9000
    ```
 
-2. Use a https proxy such as Caddy, nginx, etc to provide a secure connection.
+2. Use a https proxy such as Caddy, nginx, etc to provide a secure connection. Just forward all requests for the url hostname to localhost:8089 or whatever you specify in your command line.
+
 
 3. Open your browser to your URL, share your token with the person you want to connect with, or use the "Copy Link" to give them a URL that directly connects to you.
 
