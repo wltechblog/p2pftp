@@ -371,6 +371,22 @@ function finishTransfer() {
     }
 }
 
+// Helper function to validate file integrity
+async function validateFileIntegrity(file) {
+    if (!receiveState.fileInfo.md5) return;
+
+    ui.updateConnectionStatus('Validating file integrity...');
+    const receivedMD5 = await calculateMD5(file);
+    console.debug(`[WebRTC] Received file MD5: ${receivedMD5}, Expected: ${receiveState.fileInfo.md5}`);
+    
+    if (receivedMD5 !== receiveState.fileInfo.md5) {
+        ui.addSystemMessage(`⚠️ File integrity check failed! The file may be corrupted.`);
+        showNotification('File Integrity Error', `${receiveState.fileInfo.name} failed checksum validation`);
+    } else {
+        ui.addSystemMessage(`✓ File integrity verified (MD5: ${receivedMD5})`);
+    }
+}
+
 // Complete file reception and finalize
 function createDownloadLink(blob, filename) {
     const url = URL.createObjectURL(blob);
@@ -395,16 +411,7 @@ async function receiveFile() {
             
             // Re-open the file for validation
             const file = await handle.getFile();
-            if (receiveState.fileInfo.md5) {
-                ui.updateConnectionStatus('Validating file integrity...');
-                const receivedMD5 = await calculateMD5(file);
-                if (receivedMD5 !== receiveState.fileInfo.md5) {
-                    ui.addSystemMessage(`⚠️ File integrity check failed! The file may be corrupted.`);
-                    showNotification('File Integrity Error', `${receiveState.fileInfo.name} failed checksum validation`);
-                } else {
-                    ui.addSystemMessage(`✓ File integrity verified (MD5: ${receivedMD5})`);
-                }
-            }
+            await validateFileIntegrity(file);
         } else {
             // For browsers without File System Access API, create blob from chunks
             const chunks = [];
@@ -415,24 +422,14 @@ async function receiveFile() {
                 chunks.push(chunk);
             }
             const blob = new Blob(chunks, { type: 'application/octet-stream' });
-            if (receiveState.fileInfo.md5) {
-                ui.updateConnectionStatus('Validating file integrity...');
-                const receivedMD5 = await calculateMD5(blob);
-                if (receivedMD5 !== receiveState.fileInfo.md5) {
-                    ui.addSystemMessage(`⚠️ File integrity check failed! The file may be corrupted.`);
-                    showNotification('File Integrity Error', `${receiveState.fileInfo.name} failed checksum validation`);
-                } else {
-                    ui.addSystemMessage(`✓ File integrity verified (MD5: ${receivedMD5})`);
-                }
-            }
+            await validateFileIntegrity(blob);
             createDownloadLink(blob, receiveState.fileInfo.name);
         }
 
-
         // Show success message
         ui.updateConnectionStatus('Connected to peer');
-        ui.addSystemMessage(`File saved: ${receiveState.fileInfo.name}`);
-        showNotification('File Received', `${receiveState.fileInfo.name} has been saved`);
+        ui.addSystemMessage(`✓ Transfer complete: ${receiveState.fileInfo.name}`);
+        showNotification('File Ready', `${receiveState.fileInfo.name} has been saved`);
         updateTitleWithSpinner(false);
         
     } catch (error) {
