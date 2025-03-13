@@ -265,10 +265,10 @@ func (c *Client) handleChunkData(sequence int, total int, size int, data string)
 
     // Update progress every 100ms or on significant changes
     now := time.Now()
-    received := float64(c.webrtc.receiveTransfer.receivedSize)
-    total := float64(c.webrtc.receiveTransfer.fileTransfer.Size)
-    percentage := int((received / total) * 100)
-    lastPercentage := int((float64(c.webrtc.receiveTransfer.lastUpdateSize) / total) * 100)
+    received := c.webrtc.receiveTransfer.receivedSize
+    totalSize := c.webrtc.receiveTransfer.fileTransfer.Size
+    percentage := int((float64(received) / float64(totalSize)) * 100)
+    lastPercentage := int((float64(c.webrtc.receiveTransfer.lastUpdateSize) / float64(totalSize)) * 100)
 
     if time.Since(c.webrtc.receiveTransfer.lastUpdate) > 100*time.Millisecond || 
        percentage != lastPercentage {
