@@ -23,6 +23,18 @@ func NewClient(conn *websocket.Conn) *Client {
     }
 }
 
+// ChunkConfirm message for acknowledging received chunks
+type ChunkConfirm struct {
+    Type     string `json:"type"`
+    Sequence int    `json:"sequence"`
+}
+
+func (c *Client) handleChunkConfirm(sequence int) {
+    if c.webrtc.sendTransfer.confirmHandler != nil {
+        c.webrtc.sendTransfer.confirmHandler(sequence)
+    }
+}
+
 func (c *Client) SendMessage(msg Message) error {
     err := c.conn.WriteJSON(msg)
     if err != nil {
@@ -30,6 +42,338 @@ func (c *Client) SendMessage(msg Message) error {
         return err
     }
     return nil
+}
+
+func (c *Client) SendFile(path string) error {
+    if !c.webrtc.connected {
+        return fmt.Errorf("not connected to peer")
+    }
+
+    if c.webrtc.sendTransfer.inProgress {
+        return fmt.Errorf("upload already in progress")
+    }
+
+    file, err := os.Open(path)
+    if err != nil {
+        return fmt.Errorf("failed to open file: %v", err)
+    }
+    defer file.Close()
+
+    info, err := file.Stat()
+    if err != nil {
+        return fmt.Errorf("failed to get file info: %v", err)
+    }
+
+    // Calculate file hash
+    fileHash, err := calculateMD5(path)
+    if err != nil {
+        return fmt.Errorf("failed to calculate file hash: %v", err)
+    }
+
+    c.webrtc.sendTransfer = transferState{
+        inProgress: true,
+        startTime:  time.Now(),
+        fileTransfer: &FileTransfer{
+            FileInfo: &FileInfo{
+                Name: info.Name(),
+                Size: info.Size(),
+                MD5:  fileHash,
+            },
+        },
+    }
+
+    fileInfo := struct {
+        Type string   `json:"type"`
+        Info FileInfo `json:"info"`
+    }{
+        Type: "file-info",
+        Info: FileInfo{
+            Name: info.Name(),
+            Size: info.Size(),
+            MD5:  fileHash,
+        },
+    }
+
+    infoJSON, err := json.Marshal(fileInfo)
+    if err != nil {
+        return fmt.Errorf("failed to marshal file info: %v", err)
+    }
+
+    err = c.webrtc.dataChannel.SendText(string(infoJSON))
+    if err != nil {
+        return fmt.Errorf("failed to send file info: %v", err)
+    }
+
+    // Show initial status
+    c.ui.UpdateTransferProgress(fmt.Sprintf("⬆ %s [0%%] (0/s)", info.Name()), "send")
+
+    // Send file in chunks
+    buf := make([]byte, maxChunkSize)
+    totalChunks := int(math.Ceil(float64(info.Size()) / float64(maxChunkSize)))
+    sentChunks := 0
+    totalSent := int64(0)
+    lastUpdate := time.Now()
+    lastUpdateSize := int64(0)
+    
+    // Setup confirmation channel for each chunk
+    chunkConfirms := make(chan int, totalChunks)
+    
+    // Setup confirmation handler
+    c.webrtc.sendTransfer.confirmHandler = func(sequence int) {
+        chunkConfirms <- sequence
+    }
+
+    // Start reading and sending chunks
+    for {
+        n, err := file.Read(buf)
+        if err == io.EOF {
+            break
+        }
+        if err != nil {
+            return fmt.Errorf("failed to read file: %v", err)
+        }
+
+        chunk := struct {
+            Type     string `json:"type"`
+            Sequence int    `json:"sequence"`
+            Total    int    `json:"total"`
+            Size     int    `json:"size"`
+            Data     string `json:"data"`
+        }{
+            Type:     "chunk",
+            Sequence: sentChunks,
+            Total:    totalChunks,
+            Size:     n,
+            Data:     base64.StdEncoding.EncodeToString(buf[:n]),
+        }
+
+        chunkJSON, err := json.Marshal(chunk)
+        if err != nil {
+            return fmt.Errorf("failed to marshal chunk: %v", err)
+        }
+
+        // Send chunk
+        err = c.webrtc.dataChannel.SendText(string(chunkJSON))
+        if err != nil {
+            return fmt.Errorf("failed to send chunk: %v", err)
+        }
+
+        // Wait for chunk confirmation
+        select {
+        case <-chunkConfirms:
+            totalSent += int64(n)
+            sentChunks++
+
+            // Update progress
+            now := time.Now()
+            if time.Since(lastUpdate) > 100*time.Millisecond {
+                timeDiff := now.Sub(lastUpdate).Seconds()
+                if timeDiff > 0 {
+                    speed := float64(totalSent-lastUpdateSize) / timeDiff
+                    percentage := int((float64(totalSent) / float64(info.Size())) * 100)
+                    c.ui.UpdateTransferProgress(fmt.Sprintf("⬆ %s [%d%%] (%.1f MB/s)",
+                        info.Name(),
+                        percentage,
+                        speed/1024/1024),
+                        "send")
+                    lastUpdate = now
+                    lastUpdateSize = totalSent
+                }
+            }
+        case <-time.After(5 * time.Second):
+            return fmt.Errorf("timeout waiting for chunk confirmation")
+        }
+    }
+
+    // Calculate final statistics
+    avgSpeed := float64(info.Size()) / time.Since(c.webrtc.sendTransfer.startTime).Seconds()
+
+    // Show completion message
+    c.ui.UpdateTransferProgress(fmt.Sprintf("⬆ %s - Finishing transfer...", info.Name()), "send")
+
+    // Send complete message
+    complete := struct {
+        Type string `json:"type"`
+    }{
+        Type: "file-complete",
+    }
+
+    completeJSON, err := json.Marshal(complete)
+    if err != nil {
+        return fmt.Errorf("failed to marshal complete message: %v", err)
+    }
+
+    err = c.webrtc.dataChannel.SendText(string(completeJSON))
+    if err != nil {
+        return fmt.Errorf("failed to send complete message: %v", err)
+    }
+
+    // Wait a moment for the message to be sent
+    time.Sleep(100 * time.Millisecond)
+
+    // Show final completion message
+    c.ui.UpdateTransferProgress(fmt.Sprintf("⬆ %s - Complete (avg: %.1f MB/s)",
+        info.Name(),
+        avgSpeed/1024/1024),
+        "send")
+
+    // Reset transfer state
+    c.webrtc.sendTransfer = transferState{}
+
+    return nil
+}
+
+func (c *Client) handleChunkData(sequence int, total int, size int, data string) {
+    if !c.webrtc.receiveTransfer.inProgress {
+        c.ui.ShowError("Received chunk but no download in progress")
+        return
+    }
+
+    binaryData, err := base64.StdEncoding.DecodeString(data)
+    if err != nil {
+        c.ui.ShowError(fmt.Sprintf("Failed to decode chunk data: %v", err))
+        return
+    }
+
+    if len(binaryData) != size {
+        c.ui.ShowError(fmt.Sprintf("Chunk size mismatch. Expected: %d, Got: %d",
+            size, len(binaryData)))
+        return
+    }
+
+    // Store chunk and update size
+    c.webrtc.receiveTransfer.chunks[sequence] = binaryData
+    
+    // Recalculate total received size from scratch to ensure accuracy
+    var totalReceived int64
+    for _, chunk := range c.webrtc.receiveTransfer.chunks {
+        if chunk != nil {
+            totalReceived += int64(len(chunk))
+        }
+    }
+    c.webrtc.receiveTransfer.receivedSize = totalReceived
+
+    // Send confirmation back
+    confirm := ChunkConfirm{
+        Type:     "chunk-confirm",
+        Sequence: sequence,
+    }
+    confirmJSON, err := json.Marshal(confirm)
+    if err == nil {
+        c.webrtc.dataChannel.SendText(string(confirmJSON))
+    }
+
+    // Update progress every 100ms or on significant changes
+    now := time.Now()
+    received := float64(c.webrtc.receiveTransfer.receivedSize)
+    total := float64(c.webrtc.receiveTransfer.fileTransfer.Size)
+    percentage := int((received / total) * 100)
+    lastPercentage := int((float64(c.webrtc.receiveTransfer.lastUpdateSize) / total) * 100)
+
+    if time.Since(c.webrtc.receiveTransfer.lastUpdate) > 100*time.Millisecond || 
+       percentage != lastPercentage {
+        // Calculate speed based on data received since last update
+        timeDiff := now.Sub(c.webrtc.receiveTransfer.lastUpdate).Seconds()
+        if timeDiff > 0 {
+            speed := float64(c.webrtc.receiveTransfer.receivedSize-c.webrtc.receiveTransfer.lastUpdateSize) / timeDiff
+            c.ui.UpdateTransferProgress(fmt.Sprintf("⬇ %s [%d%%] (%.1f MB/s)",
+                c.webrtc.receiveTransfer.fileTransfer.Name,
+                percentage,
+                speed/1024/1024),
+                "receive")
+        }
+        c.webrtc.receiveTransfer.lastUpdate = now
+        c.webrtc.receiveTransfer.lastUpdateSize = c.webrtc.receiveTransfer.receivedSize
+    }
+
+    // Check if file is complete
+    if c.webrtc.receiveTransfer.receivedSize >= c.webrtc.receiveTransfer.fileTransfer.Size {
+        c.handleFileComplete()
+    }
+}
+
+func (c *Client) handleFileComplete() {
+    if !c.webrtc.receiveTransfer.inProgress {
+        return
+    }
+
+    // Write all chunks to file
+    for i, chunk := range c.webrtc.receiveTransfer.chunks {
+        if chunk == nil {
+            c.ui.ShowError(fmt.Sprintf("Missing chunk %d", i))
+            c.webrtc.receiveTransfer.fileTransfer.file.Close()
+            c.webrtc.receiveTransfer = transferState{}
+            return
+        }
+
+        _, err := c.webrtc.receiveTransfer.fileTransfer.file.Write(chunk)
+        if err != nil {
+            c.ui.ShowError(fmt.Sprintf("Failed to write chunk: %v", err))
+            c.webrtc.receiveTransfer.fileTransfer.file.Close()
+            c.webrtc.receiveTransfer = transferState{}
+            return
+        }
+    }
+
+    // Close file first
+    c.webrtc.receiveTransfer.fileTransfer.file.Close()
+
+    // Compute file hash and verify integrity
+    fileHash, err := calculateMD5(c.webrtc.receiveTransfer.fileTransfer.filePath)
+    if err != nil {
+        c.ui.ShowError(fmt.Sprintf("Failed to calculate file hash: %v", err))
+        c.webrtc.receiveTransfer = transferState{}
+        return
+    }
+    
+    // Verify against provided hash if available
+    if c.webrtc.receiveTransfer.fileTransfer.MD5 != "" {
+        if fileHash != c.webrtc.receiveTransfer.fileTransfer.MD5 {
+            c.ui.ShowError(fmt.Sprintf("File integrity check failed:\nExpected MD5: %s\nActual MD5:   %s", 
+                c.webrtc.receiveTransfer.fileTransfer.MD5, fileHash))
+            c.webrtc.receiveTransfer = transferState{}
+            return
+        }
+        c.ui.LogDebug(fmt.Sprintf("File integrity verified (MD5: %s)", fileHash))
+    } else {
+        c.ui.LogDebug(fmt.Sprintf("File received (MD5: %s)", fileHash))
+    }
+
+    // Calculate transfer statistics
+    avgSpeed := float64(c.webrtc.receiveTransfer.fileTransfer.Size) / time.Since(c.webrtc.receiveTransfer.startTime).Seconds()
+    c.ui.UpdateTransferProgress(fmt.Sprintf("⬇ %s - Complete (avg: %.1f MB/s)",
+        c.webrtc.receiveTransfer.fileTransfer.Name,
+        avgSpeed/1024/1024),
+        "receive")
+
+    // Reset transfer state
+    c.webrtc.receiveTransfer = transferState{}
+}
+
+func calculateMD5(filePath string) (string, error) {
+    file, err := os.Open(filePath)
+    if err != nil {
+        return "", fmt.Errorf("failed to open file: %v", err)
+    }
+    defer file.Close()
+
+    hash := md5.New()
+    buf := make([]byte, 32768)
+
+    for {
+        n, err := file.Read(buf)
+        if n > 0 {
+            hash.Write(buf[:n])
+        }
+        if err == io.EOF {
+            break
+        }
+        if err != nil {
+            return "", err
+        }
+    }
+
+    return hex.EncodeToString(hash.Sum(nil)), nil
 }
 
 func (c *Client) Connect(peerToken string) error {
@@ -58,6 +402,24 @@ func (c *Client) Reject(peerToken string) error {
     return c.SendMessage(Message{Type: "reject", PeerToken: peerToken})
 }
 
+func (c *Client) disconnectPeer() {
+    if c.webrtc.sendTransfer.fileTransfer != nil && c.webrtc.sendTransfer.fileTransfer.file != nil {
+        c.webrtc.sendTransfer.fileTransfer.file.Close()
+    }
+    if c.webrtc.receiveTransfer.fileTransfer != nil && c.webrtc.receiveTransfer.fileTransfer.file != nil {
+        c.webrtc.receiveTransfer.fileTransfer.file.Close()
+    }
+    if c.webrtc.peerConn != nil {
+        c.webrtc.peerConn.Close()
+        c.webrtc.peerConn = nil
+    }
+    if c.webrtc.dataChannel != nil {
+        c.webrtc.dataChannel.Close()
+        c.webrtc.dataChannel = nil
+    }
+    c.webrtc = &WebRTCState{}
+}
+
 func (c *Client) SendChat(text string) error {
     if !c.webrtc.connected {
         return fmt.Errorf("not connected to peer")
@@ -82,24 +444,6 @@ func (c *Client) SendChat(text string) error {
     }
 
     return nil
-}
-
-func (c *Client) disconnectPeer() {
-    if c.webrtc.sendTransfer.fileTransfer != nil && c.webrtc.sendTransfer.fileTransfer.file != nil {
-        c.webrtc.sendTransfer.fileTransfer.file.Close()
-    }
-    if c.webrtc.receiveTransfer.fileTransfer != nil && c.webrtc.receiveTransfer.fileTransfer.file != nil {
-        c.webrtc.receiveTransfer.fileTransfer.file.Close()
-    }
-    if c.webrtc.peerConn != nil {
-        c.webrtc.peerConn.Close()
-        c.webrtc.peerConn = nil
-    }
-    if c.webrtc.dataChannel != nil {
-        c.webrtc.dataChannel.Close()
-        c.webrtc.dataChannel = nil
-    }
-    c.webrtc = &WebRTCState{}
 }
 
 func (c *Client) handleMessages() {
@@ -179,154 +523,6 @@ func (c *Client) handleMessages() {
             c.disconnectPeer()
         }
     }
-}
-
-func (c *Client) SendFile(path string) error {
-    if !c.webrtc.connected {
-        return fmt.Errorf("not connected to peer")
-    }
-
-    if c.webrtc.sendTransfer.inProgress {
-        return fmt.Errorf("upload already in progress")
-    }
-
-    file, err := os.Open(path)
-    if err != nil {
-        return fmt.Errorf("failed to open file: %v", err)
-    }
-    defer file.Close()
-
-    info, err := file.Stat()
-    if err != nil {
-        return fmt.Errorf("failed to get file info: %v", err)
-    }
-
-    // Calculate file hash
-    fileHash, err := calculateMD5(path)
-    if err != nil {
-        return fmt.Errorf("failed to calculate file hash: %v", err)
-    }
-
-    c.webrtc.sendTransfer = transferState{
-        inProgress: true,
-        startTime:  time.Now(),
-        fileTransfer: &FileTransfer{
-            FileInfo: &FileInfo{
-                Name: info.Name(),
-                Size: info.Size(),
-                MD5:  fileHash,
-            },
-        },
-    }
-
-    fileInfo := struct {
-        Type string   `json:"type"`
-        Info FileInfo `json:"info"`
-    }{
-        Type: "file-info",
-        Info: FileInfo{
-            Name: info.Name(),
-            Size: info.Size(),
-            MD5:  fileHash,
-        },
-    }
-
-    infoJSON, err := json.Marshal(fileInfo)
-    if err != nil {
-        return fmt.Errorf("failed to marshal file info: %v", err)
-    }
-
-    err = c.webrtc.dataChannel.SendText(string(infoJSON))
-    if err != nil {
-        return fmt.Errorf("failed to send file info: %v", err)
-    }
-
-    // Show initial status
-    c.ui.UpdateTransferProgress(fmt.Sprintf("⬆ %s [0%%] (0/s)", info.Name()), "send")
-
-    // Send file in chunks
-    buf := make([]byte, maxChunkSize)
-    totalChunks := int(math.Ceil(float64(info.Size()) / float64(maxChunkSize)))
-    sentChunks := 0
-    totalSent := int64(0)
-    lastUpdate := time.Now()
-
-    for {
-        n, err := file.Read(buf)
-        if err == io.EOF {
-            break
-        }
-        if err != nil {
-            return fmt.Errorf("failed to read file: %v", err)
-        }
-
-        chunk := struct {
-            Type     string `json:"type"`
-            Sequence int    `json:"sequence"`
-            Total    int    `json:"total"`
-            Size     int    `json:"size"`
-            Data     string `json:"data"`
-        }{
-            Type:     "chunk",
-            Sequence: sentChunks,
-            Total:    totalChunks,
-            Size:     n,
-            Data:     base64.StdEncoding.EncodeToString(buf[:n]),
-        }
-
-        chunkJSON, err := json.Marshal(chunk)
-        if err != nil {
-            return fmt.Errorf("failed to marshal chunk: %v", err)
-        }
-
-        err = c.webrtc.dataChannel.SendText(string(chunkJSON))
-        if err != nil {
-            return fmt.Errorf("failed to send chunk: %v", err)
-        }
-
-        totalSent += int64(n)
-        sentChunks++
-
-        // Update progress every 100ms
-        if time.Since(lastUpdate) > 100*time.Millisecond {
-            speed := float64(totalSent) / time.Since(c.webrtc.sendTransfer.startTime).Seconds()
-            percentage := int((float64(totalSent) / float64(info.Size())) * 100)
-            c.ui.UpdateTransferProgress(fmt.Sprintf("⬆ %s [%d%%] (%.1f MB/s)",
-                info.Name(),
-                percentage,
-                speed/1024/1024),
-                "send")
-            lastUpdate = time.Now()
-        }
-    }
-
-    // Send complete message
-    complete := struct {
-        Type string `json:"type"`
-    }{
-        Type: "file-complete",
-    }
-
-    completeJSON, err := json.Marshal(complete)
-    if err != nil {
-        return fmt.Errorf("failed to marshal complete message: %v", err)
-    }
-
-    err = c.webrtc.dataChannel.SendText(string(completeJSON))
-    if err != nil {
-        return fmt.Errorf("failed to send complete message: %v", err)
-    }
-
-    avgSpeed := float64(info.Size()) / time.Since(c.webrtc.sendTransfer.startTime).Seconds()
-    c.ui.UpdateTransferProgress(fmt.Sprintf("⬆ %s - Complete (avg: %.1f MB/s)",
-        info.Name(),
-        avgSpeed/1024/1024),
-        "send")
-
-    // Reset transfer state
-    c.webrtc.sendTransfer = transferState{}
-
-    return nil
 }
 
 func (c *Client) setupPeerConnection() error {
@@ -429,6 +625,10 @@ func (c *Client) setupPeerConnection() error {
                         }
                     }
                 }
+            }
+        case "chunk-confirm":
+            if sequence, ok := data["sequence"].(float64); ok {
+                c.handleChunkConfirm(int(sequence))
             }
         case "file-complete":
             c.handleFileComplete()
@@ -560,11 +760,13 @@ func (c *Client) handleFileInfo(info map[string]interface{}) {
     }
 
     totalChunks := int(math.Ceil(float64(size) / float64(maxChunkSize)))
+    now := time.Now()
 
     // Setup new receive transfer
     c.webrtc.receiveTransfer = transferState{
         inProgress: true,
-        startTime:  time.Now(),
+        startTime:  now,
+        lastUpdate: now,
         fileTransfer: &FileTransfer{
             FileInfo: &FileInfo{
                 Name: name,
@@ -578,126 +780,4 @@ func (c *Client) handleFileInfo(info map[string]interface{}) {
     }
 
     c.ui.UpdateTransferProgress(fmt.Sprintf("⬇ %s [0%%] (0/s)", name), "receive")
-}
-
-func (c *Client) handleChunkData(sequence int, total int, size int, data string) {
-    if !c.webrtc.receiveTransfer.inProgress {
-        c.ui.ShowError("Received chunk but no download in progress")
-        return
-    }
-
-    binaryData, err := base64.StdEncoding.DecodeString(data)
-    if err != nil {
-        c.ui.ShowError(fmt.Sprintf("Failed to decode chunk data: %v", err))
-        return
-    }
-
-    if len(binaryData) != size {
-        c.ui.ShowError(fmt.Sprintf("Chunk size mismatch. Expected: %d, Got: %d",
-            size, len(binaryData)))
-        return
-    }
-
-    c.webrtc.receiveTransfer.chunks[sequence] = binaryData
-    c.webrtc.receiveTransfer.receivedSize += int64(size)
-
-    // Update progress every 100ms
-    if time.Since(c.webrtc.receiveTransfer.startTime) > 100*time.Millisecond {
-        speed := float64(c.webrtc.receiveTransfer.receivedSize) / time.Since(c.webrtc.receiveTransfer.startTime).Seconds()
-        percentage := int((float64(c.webrtc.receiveTransfer.receivedSize) / float64(c.webrtc.receiveTransfer.fileTransfer.Size)) * 100)
-        c.ui.UpdateTransferProgress(fmt.Sprintf("⬇ %s [%d%%] (%.1f MB/s)",
-            c.webrtc.receiveTransfer.fileTransfer.Name,
-            percentage,
-            speed/1024/1024),
-            "receive")
-    }
-
-    // Check if file is complete
-    if c.webrtc.receiveTransfer.receivedSize >= c.webrtc.receiveTransfer.fileTransfer.Size {
-        c.handleFileComplete()
-    }
-}
-
-func (c *Client) handleFileComplete() {
-    if !c.webrtc.receiveTransfer.inProgress {
-        return
-    }
-
-    // Write all chunks to file
-    for i, chunk := range c.webrtc.receiveTransfer.chunks {
-        if chunk == nil {
-            c.ui.ShowError(fmt.Sprintf("Missing chunk %d", i))
-            c.webrtc.receiveTransfer.fileTransfer.file.Close()
-            c.webrtc.receiveTransfer = transferState{}
-            return
-        }
-
-        _, err := c.webrtc.receiveTransfer.fileTransfer.file.Write(chunk)
-        if err != nil {
-            c.ui.ShowError(fmt.Sprintf("Failed to write chunk: %v", err))
-            c.webrtc.receiveTransfer.fileTransfer.file.Close()
-            c.webrtc.receiveTransfer = transferState{}
-            return
-        }
-    }
-
-    // Close file first
-    c.webrtc.receiveTransfer.fileTransfer.file.Close()
-
-    // Compute file hash and verify integrity
-    fileHash, err := calculateMD5(c.webrtc.receiveTransfer.fileTransfer.filePath)
-    if err != nil {
-        c.ui.ShowError(fmt.Sprintf("Failed to calculate file hash: %v", err))
-        c.webrtc.receiveTransfer = transferState{}
-        return
-    }
-    
-    // Verify against provided hash if available
-    if c.webrtc.receiveTransfer.fileTransfer.MD5 != "" {
-        if fileHash != c.webrtc.receiveTransfer.fileTransfer.MD5 {
-            c.ui.ShowError(fmt.Sprintf("File integrity check failed:\nExpected MD5: %s\nActual MD5:   %s", 
-                c.webrtc.receiveTransfer.fileTransfer.MD5, fileHash))
-            c.webrtc.receiveTransfer = transferState{}
-            return
-        }
-        c.ui.LogDebug(fmt.Sprintf("File integrity verified (MD5: %s)", fileHash))
-    } else {
-        c.ui.LogDebug(fmt.Sprintf("File received (MD5: %s)", fileHash))
-    }
-
-    // Calculate transfer statistics
-    avgSpeed := float64(c.webrtc.receiveTransfer.fileTransfer.Size) / time.Since(c.webrtc.receiveTransfer.startTime).Seconds()
-    c.ui.UpdateTransferProgress(fmt.Sprintf("⬇ %s - Complete (avg: %.1f MB/s)",
-        c.webrtc.receiveTransfer.fileTransfer.Name,
-        avgSpeed/1024/1024),
-        "receive")
-
-    // Reset transfer state
-    c.webrtc.receiveTransfer = transferState{}
-}
-
-func calculateMD5(filePath string) (string, error) {
-    file, err := os.Open(filePath)
-    if err != nil {
-        return "", fmt.Errorf("failed to open file: %v", err)
-    }
-    defer file.Close()
-
-    hash := md5.New()
-    buf := make([]byte, 32768)
-
-    for {
-        n, err := file.Read(buf)
-        if n > 0 {
-            hash.Write(buf[:n])
-        }
-        if err == io.EOF {
-            break
-        }
-        if err != nil {
-            return "", err
-        }
-    }
-
-    return hex.EncodeToString(hash.Sum(nil)), nil
 }

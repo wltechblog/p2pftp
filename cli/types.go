@@ -53,12 +53,15 @@ const (
 )
 
 type transferState struct {
-    inProgress    bool
-    receivedSize  int64
-    fileTransfer  *FileTransfer
-    startTime     time.Time
-    chunks        [][]byte
-    totalChunks   int
+    inProgress      bool
+    receivedSize    int64
+    lastUpdateSize  int64
+    fileTransfer    *FileTransfer
+    startTime       time.Time
+    lastUpdate      time.Time
+    chunks          [][]byte
+    totalChunks     int
+    confirmHandler  func(int) // For handling chunk confirmations
 }
 
 type WebRTCState struct {
