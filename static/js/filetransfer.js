@@ -26,7 +26,17 @@ const sendState = {
 
 // Initialize file transfer functionality
 export function init() {
-    // No initialization needed now that we handle messages directly
+    // Check for File System Access API support
+    const hasNativeFS = 'showSaveFilePicker' in window;
+    if (!hasNativeFS) {
+        // Calculate safe memory limit (2GB minus overhead)
+        const maxSafeSize = 2 * 1024 * 1024 * 1024 - (100 * 1024 * 1024); // 2GB - 100MB overhead
+        ui.addSystemMessage(
+            `⚠️ Your browser doesn't support the File System Access API. ` +
+            `Large file support is limited to ${formatBytes(maxSafeSize)}. ` +
+            `For larger files, please use a modern browser like Chrome or Edge.`
+        );
+    }
 }
 
 // Process a chunk after converting to Uint8Array
@@ -185,6 +195,9 @@ export async function handleDataChannelMessage(event) {
     }
 }
 
+// Calculate safe memory size for browsers without File System Access API
+const maxSafeSize = 2 * 1024 * 1024 * 1024 - (100 * 1024 * 1024); // 2GB - 100MB overhead
+
 // Send a file over the data channel
 export async function sendFile(file) {
     const dataChannel = getDataChannel();
@@ -192,6 +205,16 @@ export async function sendFile(file) {
     
     if (sendState.inProgress) {
         ui.addSystemMessage("Cannot send file: Upload already in progress");
+        return;
+    }
+
+    // Check file size limit for browsers without File System Access API
+    if (!('showSaveFilePicker' in window) && file.size > maxSafeSize) {
+        ui.addSystemMessage(
+            `Error: File is too large (${formatBytes(file.size)}). ` +
+            `Your browser supports files up to ${formatBytes(maxSafeSize)}. ` +
+            `Please use Chrome or Edge for larger files.`
+        );
         return;
     }
     
