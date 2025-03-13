@@ -305,16 +305,14 @@ async function receiveFile() {
         }
     }
     
-    // Show notification and update title
-    showNotification('File Received', `${fileReceiveInfo.name} is ready to download`);
-    updateTitleWithSpinner(false);
-    
-    // Create download link
+    // Create download link and show notifications
     const downloadUrl = URL.createObjectURL(received);
     ui.addFileDownloadMessage(fileReceiveInfo, downloadUrl);
     ui.updateConnectionStatus('Connected to peer');
+    showNotification('File Received', `${fileReceiveInfo.name} is ready to download`);
+    updateTitleWithSpinner(false);
     
-    // Reset file transfer state
+    // Reset file transfer state after everything is done
     receiveBuffer = [];
     fileReceiveInfo = null;
     ui.hideTransferProgress();
