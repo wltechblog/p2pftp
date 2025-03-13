@@ -114,13 +114,27 @@
             <button id="send-file-btn" disabled class="w-full bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-md opacity-50 btn">Send File</button>
             
             <!-- File Transfer Progress (initially hidden) -->
-            <div id="transfer-progress" class="hidden mt-3">
-                <div class="flex justify-between text-sm mb-1">
-                    <span id="transfer-status">Sending file...</span>
-                    <span id="transfer-percentage">0%</span>
+            <div class="mt-3 space-y-3">
+                <!-- Upload Progress -->
+                <div id="send-progress" class="hidden">
+                    <div class="flex justify-between text-sm mb-1">
+                        <span id="send-status">Sending file...</span>
+                        <span id="send-percentage">0%</span>
+                    </div>
+                    <div class="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2.5">
+                        <div id="send-progress-bar" class="bg-green-600 h-2.5 rounded-full" style="width: 0%"></div>
+                    </div>
                 </div>
-                <div class="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2.5">
-                    <div id="progress-bar" class="bg-blue-600 h-2.5 rounded-full" style="width: 0%"></div>
+
+                <!-- Download Progress -->
+                <div id="receive-progress" class="hidden">
+                    <div class="flex justify-between text-sm mb-1">
+                        <span id="receive-status">Receiving file...</span>
+                        <span id="receive-percentage">0%</span>
+                    </div>
+                    <div class="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2.5">
+                        <div id="receive-progress-bar" class="bg-blue-600 h-2.5 rounded-full" style="width: 0%"></div>
+                    </div>
                 </div>
             </div>
         </div>

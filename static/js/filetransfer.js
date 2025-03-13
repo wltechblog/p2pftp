@@ -3,17 +3,26 @@ import { calculateMD5, formatBytes, showNotification, updateTitleWithSpinner } f
 import * as ui from '/static/js/ui.js';
 import { getDataChannel } from '/static/js/webrtc.js';
 
-// File transfer state
-let receiveBuffer = [];
-let receivedSize = 0;
-let fileReceiveInfo = null;
-let transferStartTime = 0;
-let lastProgressUpdate = 0;
-let lastOffset = 0;
-let bytesPerSecond = 0;
-let currentFile = null;
-let currentOffset = 0;
-let transferInProgress = false;
+// File transfer states
+const receiveState = {
+    buffer: [],
+    receivedSize: 0,
+    fileInfo: null,
+    startTime: 0,
+    lastUpdate: 0,
+    bytesPerSecond: 0,
+    inProgress: false
+};
+
+const sendState = {
+    currentFile: null,
+    offset: 0,
+    startTime: 0,
+    lastUpdate: 0,
+    lastOffset: 0,
+    bytesPerSecond: 0,
+    inProgress: false
+};
 
 // Initialize file transfer functionality
 export function init() {
@@ -22,12 +31,12 @@ export function init() {
 
 // Process a chunk after converting to Uint8Array
 function processChunk(chunk) {
-    if (!fileReceiveInfo || !fileReceiveInfo.currentChunk) {
+    if (!receiveState.fileInfo || !receiveState.fileInfo.currentChunk) {
         console.error('[WebRTC] Missing chunk metadata');
         return;
     }
 
-    const { sequence, total, size } = fileReceiveInfo.currentChunk;
+    const { sequence, total, size } = receiveState.fileInfo.currentChunk;
     console.debug(`[WebRTC] Processing chunk ${sequence + 1}/${total}, size: ${size}`);
 
     // Verify chunk size matches metadata
@@ -37,37 +46,34 @@ function processChunk(chunk) {
     }
 
     // Verify sequence is within bounds
-    if (sequence >= receiveBuffer.length) {
-        console.error(`[WebRTC] Invalid chunk sequence: ${sequence}, total chunks: ${receiveBuffer.length}`);
+    if (sequence >= receiveState.buffer.length) {
+        console.error(`[WebRTC] Invalid chunk sequence: ${sequence}, total chunks: ${receiveState.buffer.length}`);
         return;
     }
 
     // Store chunk at correct position
-    receiveBuffer[sequence] = chunk;
-    receivedSize += chunk.byteLength;
+    receiveState.buffer[sequence] = chunk;
+    receiveState.receivedSize += chunk.byteLength;
 
     // Progress and transfer rate tracking
     const now = Date.now();
-    if (now - lastProgressUpdate >= PROGRESS_UPDATE_INTERVAL) {
-        const timeDiff = (now - transferStartTime) / 1000; // seconds
-        const instantRate = chunk.byteLength / (now - lastProgressUpdate) * 1000; // bytes per second
-        bytesPerSecond = bytesPerSecond * (1 - BYTES_PER_SEC_SMOOTHING) + instantRate * BYTES_PER_SEC_SMOOTHING;
+    if (now - receiveState.lastUpdate >= PROGRESS_UPDATE_INTERVAL) {
+        const timeDiff = (now - receiveState.startTime) / 1000; // seconds
+        const instantRate = chunk.byteLength / (now - receiveState.lastUpdate) * 1000; // bytes per second
+        receiveState.bytesPerSecond = receiveState.bytesPerSecond * (1 - BYTES_PER_SEC_SMOOTHING) + instantRate * BYTES_PER_SEC_SMOOTHING;
 
-        const percentage = Math.min(Math.floor((receivedSize / fileReceiveInfo.size) * 100), 100);
-        ui.updateTransferProgress(percentage, `Receiving ${fileReceiveInfo.name} - ${formatBytes(bytesPerSecond)}/s`);
+        const percentage = Math.min(Math.floor((receiveState.receivedSize / receiveState.fileInfo.size) * 100), 100);
+        ui.updateTransferProgress(percentage, `⬇ ${receiveState.fileInfo.name} - ${formatBytes(receiveState.bytesPerSecond)}/s`, "receive");
 
-        console.debug(`[WebRTC] Transfer rate: ${formatBytes(bytesPerSecond)}/s`);
-        lastProgressUpdate = now;
+        receiveState.lastUpdate = now;
     } else {
-        const percentage = Math.min(Math.floor((receivedSize / fileReceiveInfo.size) * 100), 100);
-        ui.updateTransferProgress(percentage, `Receiving ${fileReceiveInfo.name}`);
+        const percentage = Math.min(Math.floor((receiveState.receivedSize / receiveState.fileInfo.size) * 100), 100);
+        ui.updateTransferProgress(percentage, `⬇ ${receiveState.fileInfo.name}`, "receive");
     }
 
-    // Clear chunk info
-    delete fileReceiveInfo.currentChunk;
-
-    // Check if transfer is complete
-    if (receivedSize >= fileReceiveInfo.size) {
+    // Clear chunk info and check if complete
+    delete receiveState.fileInfo.currentChunk;
+    if (receiveState.receivedSize >= receiveState.fileInfo.size) {
         receiveFile();
     }
 }
@@ -76,7 +82,6 @@ function processChunk(chunk) {
 export function handleDataChannelMessage(event) {
     const data = event.data;
     
-    // If the data is a string, it's either a message or control data
     if (typeof data === 'string') {
         try {
             const messageObj = JSON.parse(data);
@@ -84,25 +89,24 @@ export function handleDataChannelMessage(event) {
             if (messageObj.type === 'message') {
                 ui.addPeerMessage(messageObj.content);
             } else if (messageObj.type === 'file-info') {
-                if (transferInProgress) {
-                    console.error('[WebRTC] Cannot receive file: Transfer already in progress');
+                if (receiveState.inProgress) {
+                    console.error('[WebRTC] Cannot receive file: Download already in progress');
                     return;
                 }
                 
                 // Prepare to receive a file
-                receiveBuffer = new Array(Math.ceil(messageObj.info.size / CHUNK_SIZE)); // Pre-allocate array
-                receivedSize = 0;
-                fileReceiveInfo = messageObj.info;
-                transferStartTime = Date.now();
-                lastProgressUpdate = transferStartTime;
-                bytesPerSecond = 0;
-                transferInProgress = true;
+                receiveState.buffer = new Array(Math.ceil(messageObj.info.size / CHUNK_SIZE));
+                receiveState.receivedSize = 0;
+                receiveState.fileInfo = messageObj.info;
+                receiveState.startTime = Date.now();
+                receiveState.lastUpdate = Date.now();
+                receiveState.bytesPerSecond = 0;
+                receiveState.inProgress = true;
                 
-                ui.addSystemMessage(`Receiving file: ${fileReceiveInfo.name} (${formatBytes(fileReceiveInfo.size)})`);
+                ui.addSystemMessage(`Receiving file: ${receiveState.fileInfo.name} (${formatBytes(receiveState.fileInfo.size)})`);
                 ui.updateConnectionStatus(`Receiving file...`);
-                ui.updateTransferProgress(0, `Receiving ${fileReceiveInfo.name}`);
+                ui.updateTransferProgress(0, `⬇ ${receiveState.fileInfo.name}`, "receive");
             } else if (messageObj.type === 'chunk') {
-                // Process chunk with metadata and data
                 const { sequence, total, size, data } = messageObj;
                 
                 // Decode base64 data
@@ -113,8 +117,7 @@ export function handleDataChannelMessage(event) {
                     return;
                 }
 
-                // Store chunk info for processing
-                fileReceiveInfo.currentChunk = { sequence, total, size };
+                receiveState.fileInfo.currentChunk = { sequence, total, size };
                 processChunk(binaryData);
             } else if (messageObj.type === 'file-complete') {
                 receiveFile();
@@ -130,14 +133,18 @@ export async function sendFile(file) {
     const dataChannel = getDataChannel();
     if (!dataChannel || dataChannel.readyState !== 'open') return;
     
-    if (transferInProgress) {
-        ui.addSystemMessage("Cannot send file: Transfer already in progress");
+    if (sendState.inProgress) {
+        ui.addSystemMessage("Cannot send file: Upload already in progress");
         return;
     }
     
-    transferInProgress = true;
-    currentFile = file;
-    currentOffset = 0;
+    sendState.inProgress = true;
+    sendState.currentFile = file;
+    sendState.offset = 0;
+    sendState.startTime = Date.now();
+    sendState.lastUpdate = Date.now();
+    sendState.lastOffset = 0;
+    sendState.bytesPerSecond = 0;
     
     // Calculate MD5 hash before sending
     let md5Hash = '';
@@ -162,12 +169,7 @@ export async function sendFile(file) {
         }
     }));
     
-    // Initialize transfer state and show progress UI
-    transferStartTime = Date.now();
-    lastProgressUpdate = transferStartTime;
-    lastOffset = 0;
-    bytesPerSecond = 0;
-    ui.updateTransferProgress(0, `Sending ${file.name}`);
+    ui.updateTransferProgress(0, `⬆ ${file.name}`, "send");
     
     // Read and send file in chunks
     const reader = new FileReader();
@@ -175,10 +177,9 @@ export async function sendFile(file) {
     const sendChunk = (chunk) => {
         if (!dataChannel || dataChannel.readyState !== 'open') return;
 
-        const chunkIndex = Math.floor(currentOffset / CHUNK_SIZE);
-        const totalChunks = Math.ceil(currentFile.size / CHUNK_SIZE);
+        const chunkIndex = Math.floor(sendState.offset / CHUNK_SIZE);
+        const totalChunks = Math.ceil(sendState.currentFile.size / CHUNK_SIZE);
         
-        // Send chunk metadata first
         dataChannel.send(JSON.stringify({
             type: 'chunk',
             sequence: chunkIndex,
@@ -187,10 +188,10 @@ export async function sendFile(file) {
             data: btoa(String.fromCharCode.apply(null, new Uint8Array(chunk)))
         }));
 
-        currentOffset += chunk.byteLength;
+        sendState.offset += chunk.byteLength;
         updateProgress();
         
-        if (currentOffset < currentFile.size) {
+        if (sendState.offset < sendState.currentFile.size) {
             readNextSlice();
         } else {
             finishTransfer();
@@ -198,7 +199,7 @@ export async function sendFile(file) {
     };
 
     const readNextSlice = () => {
-        const slice = file.slice(currentOffset, currentOffset + CHUNK_SIZE);
+        const slice = file.slice(sendState.offset, sendState.offset + CHUNK_SIZE);
         reader.readAsArrayBuffer(slice);
     };
     
@@ -207,7 +208,6 @@ export async function sendFile(file) {
             const chunk = event.target.result;
             const maxBufferSize = CHUNK_SIZE * 8;
 
-            // If buffer is getting full, wait for it to clear
             if (dataChannel.bufferedAmount > maxBufferSize) {
                 const waitAndSend = () => {
                     if (dataChannel.bufferedAmount > maxBufferSize) {
@@ -220,37 +220,35 @@ export async function sendFile(file) {
                 return;
             }
 
-            // Buffer is clear enough, send immediately
             sendChunk(chunk);
         }
     };
     
     reader.onerror = (error) => {
         ui.addSystemMessage(`Error reading file: ${error}`);
-        ui.hideTransferProgress();
-        transferInProgress = false;
+        ui.hideTransferProgress("send");
+        sendState.inProgress = false;
     };
     
-    // Start reading
     readNextSlice();
 }
 
 // Update transfer progress
 function updateProgress() {
-    if (!currentFile) return;
-    const percentage = Math.floor((currentOffset / currentFile.size) * 100);
+    if (!sendState.currentFile) return;
+    const percentage = Math.floor((sendState.offset / sendState.currentFile.size) * 100);
     const now = Date.now();
     
-    if (now - lastProgressUpdate >= PROGRESS_UPDATE_INTERVAL) {
-        const timeDiff = now - lastProgressUpdate;
-        const instantRate = (currentOffset - lastOffset) / timeDiff * 1000; // bytes per second
-        bytesPerSecond = bytesPerSecond * (1 - BYTES_PER_SEC_SMOOTHING) + instantRate * BYTES_PER_SEC_SMOOTHING;
+    if (now - sendState.lastUpdate >= PROGRESS_UPDATE_INTERVAL) {
+        const timeDiff = now - sendState.lastUpdate;
+        const instantRate = (sendState.offset - sendState.lastOffset) / timeDiff * 1000;
+        sendState.bytesPerSecond = sendState.bytesPerSecond * (1 - BYTES_PER_SEC_SMOOTHING) + instantRate * BYTES_PER_SEC_SMOOTHING;
 
-        ui.updateTransferProgress(percentage, `Sending ${currentFile.name} - ${formatBytes(bytesPerSecond)}/s`);
-        lastProgressUpdate = now;
-        lastOffset = currentOffset;
+        ui.updateTransferProgress(percentage, `⬆ ${sendState.currentFile.name} - ${formatBytes(sendState.bytesPerSecond)}/s`, "send");
+        sendState.lastUpdate = now;
+        sendState.lastOffset = sendState.offset;
     } else {
-        ui.updateTransferProgress(percentage, `Sending ${currentFile.name}`);
+        ui.updateTransferProgress(percentage, `⬆ ${sendState.currentFile.name}`, "send");
     }
 }
 
@@ -264,52 +262,46 @@ function finishTransfer() {
             type: 'file-complete'
         }));
         
-        ui.addSystemMessage(`File sent: ${currentFile.name}`);
-        showNotification('File Sent', `${currentFile.name} was sent successfully`);
+        ui.addSystemMessage(`File sent: ${sendState.currentFile.name}`);
+        showNotification('File Sent', `${sendState.currentFile.name} was sent successfully`);
         updateTitleWithSpinner(false);
         
-        // Reset UI after a brief delay
         setTimeout(() => {
-            ui.hideTransferProgress();
+            ui.hideTransferProgress("send");
             ui.resetFileInterface();
         }, 2000);
         
-        // Reset file state
-        currentFile = null;
-        currentOffset = 0;
-        transferInProgress = false;
+        sendState.currentFile = null;
+        sendState.offset = 0;
+        sendState.inProgress = false;
     } catch (error) {
         ui.addSystemMessage(`Error completing transfer: ${error}`);
-        ui.hideTransferProgress();
-        transferInProgress = false;
+        ui.hideTransferProgress("send");
+        sendState.inProgress = false;
     }
 }
 
 // Complete file reception and show download link
 async function receiveFile() {
-    // Pre-allocate array for the complete file
-    const allData = new Uint8Array(fileReceiveInfo.size);
+    const allData = new Uint8Array(receiveState.fileInfo.size);
     let offset = 0;
     
-    // Copy chunks in order
-    for (const chunk of receiveBuffer) {
+    for (const chunk of receiveState.buffer) {
         allData.set(chunk, offset);
         offset += chunk.length;
     }
     
-    // Create blob from the complete array
     const received = new Blob([allData]);
     
-    // Validate MD5 checksum if provided
-    if (fileReceiveInfo.md5) {
+    if (receiveState.fileInfo.md5) {
         ui.updateConnectionStatus('Validating file integrity...');
         try {
             const receivedMD5 = await calculateMD5(received);
-            console.debug(`[WebRTC] Received file MD5: ${receivedMD5}, Expected: ${fileReceiveInfo.md5}`);
+            console.debug(`[WebRTC] Received file MD5: ${receivedMD5}, Expected: ${receiveState.fileInfo.md5}`);
             
-            if (receivedMD5 !== fileReceiveInfo.md5) {
+            if (receivedMD5 !== receiveState.fileInfo.md5) {
                 ui.addSystemMessage(`⚠️ File integrity check failed! The file may be corrupted.`);
-                showNotification('File Integrity Error', `${fileReceiveInfo.name} failed checksum validation`);
+                showNotification('File Integrity Error', `${receiveState.fileInfo.name} failed checksum validation`);
             } else {
                 ui.addSystemMessage(`✓ File integrity verified (MD5: ${receivedMD5})`);
             }
@@ -319,24 +311,19 @@ async function receiveFile() {
         }
     }
     
-    // Create download link and show notifications
     const downloadUrl = URL.createObjectURL(received);
-    ui.addFileDownloadMessage(fileReceiveInfo, downloadUrl);
+    ui.addFileDownloadMessage(receiveState.fileInfo, downloadUrl);
     ui.updateConnectionStatus('Connected to peer');
-    showNotification('File Received', `${fileReceiveInfo.name} is ready to download`);
+    showNotification('File Received', `${receiveState.fileInfo.name} is ready to download`);
     updateTitleWithSpinner(false);
     
-    // Reset file transfer state after everything is done
-    const resetState = () => {
-        receiveBuffer = [];
-        fileReceiveInfo = null;
-        ui.hideTransferProgress();
-        bytesPerSecond = 0;
-        transferStartTime = 0;
-        lastProgressUpdate = 0;
-        transferInProgress = false;
-    };
-
-    // Delay state reset until after all operations are complete
-    setTimeout(resetState, 100);
+    setTimeout(() => {
+        receiveState.buffer = [];
+        receiveState.fileInfo = null;
+        ui.hideTransferProgress("receive");
+        receiveState.bytesPerSecond = 0;
+        receiveState.startTime = 0;
+        receiveState.lastUpdate = 0;
+        receiveState.inProgress = false;
+    }, 100);
 }

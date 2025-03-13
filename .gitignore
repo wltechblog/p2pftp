@@ -1,33 +1,20 @@
-# Binaries for programs and plugins
-*.exe
-*.exe~
-*.dll
-*.so
-*.dylib
+# Binary
 p2pftp
 
-# Test binary, built with `go test -c`
-*.test
+# Downloaded files
+downloads/*
+!downloads/.gitkeep
 
-# Output of the go coverage tool, specifically when used with LiteIDE
-*.out
+# Debugging
+__debug*
 
-# Dependency directories (remove the comment below to include it)
-# vendor/
+# Dependencies
+vendor/
 
-# Go workspace file
-go.work
-
-# IDE files
-.idea/
+# IDE settings
 .vscode/
+.idea/
 
-# macOS files
+# OS files
 .DS_Store
-
-# Log files
-*.log
-p2pftp
-cli/venv
-cli/cli
-CLAUDE.md
+Thumbs.db

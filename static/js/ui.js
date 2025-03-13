@@ -23,10 +23,6 @@ const fileInput = document.getElementById('file-input');
 const fileInfo = document.getElementById('file-info');
 const fileName = document.getElementById('file-name');
 const fileSize = document.getElementById('file-size');
-const transferProgress = document.getElementById('transfer-progress');
-const transferStatus = document.getElementById('transfer-status');
-const transferPercentage = document.getElementById('transfer-percentage');
-const progressBar = document.getElementById('progress-bar');
 
 // UI state
 let selectedFile = null;
@@ -176,7 +172,8 @@ export function updateConnectButton(isConnecting, isConnected) {
 }
 
 export function resetFileInterface() {
-    transferProgress.classList.add('hidden');
+    hideTransferProgress('send');
+    hideTransferProgress('receive');
     fileInfo.classList.add('hidden');
     fileInput.value = '';
     selectedFile = null;
@@ -184,15 +181,28 @@ export function resetFileInterface() {
     sendFileBtn.classList.add('opacity-50');
 }
 
-export function updateTransferProgress(percentage, status) {
-    progressBar.style.width = `${percentage}%`;
-    transferPercentage.textContent = `${percentage}%`;
-    transferStatus.textContent = status;
-    transferProgress.classList.remove('hidden');
+export function updateTransferProgress(percentage, status, direction) {
+    const prefix = direction === "send" ? "send" : "receive";
+    const progress = document.getElementById(`${prefix}-progress`);
+    const bar = document.getElementById(`${prefix}-progress-bar`);
+    const percentageEl = document.getElementById(`${prefix}-percentage`);
+    const statusEl = document.getElementById(`${prefix}-status`);
+
+    progress.classList.remove('hidden');
+    bar.style.width = `${percentage}%`;
+    percentageEl.textContent = `${percentage}%`;
+    statusEl.textContent = status;
 }
 
-export function hideTransferProgress() {
-    transferProgress.classList.add('hidden');
+export function hideTransferProgress(direction) {
+    const prefix = direction === "send" ? "send" : "receive";
+    const progress = document.getElementById(`${prefix}-progress`);
+    if (progress) {
+        progress.classList.add('hidden');
+        document.getElementById(`${prefix}-progress-bar`).style.width = '0%';
+        document.getElementById(`${prefix}-percentage`).textContent = '0%';
+        document.getElementById(`${prefix}-status`).textContent = direction === "send" ? "Sending file..." : "Receiving file...";
+    }
 }
 
 // Message display functions

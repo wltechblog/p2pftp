@@ -12,12 +12,14 @@ import (
 	"github.com/rivo/tview"
 )
 
+// Internal type for transfer history
 type transfer struct {
     status    string
     timestamp time.Time
 }
 
-type UI struct {
+// UI implements the UserInterface
+type UIImpl struct {
     client      *Client
     token       string
     lastRequest string // Track the most recent request token
@@ -37,13 +39,16 @@ type UI struct {
     opChan      chan func()
 }
 
-func NewUI(client *Client) *UI {
-    ui := &UI{
+func NewUI(client *Client) UserInterface {
+    ui := &UIImpl{
         client:    client,
         app:       tview.NewApplication(),
         opChan:    make(chan func(), 100),
         transfers: make([]transfer, 0),
     }
+
+    // Set back-reference
+    client.ui = ui
 
     // Start operations handler
     go func() {
@@ -191,7 +196,12 @@ func NewUI(client *Client) *UI {
     return ui
 }
 
-func (ui *UI) FileAutocomplete(currentText string) []string {
+func (ui *UIImpl) Run() error {
+    defer close(ui.opChan)
+    return ui.app.SetRoot(ui.layout, true).Run()
+}
+
+func (ui *UIImpl) FileAutocomplete(currentText string) []string {
     if !strings.HasPrefix(currentText, "/send ") {
         return nil
     }
@@ -224,7 +234,7 @@ func (ui *UI) FileAutocomplete(currentText string) []string {
     return matches
 }
 
-func (ui *UI) HandleInput(key tcell.Key) {
+func (ui *UIImpl) HandleInput(key tcell.Key) {
     text := ui.inputField.GetText()
     if text == "" {
         return
@@ -349,11 +359,6 @@ func (ui *UI) HandleInput(key tcell.Key) {
     }
 }
 
-func (ui *UI) Run() error {
-    defer close(ui.opChan)
-    return ui.app.SetRoot(ui.layout, true).Run()
-}
-
 func copyToClipboard(text string) error {
     // Try xclip first (X11)
     if _, err := exec.LookPath("xclip"); err == nil {
@@ -372,7 +377,7 @@ func copyToClipboard(text string) error {
     return fmt.Errorf("no clipboard command available")
 }
 
-func (ui *UI) SetToken(token string) {
+func (ui *UIImpl) SetToken(token string) {
     ui.token = token
 
     // Create a clickable token message
@@ -423,23 +428,23 @@ func (ui *UI) SetToken(token string) {
     ui.AppendChat(tokenMsg)
 }
 
-func (ui *UI) ShowConnectionRequest(token string) {
+func (ui *UIImpl) ShowConnectionRequest(token string) {
     ui.lastRequest = token
     ui.AppendChat("[yellow]Peer[white] wants to connect (use [blue]/accept[white] to connect)")
     ui.app.SetFocus(ui.inputField)
 }
 
-func (ui *UI) ShowConnectionAccepted(msg string) {
+func (ui *UIImpl) ShowConnectionAccepted(msg string) {
     ui.AppendChat("[green]✓ Connected to Peer[white]")
     ui.app.SetFocus(ui.inputField)
 }
 
-func (ui *UI) ShowConnectionRejected(token string) {
+func (ui *UIImpl) ShowConnectionRejected(token string) {
     ui.AppendChat("[red]× Connection rejected by Peer[white]")
     ui.app.SetFocus(ui.inputField)
 }
 
-func (ui *UI) ShowError(msg string) {
+func (ui *UIImpl) ShowError(msg string) {
     ui.opChan <- func() {
         timestamp := time.Now().Format("15:04:05")
         fmt.Fprintf(ui.debugView, "[gray]%s [red]Error:[white] %s\n", timestamp, msg)
@@ -447,7 +452,7 @@ func (ui *UI) ShowError(msg string) {
     }
 }
 
-func (ui *UI) LogDebug(msg string) {
+func (ui *UIImpl) LogDebug(msg string) {
     ui.opChan <- func() {
         timestamp := time.Now().Format("15:04:05")
         fmt.Fprintf(ui.debugView, "[gray]%s[white] %s\n", timestamp, msg)
@@ -455,7 +460,7 @@ func (ui *UI) LogDebug(msg string) {
     }
 }
 
-func (ui *UI) ShowChat(from string, msg string) {
+func (ui *UIImpl) ShowChat(from string, msg string) {
     if from == ui.token {
         ui.AppendChat(fmt.Sprintf("[yellow]You[white] %s", msg))
     } else {
@@ -463,12 +468,18 @@ func (ui *UI) ShowChat(from string, msg string) {
     }
 }
 
-// UpdateTransferStatus shows current transfer status in a single line
-func (ui *UI) UpdateTransferStatus(status string) {
+func (ui *UIImpl) AppendChat(msg string) {
     ui.opChan <- func() {
-        ui.fileView.Clear()
-        
-        // Add new transfer to history if it's a completion message or error
+        timestamp := time.Now().Format("15:04:05")
+        fmt.Fprintf(ui.chatView, "[gray]%s[white] %s\n", timestamp, msg)
+        ui.chatView.ScrollToEnd()
+    }
+}
+
+// UpdateTransferProgress shows progress for a specific transfer direction (send/receive)
+func (ui *UIImpl) UpdateTransferProgress(status string, direction string) {
+    ui.opChan <- func() {
+        // Add completed/failed transfers to history
         if strings.Contains(status, "Complete") || strings.Contains(status, "FAILED") {
             ui.transfers = append(ui.transfers, transfer{
                 status:    status,
@@ -483,6 +494,9 @@ func (ui *UI) UpdateTransferStatus(status string) {
             start = len(ui.transfers) - maxHistory
         }
         
+        // Rebuild entire status display
+        ui.fileView.Clear()
+        
         // Show history first
         for i := start; i < len(ui.transfers); i++ {
             t := ui.transfers[i]
@@ -491,28 +505,19 @@ func (ui *UI) UpdateTransferStatus(status string) {
                 t.status)
         }
         
-        // Show current status if not empty and not in history
-        if status != "" && !strings.Contains(status, "Complete") && !strings.Contains(status, "FAILED") {
-            if len(ui.transfers) > 0 {
-                fmt.Fprintf(ui.fileView, "\n") // Add space between history and current status
-            }
-            fmt.Fprintf(ui.fileView, "%s", status)
+        // Add space between history and active transfers
+        if len(ui.transfers) > 0 && (strings.HasPrefix(status, "⬆") || strings.HasPrefix(status, "⬇")) {
+            fmt.Fprintf(ui.fileView, "\n")
         }
-    }
-}
 
-// ShowFileTransfer for backward compatibility
-func (ui *UI) ShowFileTransfer(msg string) {
-    if strings.Contains(msg, "Complete") || strings.Contains(msg, "FAILED") || 
-       strings.Contains(msg, "Ready for") || strings.Contains(msg, "Validating") {
-        ui.UpdateTransferStatus(msg)
-    }
-}
-
-func (ui *UI) AppendChat(msg string) {
-    ui.opChan <- func() {
-        timestamp := time.Now().Format("15:04:05")
-        fmt.Fprintf(ui.chatView, "[gray]%s[white] %s\n", timestamp, msg)
-        ui.chatView.ScrollToEnd()
+        // Show active transfers
+        if status != "" && !strings.Contains(status, "Complete") && !strings.Contains(status, "FAILED") {
+            // Split transfers into send and receive sections
+            if direction == "receive" {
+                fmt.Fprintf(ui.fileView, "\n%s", status)
+            } else {
+                fmt.Fprintf(ui.fileView, "%s", status)
+            }
+        }
     }
 }
