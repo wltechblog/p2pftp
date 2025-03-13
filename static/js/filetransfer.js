@@ -72,24 +72,18 @@ async function processChunk(chunk) {
 
     // Progress and transfer rate tracking
     const now = Date.now();
-    if (now - receiveState.lastUpdate >= PROGRESS_UPDATE_INTERVAL) {
-        const timeDiff = (now - receiveState.startTime) / 1000; // seconds
-        const instantRate = chunk.byteLength / (now - receiveState.lastUpdate) * 1000; // bytes per second
+    const timeDiff = now - receiveState.lastUpdate;
+    if (timeDiff >= PROGRESS_UPDATE_INTERVAL) {
+        const instantRate = chunk.byteLength / (now - receiveState.lastUpdate) * 1000;
         receiveState.bytesPerSecond = receiveState.bytesPerSecond * (1 - BYTES_PER_SEC_SMOOTHING) + instantRate * BYTES_PER_SEC_SMOOTHING;
-
-        // Use BigInt for precise calculation with large files
-        const received = BigInt(receiveState.receivedSize);
-        const total = BigInt(receiveState.fileInfo.size);
-        const percentage = Math.min(Number((received * BigInt(100)) / total), 100);
-        ui.updateTransferProgress(percentage, `⬇ ${receiveState.fileInfo.name} - ${formatBytes(receiveState.bytesPerSecond)}/s`, "receive");
-
         receiveState.lastUpdate = now;
-    } else {
-        const received = BigInt(receiveState.receivedSize);
-        const total = BigInt(receiveState.fileInfo.size);
-        const percentage = Math.min(Number((received * BigInt(100)) / total), 100);
-        ui.updateTransferProgress(percentage, `⬇ ${receiveState.fileInfo.name}`, "receive");
     }
+
+    // Use BigInt for precise calculation with large files
+    const received = BigInt(receiveState.receivedSize);
+    const total = BigInt(receiveState.fileInfo.size);
+    const percentage = Math.min(Number((received * BigInt(100)) / total), 100);
+    ui.updateTransferProgress(percentage, `⬇ ${receiveState.fileInfo.name} - ${formatBytes(receiveState.bytesPerSecond)}/s`, "receive");
 
     // Clear chunk info and check if complete
     delete receiveState.fileInfo.currentChunk;
@@ -201,6 +195,9 @@ export async function sendFile(file) {
     sendState.lastUpdate = Date.now();
     sendState.lastOffset = 0;
     sendState.bytesPerSecond = 0;
+
+    // Clear file selection immediately when starting transfer
+    ui.resetFileInterface();
     
     // Calculate MD5 hash before sending
     let md5Hash = '';
@@ -296,23 +293,23 @@ export async function sendFile(file) {
 // Update transfer progress
 function updateProgress() {
     if (!sendState.currentFile) return;
+
     // Use BigInt for precise calculation with large files
     const offset = BigInt(sendState.offset);
     const size = BigInt(sendState.currentFile.size);
     const percentage = Number((offset * BigInt(100)) / size);
     const now = Date.now();
     
-    if (now - sendState.lastUpdate >= PROGRESS_UPDATE_INTERVAL) {
-        const timeDiff = now - sendState.lastUpdate;
+    const timeDiff = now - sendState.lastUpdate;
+    if (timeDiff >= PROGRESS_UPDATE_INTERVAL) {
         const instantRate = (sendState.offset - sendState.lastOffset) / timeDiff * 1000;
         sendState.bytesPerSecond = sendState.bytesPerSecond * (1 - BYTES_PER_SEC_SMOOTHING) + instantRate * BYTES_PER_SEC_SMOOTHING;
-
-        ui.updateTransferProgress(percentage, `⬆ ${sendState.currentFile.name} - ${formatBytes(sendState.bytesPerSecond)}/s`, "send");
         sendState.lastUpdate = now;
         sendState.lastOffset = sendState.offset;
-    } else {
-        ui.updateTransferProgress(percentage, `⬆ ${sendState.currentFile.name}`, "send");
     }
+    
+    // Always show speed, even between updates
+    ui.updateTransferProgress(percentage, `⬆ ${sendState.currentFile.name} - ${formatBytes(sendState.bytesPerSecond)}/s`, "send");
 }
 
 // Finish file transfer
