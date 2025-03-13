@@ -109,26 +109,33 @@ export async function handleDataChannelMessage(event) {
                 }
                 
                 try {
-                    // Request permission to write file immediately
-                    const handle = await window.showSaveFilePicker({
-                        suggestedName: messageObj.info.name,
-                        types: [{
-                            description: 'File',
-                            accept: { '*/*': ['.'] }
-                        }],
-                    });
-
-                    // Set up file handle and writer
-                    receiveState.fileHandle = handle;
-                    receiveState.fileWriter = await handle.createWritable();
-
-                    // Initialize tracking array (just booleans, not actual chunks)
+                    let hasNativeFS = 'showSaveFilePicker' in window;
                     const fileSize = BigInt(messageObj.info.size);
                     const chunkSize = BigInt(CHUNK_SIZE);
                     const numChunks = Number((fileSize + chunkSize - BigInt(1)) / chunkSize);
-                    receiveState.buffer = new Array(numChunks).fill(false);
-                    receiveState.receivedSize = 0;
                     receiveState.fileInfo = messageObj.info;
+
+                    if (hasNativeFS) {
+                        // Use File System Access API if available
+                        const handle = await window.showSaveFilePicker({
+                            suggestedName: messageObj.info.name,
+                            types: [{
+                                description: 'File',
+                                accept: { '*/*': ['.'] }
+                            }],
+                        });
+
+                        // Set up file handle and writer
+                        receiveState.fileHandle = handle;
+                        receiveState.fileWriter = await handle.createWritable();
+                        receiveState.buffer = new Array(numChunks).fill(false);
+                    } else {
+                        // Fallback to in-memory buffer for older browsers
+                        receiveState.buffer = new Array(numChunks).fill(null);
+                    }
+
+                    // Initialize transfer state
+                    receiveState.receivedSize = 0;
                     receiveState.startTime = Date.now();
                     receiveState.lastUpdate = Date.now();
                     receiveState.bytesPerSecond = 0;
@@ -342,6 +349,17 @@ function finishTransfer() {
 }
 
 // Complete file reception and finalize
+function createDownloadLink(blob, filename) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 100);
+}
+
 async function receiveFile() {
     try {
         ui.updateConnectionStatus('Finalizing file...');
@@ -350,29 +368,43 @@ async function receiveFile() {
         if (receiveState.fileWriter) {
             await receiveState.fileWriter.close();
             receiveState.fileWriter = null;
-        }
-        const handle = receiveState.fileHandle;
-
-        // File is saved, now verify if MD5 is provided
-        if (receiveState.fileInfo.md5) {
-            ui.updateConnectionStatus('Validating file integrity...');
-            try {
-                // Re-open the file for validation
-                const file = await handle.getFile();
+            const handle = receiveState.fileHandle;
+            
+            // Re-open the file for validation
+            const file = await handle.getFile();
+            if (receiveState.fileInfo.md5) {
+                ui.updateConnectionStatus('Validating file integrity...');
                 const receivedMD5 = await calculateMD5(file);
-                console.debug(`[WebRTC] Received file MD5: ${receivedMD5}, Expected: ${receiveState.fileInfo.md5}`);
-                
                 if (receivedMD5 !== receiveState.fileInfo.md5) {
                     ui.addSystemMessage(`⚠️ File integrity check failed! The file may be corrupted.`);
                     showNotification('File Integrity Error', `${receiveState.fileInfo.name} failed checksum validation`);
                 } else {
                     ui.addSystemMessage(`✓ File integrity verified (MD5: ${receivedMD5})`);
                 }
-            } catch (error) {
-                console.error('[WebRTC] Error validating file MD5:', error);
-                ui.addSystemMessage(`Error validating file integrity: ${error.message}`);
             }
+        } else {
+            // For browsers without File System Access API, create blob from chunks
+            const chunks = [];
+            for (const chunk of receiveState.buffer) {
+                if (!chunk) {
+                    throw new Error("Incomplete file transfer");
+                }
+                chunks.push(chunk);
+            }
+            const blob = new Blob(chunks, { type: 'application/octet-stream' });
+            if (receiveState.fileInfo.md5) {
+                ui.updateConnectionStatus('Validating file integrity...');
+                const receivedMD5 = await calculateMD5(blob);
+                if (receivedMD5 !== receiveState.fileInfo.md5) {
+                    ui.addSystemMessage(`⚠️ File integrity check failed! The file may be corrupted.`);
+                    showNotification('File Integrity Error', `${receiveState.fileInfo.name} failed checksum validation`);
+                } else {
+                    ui.addSystemMessage(`✓ File integrity verified (MD5: ${receivedMD5})`);
+                }
+            }
+            createDownloadLink(blob, receiveState.fileInfo.name);
         }
+
 
         // Show success message
         ui.updateConnectionStatus('Connected to peer');
