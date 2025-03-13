@@ -489,10 +489,23 @@ func (c *Client) handleMessages() {
                 continue
             }
 
+            offerObj := struct {
+                Type string `json:"type"`
+                SDP  string `json:"sdp"`
+            }{
+                Type: offer.Type.String(),
+                SDP:  offer.SDP,
+            }
+            offerJSON, err := json.Marshal(offerObj)
+            if err != nil {
+                c.ui.ShowError(fmt.Sprintf("Failed to marshal offer: %v", err))
+                continue
+            }
+            
             err = c.SendMessage(Message{
                 Type:      "offer",
                 PeerToken: c.webrtc.peerToken,
-                SDP:       string(offer.SDP),
+                SDP:       string(offerJSON),
             })
             if err != nil {
                 c.ui.ShowError("Failed to send offer")
@@ -549,11 +562,21 @@ func (c *Client) setupPeerConnection() error {
             c.ui.ShowError("Connection failed - attempting ICE restart")
             if offer, err := peerConn.CreateOffer(&webrtc.OfferOptions{ICERestart: true}); err == nil {
                 if err := peerConn.SetLocalDescription(offer); err == nil {
-                    c.SendMessage(Message{
-                        Type:      "offer",
-                        PeerToken: c.webrtc.peerToken,
-                        SDP:       string(offer.SDP),
-                    })
+                    offerObj := struct {
+                        Type string `json:"type"`
+                        SDP  string `json:"sdp"`
+                    }{
+                        Type: offer.Type.String(),
+                        SDP:  offer.SDP,
+                    }
+                    offerJSON, err := json.Marshal(offerObj)
+                    if err == nil {
+                        c.SendMessage(Message{
+                            Type:      "offer",
+                            PeerToken: c.webrtc.peerToken,
+                            SDP:       string(offerJSON),
+                        })
+                    }
                 }
             }
         case webrtc.PeerConnectionStateDisconnected:
