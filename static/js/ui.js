@@ -73,6 +73,11 @@ export function setupEventListeners(handlers) {
     });
 
     // Connect/Disconnect button
+    // Setup disconnect buttons
+    document.getElementById('disconnect-btn').addEventListener('click', disconnectFromPeer);
+    document.getElementById('disconnect-status-btn').addEventListener('click', disconnectFromPeer);
+
+    // Setup connect button
     connectBtn.addEventListener('click', () => {
         if (handlers.isConnected()) {
             disconnectFromPeer();
@@ -119,8 +124,16 @@ export function setupEventListeners(handlers) {
 }
 
 // UI update functions
-export function updateConnectionStatus(status) {
-    connectionStatus.textContent = status;
+export function updateConnectionStatus(status, connectedPeerToken = null) {
+    if (connectedPeerToken) {
+        connectionPanel.classList.add('hidden');
+        connectionStatus.textContent = `Connected to ${connectedPeerToken}`;
+        document.getElementById('disconnect-status-btn').classList.remove('hidden');
+    } else {
+        connectionPanel.classList.remove('hidden');
+        connectionStatus.textContent = status;
+        document.getElementById('disconnect-status-btn').classList.add('hidden');
+    }
 }
 
 export function showConnectionRequest(token) {

@@ -12,6 +12,11 @@ import (
 	"github.com/rivo/tview"
 )
 
+type transfer struct {
+    status    string
+    timestamp time.Time
+}
+
 type UI struct {
     client      *Client
     token       string
@@ -25,15 +30,19 @@ type UI struct {
     inputField  *tview.InputField
     layout      *tview.Flex
     
+    // Transfer history
+    transfers   []transfer
+
     // Channel for async operations
     opChan      chan func()
 }
 
 func NewUI(client *Client) *UI {
     ui := &UI{
-        client: client,
-        app:    tview.NewApplication(),
-        opChan: make(chan func(), 100),
+        client:    client,
+        app:       tview.NewApplication(),
+        opChan:    make(chan func(), 100),
+        transfers: make([]transfer, 0),
     }
 
     // Start operations handler
@@ -94,8 +103,8 @@ func NewUI(client *Client) *UI {
 
     fileView := tview.NewTextView()
     fileView.SetDynamicColors(true)
-    fileView.SetScrollable(false)
-    fileView.SetTitle("Transfer Status")
+    fileView.SetScrollable(true)
+    fileView.SetTitle("Transfer History")
     fileView.SetBorder(true)
     fileView.Box.SetTitleAlign(tview.AlignLeft)
     fileView.SetWrap(false)
@@ -458,7 +467,35 @@ func (ui *UI) ShowChat(from string, msg string) {
 func (ui *UI) UpdateTransferStatus(status string) {
     ui.opChan <- func() {
         ui.fileView.Clear()
-        if status != "" {
+        
+        // Add new transfer to history if it's a completion message or error
+        if strings.Contains(status, "Complete") || strings.Contains(status, "FAILED") {
+            ui.transfers = append(ui.transfers, transfer{
+                status:    status,
+                timestamp: time.Now(),
+            })
+        }
+        
+        // Show transfer history, limited to last few entries
+        maxHistory := 5
+        start := 0
+        if len(ui.transfers) > maxHistory {
+            start = len(ui.transfers) - maxHistory
+        }
+        
+        // Show history first
+        for i := start; i < len(ui.transfers); i++ {
+            t := ui.transfers[i]
+            fmt.Fprintf(ui.fileView, "[gray]%s[white] %s\n", 
+                t.timestamp.Format("15:04:05"),
+                t.status)
+        }
+        
+        // Show current status if not empty and not in history
+        if status != "" && !strings.Contains(status, "Complete") && !strings.Contains(status, "FAILED") {
+            if len(ui.transfers) > 0 {
+                fmt.Fprintf(ui.fileView, "\n") // Add space between history and current status
+            }
             fmt.Fprintf(ui.fileView, "%s", status)
         }
     }
@@ -466,7 +503,8 @@ func (ui *UI) UpdateTransferStatus(status string) {
 
 // ShowFileTransfer for backward compatibility
 func (ui *UI) ShowFileTransfer(msg string) {
-    if strings.Contains(msg, "Ready for") || strings.Contains(msg, "Validating") || strings.Contains(msg, "Saved") {
+    if strings.Contains(msg, "Complete") || strings.Contains(msg, "FAILED") || 
+       strings.Contains(msg, "Ready for") || strings.Contains(msg, "Validating") {
         ui.UpdateTransferStatus(msg)
     }
 }

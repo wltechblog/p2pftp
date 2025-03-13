@@ -248,7 +248,7 @@ function setupDataChannel(channel) {
         isConnecting = false;
         console.debug(`[WebRTC] Data channel opened (State: ${channel.readyState})`);
         ui.addSystemMessage('Peer connection established');
-        ui.updateConnectionStatus('Connected to peer');
+        ui.updateConnectionStatus('Connected to peer', peerToken);
         ui.showChatAndFileInterface();
         ui.updateConnectButton(false, true);
     };
@@ -390,6 +390,7 @@ export function disconnectFromPeer() {
 
     peerToken = '';
     resetConnectionState();
+    ui.updateConnectionStatus('Disconnected');
 }
 
 // Reset connection state
