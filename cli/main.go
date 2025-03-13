@@ -544,18 +544,40 @@ func (c *Client) SendFile(filePath string) error {
             return fmt.Errorf("failed to marshal chunk info: %v", err)
         }
 
+        // Send chunk metadata and wait for acknowledgment
+        metadataReceived := make(chan struct{})
+        c.webrtc.dataChannel.OnMessage(func(msg webrtc.DataChannelMessage) {
+            if !msg.IsString {
+                return
+            }
+            var data map[string]interface{}
+            if err := json.Unmarshal(msg.Data, &data); err != nil {
+                return
+            }
+            if data["type"] == "chunk-ack" && data["sequence"] == chunkIndex {
+                close(metadataReceived)
+            }
+        })
+
         err = c.webrtc.dataChannel.SendText(string(chunkInfoJSON))
         if err != nil {
             return fmt.Errorf("failed to send chunk info: %v", err)
         }
 
-        // Small delay to ensure metadata is processed before binary data
-        time.Sleep(10 * time.Millisecond)
-
-        // Convert to ArrayBuffer for WebRTC
-        chunk := buffer[:n]
-        c.ui.LogDebug(fmt.Sprintf("Sending chunk %d/%d, size: %d", chunkIndex+1, totalChunks, len(chunk)))
-        err = c.webrtc.dataChannel.Send(chunk)
+        // Wait for metadata acknowledgment with timeout
+        select {
+        case <-metadataReceived:
+            // Metadata received, send binary data
+            chunk := buffer[:n]
+            c.ui.LogDebug(fmt.Sprintf("Sending chunk %d/%d, size: %d", chunkIndex+1, totalChunks, len(chunk)))
+            err = c.webrtc.dataChannel.Send(chunk)
+        case <-time.After(100 * time.Millisecond):
+            c.ui.LogDebug("Metadata acknowledgment timeout")
+            // Send binary data anyway after timeout
+            chunk := buffer[:n]
+            c.ui.LogDebug(fmt.Sprintf("Sending chunk %d/%d, size: %d", chunkIndex+1, totalChunks, len(chunk)))
+            err = c.webrtc.dataChannel.Send(chunk)
+        }
         if err != nil {
             return fmt.Errorf("failed to send chunk: %v", err)
         }

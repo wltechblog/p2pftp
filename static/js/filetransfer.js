@@ -101,6 +101,15 @@ export function handleDataChannelMessage(event) {
                     total: messageObj.total,
                     size: messageObj.size
                 };
+                
+                // Send acknowledgment
+                const dataChannel = getDataChannel();
+                if (dataChannel && dataChannel.readyState === 'open') {
+                    dataChannel.send(JSON.stringify({
+                        type: 'chunk-ack',
+                        sequence: messageObj.sequence
+                    }));
+                }
             }
         } catch (e) {
             // Not JSON, treat as a regular message
