@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"time"
 
@@ -131,7 +132,99 @@ func NewUI(client *Client) UserInterface {
     inputField := tview.NewInputField()
     inputField.SetLabel("> ")
     inputField.SetFieldWidth(0)
+
+    // Setup autocomplete for file paths with interactive selection
+    matches := make([]string, 0)
+    currentCompletions := make([]string, 0)
+    selectedCompletion := 0
+
+    inputField.SetAutocompleteFunc(func(currentText string) []string {
+        if !strings.HasPrefix(currentText, "/send ") {
+            currentCompletions = nil
+            matches = nil
+            return nil
+        }
+
+        path := strings.TrimPrefix(currentText, "/send ")
+        if path == "" {
+            path = "."
+        }
+
+        dir := filepath.Dir(path)
+        base := filepath.Base(path)
+
+        entries, err := os.ReadDir(dir)
+        if err != nil {
+            return nil
+        }
+
+        matches = make([]string, 0)
+        for _, entry := range entries {
+            name := entry.Name()
+            if strings.HasPrefix(strings.ToLower(name), strings.ToLower(base)) {
+                fullPath := filepath.Join(dir, name)
+                if entry.IsDir() {
+                    fullPath += "/"
+                }
+                matches = append(matches, "/send "+fullPath)
+            }
+        }
+
+        if len(matches) > 0 {
+            if !reflect.DeepEqual(matches, currentCompletions) {
+                currentCompletions = matches
+                selectedCompletion = 0
+            }
+            // Show available completions in debug view
+            var completionList strings.Builder
+            completionList.WriteString("[gray]Available paths:\n")
+            for i, match := range matches {
+                if i == selectedCompletion {
+                    completionList.WriteString(fmt.Sprintf("[white]> %s\n", strings.TrimPrefix(match, "/send ")))
+                } else {
+                    completionList.WriteString(fmt.Sprintf("[gray]  %s\n", strings.TrimPrefix(match, "/send ")))
+                }
+            }
+            ui.debugView.Clear()
+            fmt.Fprint(ui.debugView, completionList.String())
+            return []string{currentCompletions[selectedCompletion]}
+        }
+
+        currentCompletions = nil
+        return nil
+    })
+
     inputField.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+        if len(currentCompletions) > 0 {
+            switch event.Key() {
+            case tcell.KeyTab:
+                if event.Modifiers()&tcell.ModShift != 0 {
+                    // Shift+Tab: cycle backwards through completions
+                    selectedCompletion--
+                    if selectedCompletion < 0 {
+                        selectedCompletion = len(currentCompletions) - 1
+                    }
+                } else {
+                    // Tab: cycle forwards through completions
+                    selectedCompletion = (selectedCompletion + 1) % len(currentCompletions)
+                }
+                inputField.SetText(currentCompletions[selectedCompletion])
+                // Update completion display
+                var completionList strings.Builder
+                completionList.WriteString("[gray]Available paths:\n")
+                for i, match := range currentCompletions {
+                    if i == selectedCompletion {
+                        completionList.WriteString(fmt.Sprintf("[white]> %s\n", strings.TrimPrefix(match, "/send ")))
+                    } else {
+                        completionList.WriteString(fmt.Sprintf("[gray]  %s\n", strings.TrimPrefix(match, "/send ")))
+                    }
+                }
+                ui.debugView.Clear()
+                fmt.Fprint(ui.debugView, completionList.String())
+                return nil
+            }
+        }
+
         switch event.Key() {
         case tcell.KeyUp:
             if historyIndex < len(commandHistory)-1 {
@@ -148,17 +241,23 @@ func NewUI(client *Client) UserInterface {
                 inputField.SetText("")
             }
             return nil
+        default:
+            // Reset completion state for any other key
+            if len(currentCompletions) > 0 {
+                if event.Key() != tcell.KeyEnter {
+                    currentCompletions = nil
+                    selectedCompletion = 0
+                }
+            }
         }
         return event
     })
+
     ui.inputField = inputField
 
-    // Set up tab completion for file paths
-    ui.inputField.SetAutocompleteFunc(ui.FileAutocomplete)
-
     // Set up input handling with history
-    ui.inputField.SetDoneFunc(func(key tcell.Key) {
-        text := ui.inputField.GetText()
+    inputField.SetDoneFunc(func(key tcell.Key) {
+        text := inputField.GetText()
         if text != "" && (len(commandHistory) == 0 || commandHistory[len(commandHistory)-1] != text) {
             commandHistory = append(commandHistory, text)
             if len(commandHistory) > 100 {
@@ -167,6 +266,8 @@ func NewUI(client *Client) UserInterface {
         }
         historyIndex = -1
         ui.HandleInput(key)
+        // Clear completion display after command
+        ui.debugView.Clear()
     })
 
     // Create layout with resizable panels
@@ -189,7 +290,7 @@ func NewUI(client *Client) UserInterface {
     fmt.Fprintf(ui.chatView, "  [blue]/connect[white] <[yellow]token[white]> - Connect to a peer\n")
     fmt.Fprintf(ui.chatView, "  [blue]/accept[white] [yellow][token][white] - Accept connection request\n")
     fmt.Fprintf(ui.chatView, "  [blue]/reject[white] [yellow][token][white] - Reject connection request\n")
-    fmt.Fprintf(ui.chatView, "  [blue]/send[white] <[yellow]path[white]> - Send a file (press Tab for completion)\n")
+    fmt.Fprintf(ui.chatView, "  [blue]/send[white] <[yellow]path[white]> - Send a file (press Tab to cycle options)\n")
     fmt.Fprintf(ui.chatView, "  [blue]/quit[white] - Exit program\n\n")
     fmt.Fprintf(ui.chatView, "[gray]Type any message to send chat (without / prefix)[white]\n\n")
 
@@ -199,39 +300,6 @@ func NewUI(client *Client) UserInterface {
 func (ui *UIImpl) Run() error {
     defer close(ui.opChan)
     return ui.app.SetRoot(ui.layout, true).Run()
-}
-
-func (ui *UIImpl) FileAutocomplete(currentText string) []string {
-    if !strings.HasPrefix(currentText, "/send ") {
-        return nil
-    }
-
-    path := strings.TrimPrefix(currentText, "/send ")
-    if path == "" {
-        path = "."
-    }
-
-    dir := filepath.Dir(path)
-    base := filepath.Base(path)
-
-    entries, err := os.ReadDir(dir)
-    if err != nil {
-        return nil
-    }
-
-    var matches []string
-    for _, entry := range entries {
-        name := entry.Name()
-        if strings.HasPrefix(name, base) {
-            fullPath := filepath.Join(dir, name)
-            if entry.IsDir() {
-                fullPath += "/"
-            }
-            matches = append(matches, "/send "+fullPath)
-        }
-    }
-
-    return matches
 }
 
 func (ui *UIImpl) HandleInput(key tcell.Key) {
@@ -476,7 +544,6 @@ func (ui *UIImpl) AppendChat(msg string) {
     }
 }
 
-// UpdateTransferProgress shows progress for a specific transfer direction (send/receive)
 func (ui *UIImpl) UpdateTransferProgress(status string, direction string) {
     ui.opChan <- func() {
         // Add completed/failed transfers to history
