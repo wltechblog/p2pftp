@@ -30,7 +30,7 @@ export function init() {
 }
 
 // Process a chunk after converting to Uint8Array
-function processChunk(chunk) {
+async function processChunk(chunk) {
     if (!receiveState.fileInfo || !receiveState.fileInfo.currentChunk) {
         console.error('[WebRTC] Missing chunk metadata');
         return;
@@ -51,9 +51,24 @@ function processChunk(chunk) {
         return;
     }
 
-    // Store chunk at correct position
-    receiveState.buffer[sequence] = chunk;
-    receiveState.receivedSize += chunk.byteLength;
+    // Store chunk for immediate writing if we have an active file handle
+    if (receiveState.fileHandle && receiveState.fileWriter) {
+        // Write chunk directly to file
+        try {
+            const position = BigInt(sequence) * BigInt(CHUNK_SIZE);
+            await receiveState.fileWriter.write({ type: 'write', position: Number(position), data: chunk });
+            receiveState.receivedSize += chunk.byteLength;
+            receiveState.buffer[sequence] = true; // Mark as received
+        } catch (error) {
+            console.error('[WebRTC] Error writing chunk:', error);
+            ui.showError(`Failed to write chunk: ${error.message}`);
+            return;
+        }
+    } else {
+        // Fallback to buffer if no file handle yet
+        receiveState.buffer[sequence] = chunk;
+        receiveState.receivedSize += chunk.byteLength;
+    }
 
     // Progress and transfer rate tracking
     const now = Date.now();
@@ -84,7 +99,7 @@ function processChunk(chunk) {
 }
 
 // Handle incoming data channel messages
-export function handleDataChannelMessage(event) {
+export async function handleDataChannelMessage(event) {
     const data = event.data;
     
     if (typeof data === 'string') {
@@ -99,21 +114,40 @@ export function handleDataChannelMessage(event) {
                     return;
                 }
                 
-                // Prepare to receive a file - use BigInt for large file calculations
-                const fileSize = BigInt(messageObj.info.size);
-                const chunkSize = BigInt(CHUNK_SIZE);
-                const numChunks = Number((fileSize + chunkSize - BigInt(1)) / chunkSize);
-                receiveState.buffer = new Array(numChunks);
-                receiveState.receivedSize = 0;
-                receiveState.fileInfo = messageObj.info;
-                receiveState.startTime = Date.now();
-                receiveState.lastUpdate = Date.now();
-                receiveState.bytesPerSecond = 0;
-                receiveState.inProgress = true;
-                
-                ui.addSystemMessage(`Receiving file: ${receiveState.fileInfo.name} (${formatBytes(receiveState.fileInfo.size)})`);
-                ui.updateConnectionStatus(`Receiving file...`);
-                ui.updateTransferProgress(0, `⬇ ${receiveState.fileInfo.name}`, "receive");
+                try {
+                    // Request permission to write file immediately
+                    const handle = await window.showSaveFilePicker({
+                        suggestedName: messageObj.info.name,
+                        types: [{
+                            description: 'File',
+                            accept: { '*/*': ['.'] }
+                        }],
+                    });
+
+                    // Set up file handle and writer
+                    receiveState.fileHandle = handle;
+                    receiveState.fileWriter = await handle.createWritable();
+
+                    // Initialize tracking array (just booleans, not actual chunks)
+                    const fileSize = BigInt(messageObj.info.size);
+                    const chunkSize = BigInt(CHUNK_SIZE);
+                    const numChunks = Number((fileSize + chunkSize - BigInt(1)) / chunkSize);
+                    receiveState.buffer = new Array(numChunks).fill(false);
+                    receiveState.receivedSize = 0;
+                    receiveState.fileInfo = messageObj.info;
+                    receiveState.startTime = Date.now();
+                    receiveState.lastUpdate = Date.now();
+                    receiveState.bytesPerSecond = 0;
+                    receiveState.inProgress = true;
+                    
+                    ui.addSystemMessage(`Receiving file: ${receiveState.fileInfo.name} (${formatBytes(receiveState.fileInfo.size)})`);
+                    ui.updateConnectionStatus(`Receiving file...`);
+                    ui.updateTransferProgress(0, `⬇ ${receiveState.fileInfo.name}`, "receive");
+                } catch (error) {
+                    console.error('[WebRTC] Error setting up file reception:', error);
+                    ui.showError(`Failed to set up file reception: ${error.message}`);
+                    return;
+                }
             } else if (messageObj.type === 'chunk') {
                 const { sequence, total, size, data } = messageObj;
                 
@@ -126,15 +160,20 @@ export function handleDataChannelMessage(event) {
                 }
 
                 receiveState.fileInfo.currentChunk = { sequence, total, size };
-                processChunk(binaryData);
-
-                // Send chunk confirmation
-                const dataChannel = getDataChannel();
-                if (dataChannel && dataChannel.readyState === 'open') {
-                    dataChannel.send(JSON.stringify({
-                        type: 'chunk-confirm',
-                        sequence: sequence
-                    }));
+                try {
+                    await processChunk(binaryData);
+                    // Send chunk confirmation after successful processing
+                    const dataChannel = getDataChannel();
+                    if (dataChannel && dataChannel.readyState === 'open') {
+                        dataChannel.send(JSON.stringify({
+                            type: 'chunk-confirm',
+                            sequence: sequence
+                        }));
+                    }
+                } catch (error) {
+                    console.error('[WebRTC] Error processing chunk:', error);
+                    ui.showError(`Failed to process chunk: ${error.message}`);
+                    return;
                 }
             } else if (messageObj.type === 'file-complete') {
                 receiveFile();
@@ -305,49 +344,59 @@ function finishTransfer() {
     }
 }
 
-// Complete file reception and show download link
+// Complete file reception and finalize
 async function receiveFile() {
-    const allData = new Uint8Array(receiveState.fileInfo.size);
-    let offset = 0;
-    
-    for (const chunk of receiveState.buffer) {
-        allData.set(chunk, offset);
-        offset += chunk.length;
-    }
-    
-    const received = new Blob([allData]);
-    
-    if (receiveState.fileInfo.md5) {
-        ui.updateConnectionStatus('Validating file integrity...');
-        try {
-            const receivedMD5 = await calculateMD5(received);
-            console.debug(`[WebRTC] Received file MD5: ${receivedMD5}, Expected: ${receiveState.fileInfo.md5}`);
-            
-            if (receivedMD5 !== receiveState.fileInfo.md5) {
-                ui.addSystemMessage(`⚠️ File integrity check failed! The file may be corrupted.`);
-                showNotification('File Integrity Error', `${receiveState.fileInfo.name} failed checksum validation`);
-            } else {
-                ui.addSystemMessage(`✓ File integrity verified (MD5: ${receivedMD5})`);
-            }
-        } catch (error) {
-            console.error('[WebRTC] Error validating file MD5:', error);
-            ui.addSystemMessage(`Error validating file integrity: ${error.message}`);
+    try {
+        ui.updateConnectionStatus('Finalizing file...');
+
+        // Close the writable stream
+        if (receiveState.fileWriter) {
+            await receiveState.fileWriter.close();
+            receiveState.fileWriter = null;
         }
+        const handle = receiveState.fileHandle;
+
+        // File is saved, now verify if MD5 is provided
+        if (receiveState.fileInfo.md5) {
+            ui.updateConnectionStatus('Validating file integrity...');
+            try {
+                // Re-open the file for validation
+                const file = await handle.getFile();
+                const receivedMD5 = await calculateMD5(file);
+                console.debug(`[WebRTC] Received file MD5: ${receivedMD5}, Expected: ${receiveState.fileInfo.md5}`);
+                
+                if (receivedMD5 !== receiveState.fileInfo.md5) {
+                    ui.addSystemMessage(`⚠️ File integrity check failed! The file may be corrupted.`);
+                    showNotification('File Integrity Error', `${receiveState.fileInfo.name} failed checksum validation`);
+                } else {
+                    ui.addSystemMessage(`✓ File integrity verified (MD5: ${receivedMD5})`);
+                }
+            } catch (error) {
+                console.error('[WebRTC] Error validating file MD5:', error);
+                ui.addSystemMessage(`Error validating file integrity: ${error.message}`);
+            }
+        }
+
+        // Show success message
+        ui.updateConnectionStatus('Connected to peer');
+        ui.addSystemMessage(`File saved: ${receiveState.fileInfo.name}`);
+        showNotification('File Received', `${receiveState.fileInfo.name} has been saved`);
+        updateTitleWithSpinner(false);
+        
+    } catch (error) {
+        console.error('[WebRTC] Error saving file:', error);
+        ui.addSystemMessage(`Error saving file: ${error.message}`);
+        ui.showError(`Failed to save file: ${error.message}`);
+    } finally {
+        // Clean up
+        setTimeout(() => {
+            receiveState.buffer = [];
+            receiveState.fileInfo = null;
+            ui.hideTransferProgress("receive");
+            receiveState.bytesPerSecond = 0;
+            receiveState.startTime = 0;
+            receiveState.lastUpdate = 0;
+            receiveState.inProgress = false;
+        }, 100);
     }
-    
-    const downloadUrl = URL.createObjectURL(received);
-    ui.addFileDownloadMessage(receiveState.fileInfo, downloadUrl);
-    ui.updateConnectionStatus('Connected to peer');
-    showNotification('File Received', `${receiveState.fileInfo.name} is ready to download`);
-    updateTitleWithSpinner(false);
-    
-    setTimeout(() => {
-        receiveState.buffer = [];
-        receiveState.fileInfo = null;
-        ui.hideTransferProgress("receive");
-        receiveState.bytesPerSecond = 0;
-        receiveState.startTime = 0;
-        receiveState.lastUpdate = 0;
-        receiveState.inProgress = false;
-    }, 100);
 }
