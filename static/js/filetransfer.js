@@ -313,10 +313,15 @@ async function receiveFile() {
     updateTitleWithSpinner(false);
     
     // Reset file transfer state after everything is done
-    receiveBuffer = [];
-    fileReceiveInfo = null;
-    ui.hideTransferProgress();
-    bytesPerSecond = 0;
-    transferStartTime = 0;
-    lastProgressUpdate = 0;
+    const resetState = () => {
+        receiveBuffer = [];
+        fileReceiveInfo = null;
+        ui.hideTransferProgress();
+        bytesPerSecond = 0;
+        transferStartTime = 0;
+        lastProgressUpdate = 0;
+    };
+
+    // Delay state reset until after all operations are complete
+    setTimeout(resetState, 100);
 }
