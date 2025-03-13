@@ -134,17 +134,17 @@ func (c *Client) SendFile(path string) error {
         }
 
         chunk := struct {
-            Type     string `json:"type"`
-            Sequence int    `json:"sequence"`
-            Total    int    `json:"total"`
-            Size     int    `json:"size"`
-            Data     string `json:"data"`
+            Type        string `json:"type"`
+            Sequence    int    `json:"sequence"`
+            TotalChunks int    `json:"totalChunks"`
+            Size        int    `json:"size"`
+            Data        string `json:"data"`
         }{
-            Type:     "chunk",
-            Sequence: sentChunks,
-            Total:    totalChunks,
-            Size:     n,
-            Data:     base64.StdEncoding.EncodeToString(buf[:n]),
+            Type:        "chunk",
+            Sequence:    sentChunks,
+            TotalChunks: totalChunks,
+            Size:        n,
+            Data:        base64.StdEncoding.EncodeToString(buf[:n]),
         }
 
         chunkJSON, err := json.Marshal(chunk)
@@ -618,10 +618,10 @@ func (c *Client) setupPeerConnection() error {
             c.handleFileInfo(data)
         case "chunk":
             if sequence, ok := data["sequence"].(float64); ok {
-                if total, ok := data["total"].(float64); ok {
+                if totalChunks, ok := data["totalChunks"].(float64); ok {
                     if size, ok := data["size"].(float64); ok {
                         if base64Data, ok := data["data"].(string); ok {
-                            c.handleChunkData(int(sequence), int(total), int(size), base64Data)
+                            c.handleChunkData(int(sequence), int(totalChunks), int(size), base64Data)
                         }
                     }
                 }
