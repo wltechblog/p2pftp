@@ -185,8 +185,12 @@ func NewUI(client *Client) UserInterface {
                     completionList.WriteString(fmt.Sprintf("[gray]  %s\n", strings.TrimPrefix(match, "/send ")))
                 }
             }
-            ui.debugView.Clear()
+            debugText := ui.debugView.GetText(false)
+            if debugText != "" {
+                fmt.Fprint(ui.debugView, "\n")
+            }
             fmt.Fprint(ui.debugView, completionList.String())
+            ui.debugView.ScrollToEnd()
             return []string{currentCompletions[selectedCompletion]}
         }
 
@@ -219,8 +223,12 @@ func NewUI(client *Client) UserInterface {
                         completionList.WriteString(fmt.Sprintf("[gray]  %s\n", strings.TrimPrefix(match, "/send ")))
                     }
                 }
-                ui.debugView.Clear()
+                debugText := ui.debugView.GetText(false)
+                if debugText != "" {
+                    fmt.Fprint(ui.debugView, "\n")
+                }
                 fmt.Fprint(ui.debugView, completionList.String())
+                ui.debugView.ScrollToEnd()
                 return nil
             }
         }
@@ -266,8 +274,7 @@ func NewUI(client *Client) UserInterface {
         }
         historyIndex = -1
         ui.HandleInput(key)
-        // Clear completion display after command
-        ui.debugView.Clear()
+        // Don't clear debug view after command
     })
 
     // Create layout with resizable panels
