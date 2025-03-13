@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/md5"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"flag"
@@ -526,58 +527,29 @@ func (c *Client) SendFile(filePath string) error {
             time.Sleep(100 * time.Millisecond)
         }
 
-        // Send chunk metadata with actual size
-        chunkInfo := struct {
+        // Send chunk with metadata and data
+        chunk := buffer[:n]
+        chunkMsg := struct {
             Type     string `json:"type"`
             Sequence int    `json:"sequence"`
             Total    int    `json:"total"`
             Size     int    `json:"size"`
+            Data     string `json:"data"`
         }{
             Type:     "chunk",
             Sequence: chunkIndex,
             Total:    totalChunks,
             Size:     n,
+            Data:     base64.StdEncoding.EncodeToString(chunk),
         }
 
-        chunkInfoJSON, err := json.Marshal(chunkInfo)
+        chunkJSON, err := json.Marshal(chunkMsg)
         if err != nil {
-            return fmt.Errorf("failed to marshal chunk info: %v", err)
+            return fmt.Errorf("failed to marshal chunk: %v", err)
         }
 
-        // Send chunk metadata and wait for acknowledgment
-        metadataReceived := make(chan struct{})
-        c.webrtc.dataChannel.OnMessage(func(msg webrtc.DataChannelMessage) {
-            if !msg.IsString {
-                return
-            }
-            var data map[string]interface{}
-            if err := json.Unmarshal(msg.Data, &data); err != nil {
-                return
-            }
-            if data["type"] == "chunk-ack" && data["sequence"] == chunkIndex {
-                close(metadataReceived)
-            }
-        })
-
-        err = c.webrtc.dataChannel.SendText(string(chunkInfoJSON))
-        if err != nil {
-            return fmt.Errorf("failed to send chunk info: %v", err)
-        }
-
-        // Wait for metadata acknowledgment with timeout
-        select {
-        case <-metadataReceived:
-            // Metadata received, send binary data
-            chunk := buffer[:n]
-            c.ui.LogDebug(fmt.Sprintf("Sending chunk %d/%d, size: %d", chunkIndex+1, totalChunks, len(chunk)))
-            err = c.webrtc.dataChannel.Send(chunk)
-        case <-time.After(100 * time.Millisecond):
-            c.ui.LogDebug("Metadata acknowledgment timeout")
-            // Send binary data anyway after timeout
-            chunk := buffer[:n]
-            c.ui.LogDebug(fmt.Sprintf("Sending chunk %d/%d, size: %d", chunkIndex+1, totalChunks, len(chunk)))
-            err = c.webrtc.dataChannel.Send(chunk)
-        }
+        c.ui.LogDebug(fmt.Sprintf("Sending chunk %d/%d, size: %d", chunkIndex+1, totalChunks, n))
+        err = c.webrtc.dataChannel.SendText(string(chunkJSON))
         if err != nil {
             return fmt.Errorf("failed to send chunk: %v", err)
         }

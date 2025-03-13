@@ -95,54 +95,25 @@ export function handleDataChannelMessage(event) {
                 ui.updateConnectionStatus(`Receiving file...`);
                 ui.updateTransferProgress(0, `Receiving ${fileReceiveInfo.name}`);
             } else if (messageObj.type === 'chunk') {
-                // Store metadata for next binary chunk
-                fileReceiveInfo.currentChunk = {
-                    sequence: messageObj.sequence,
-                    total: messageObj.total,
-                    size: messageObj.size
-                };
+                // Process chunk with metadata and data
+                const { sequence, total, size, data } = messageObj;
                 
-                // Send acknowledgment
-                const dataChannel = getDataChannel();
-                if (dataChannel && dataChannel.readyState === 'open') {
-                    dataChannel.send(JSON.stringify({
-                        type: 'chunk-ack',
-                        sequence: messageObj.sequence
-                    }));
+                // Decode base64 data
+                const binaryData = Uint8Array.from(atob(data), c => c.charCodeAt(0));
+                
+                if (binaryData.byteLength !== size) {
+                    console.error(`[WebRTC] Chunk size mismatch. Expected: ${size}, Got: ${binaryData.byteLength}`);
+                    return;
                 }
+
+                // Store chunk info for processing
+                fileReceiveInfo.currentChunk = { sequence, total, size };
+                processChunk(binaryData);
+            } else if (messageObj.type === 'file-complete') {
+                receiveFile();
             }
         } catch (e) {
-            // Not JSON, treat as a regular message
-            ui.addPeerMessage(data);
-        }
-    } else {
-        // Handle binary chunk
-        if (!fileReceiveInfo || !fileReceiveInfo.currentChunk) {
-            console.error('[WebRTC] Received binary data without chunk info');
-            return;
-        }
-
-        // Log raw data for debugging
-        console.debug('[WebRTC] Raw binary data:', event.data);
-        console.debug('[WebRTC] Current chunk info:', fileReceiveInfo.currentChunk);
-
-        // Convert data to Uint8Array
-        if (event.data instanceof ArrayBuffer) {
-            processChunk(new Uint8Array(event.data));
-        } else if (event.data instanceof Blob) {
-            // Convert Blob to ArrayBuffer then Uint8Array
-            const reader = new FileReader();
-            reader.onload = (e) => {
-                const arrayBuffer = e.target.result;
-                if (arrayBuffer instanceof ArrayBuffer) {
-                    processChunk(new Uint8Array(arrayBuffer));
-                } else {
-                    console.error('[WebRTC] FileReader result is not an ArrayBuffer');
-                }
-            };
-            reader.readAsArrayBuffer(event.data);
-        } else {
-            console.error('[WebRTC] Received unknown data type:', typeof event.data);
+            console.error('[WebRTC] Failed to parse message:', e);
         }
     }
 }
@@ -199,11 +170,9 @@ export async function sendFile(file) {
             type: 'chunk',
             sequence: chunkIndex,
             total: totalChunks,
-            size: chunk.byteLength
+            size: chunk.byteLength,
+            data: btoa(String.fromCharCode.apply(null, new Uint8Array(chunk)))
         }));
-
-        // Then send the binary chunk
-        dataChannel.send(chunk);
 
         currentOffset += chunk.byteLength;
         updateProgress();
