@@ -36,8 +36,8 @@ async function processChunk(chunk) {
         return;
     }
 
-    const { sequence, total, size } = receiveState.fileInfo.currentChunk;
-    console.debug(`[WebRTC] Processing chunk ${sequence + 1}/${total}, size: ${size}`);
+    const { sequence, totalChunks: chunksTotal, size } = receiveState.fileInfo.currentChunk;
+    console.debug(`[WebRTC] Processing chunk ${sequence + 1}/${chunksTotal}, size: ${size}`);
 
     // Verify chunk size matches metadata
     if (chunk.byteLength !== size) {
@@ -143,7 +143,7 @@ export async function handleDataChannelMessage(event) {
                     return;
                 }
             } else if (messageObj.type === 'chunk') {
-                const { sequence, total, size, data } = messageObj;
+                const { sequence, total: totalParts, size, data } = messageObj;
                 
                 // Decode base64 data
                 const binaryData = Uint8Array.from(atob(data), c => c.charCodeAt(0));
@@ -153,7 +153,7 @@ export async function handleDataChannelMessage(event) {
                     return;
                 }
 
-                receiveState.fileInfo.currentChunk = { sequence, total, size };
+                receiveState.fileInfo.currentChunk = { sequence, totalChunks: totalParts, size };
                 try {
                     await processChunk(binaryData);
                     // Send chunk confirmation after successful processing
@@ -240,7 +240,7 @@ export async function sendFile(file) {
         dataChannel.send(JSON.stringify({
             type: 'chunk',
             sequence: chunkIndex,
-            total: totalChunks,
+            totalChunks: totalChunks,
             size: chunk.byteLength,
             data: btoa(String.fromCharCode.apply(null, new Uint8Array(chunk)))
         }));
