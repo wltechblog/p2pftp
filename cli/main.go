@@ -286,39 +286,47 @@ func (c *Client) setupDataChannel(channel *webrtc.DataChannel) {
     })
 
     channel.OnMessage(func(msg webrtc.DataChannelMessage) {
-        if msg.IsString {
-            var data map[string]interface{}
-            if err := json.Unmarshal(msg.Data, &data); err != nil {
-                c.ui.ShowError(fmt.Sprintf("Failed to parse message: %v", err))
-                return
-            }
-            // Handle message based on type
-            if msgType, ok := data["type"].(string); ok {
-                switch msgType {
-                case "message":
-                    if content, ok := data["content"].(string); ok {
-                        c.ui.ShowChat(c.webrtc.peerToken, content)
-                    }
-                case "file-info":
-                    // Handle file info
-                    c.handleFileInfo(data)
-                case "chunk":
-                    // Store chunk metadata for next binary message
-                    if seq, ok := data["sequence"].(float64); ok {
-                        c.webrtc.fileTransfer.currentChunk.sequence = int(seq)
-                    }
-                    if total, ok := data["total"].(float64); ok {
-                        c.webrtc.fileTransfer.currentChunk.total = int(total)
-                    }
-                    if size, ok := data["size"].(float64); ok {
-                        c.webrtc.fileTransfer.currentChunk.size = int(size)
-                    }
-                case "file-complete":
-                    c.handleFileComplete()
+        if !msg.IsString {
+            c.ui.ShowError("Unexpected binary message")
+            return
+        }
+        
+        var data map[string]interface{}
+        if err := json.Unmarshal(msg.Data, &data); err != nil {
+            c.ui.ShowError(fmt.Sprintf("Failed to parse message: %v", err))
+            return
+        }
+        
+        // Handle message based on type
+        if msgType, ok := data["type"].(string); ok {
+            switch msgType {
+            case "message":
+                if content, ok := data["content"].(string); ok {
+                    c.ui.ShowChat(c.webrtc.peerToken, content)
                 }
+            case "file-info":
+                // Handle file info
+                c.handleFileInfo(data)
+            case "chunk":
+                // Handle chunk with base64 data
+                if seq, ok := data["sequence"].(float64); ok {
+                    sequence := int(seq)
+                    if total, ok := data["total"].(float64); ok {
+                        if size, ok := data["size"].(float64); ok {
+                            if base64Data, ok := data["data"].(string); ok {
+                                binaryData, err := base64.StdEncoding.DecodeString(base64Data)
+                                if err != nil {
+                                    c.ui.ShowError(fmt.Sprintf("Failed to decode chunk data: %v", err))
+                                    return
+                                }
+                                c.handleChunkData(sequence, int(total), int(size), binaryData)
+                            }
+                        }
+                    }
+                }
+            case "file-complete":
+                c.handleFileComplete()
             }
-        } else {
-            c.handleBinaryData(msg.Data)
         }
     })
 }
@@ -360,20 +368,17 @@ func (c *Client) handleFileInfo(info map[string]interface{}) {
     c.ui.ShowFileTransfer(fmt.Sprintf("Receiving %s (0/%d bytes) - 0%%", name, int64(size)))
 }
 
-func (c *Client) handleBinaryData(data []byte) {
+func (c *Client) handleChunkData(sequence int, total int, size int, data []byte) {
     if c.webrtc.fileTransfer == nil || c.webrtc.fileTransfer.file == nil {
         return
     }
 
     // Verify chunk size matches metadata
-    if len(data) != c.webrtc.fileTransfer.currentChunk.size {
+    if len(data) != size {
         c.ui.ShowError(fmt.Sprintf("Chunk size mismatch. Expected: %d, Got: %d",
-            c.webrtc.fileTransfer.currentChunk.size, len(data)))
+            size, len(data)))
         return
     }
-
-    sequence := c.webrtc.fileTransfer.currentChunk.sequence
-    total := c.webrtc.fileTransfer.currentChunk.total
 
     // Store chunk at correct position
     c.webrtc.chunks[sequence] = make([]byte, len(data))
