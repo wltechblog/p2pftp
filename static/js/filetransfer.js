@@ -119,6 +119,15 @@ export function handleDataChannelMessage(event) {
 
                 receiveState.fileInfo.currentChunk = { sequence, total, size };
                 processChunk(binaryData);
+
+                // Send chunk confirmation
+                const dataChannel = getDataChannel();
+                if (dataChannel && dataChannel.readyState === 'open') {
+                    dataChannel.send(JSON.stringify({
+                        type: 'chunk-confirm',
+                        sequence: sequence
+                    }));
+                }
             } else if (messageObj.type === 'file-complete') {
                 receiveFile();
             }
