@@ -58,6 +58,32 @@ func (c *Client) Reject(peerToken string) error {
     return c.SendMessage(Message{Type: "reject", PeerToken: peerToken})
 }
 
+func (c *Client) SendChat(text string) error {
+    if !c.webrtc.connected {
+        return fmt.Errorf("not connected to peer")
+    }
+
+    msg := struct {
+        Type    string `json:"type"`
+        Content string `json:"content"`
+    }{
+        Type:    "message",
+        Content: text,
+    }
+
+    msgJSON, err := json.Marshal(msg)
+    if err != nil {
+        return fmt.Errorf("failed to marshal message: %v", err)
+    }
+
+    err = c.webrtc.dataChannel.SendText(string(msgJSON))
+    if err != nil {
+        return fmt.Errorf("failed to send message: %v", err)
+    }
+
+    return nil
+}
+
 func (c *Client) disconnectPeer() {
     if c.webrtc.sendTransfer.fileTransfer != nil && c.webrtc.sendTransfer.fileTransfer.file != nil {
         c.webrtc.sendTransfer.fileTransfer.file.Close()
@@ -155,32 +181,6 @@ func (c *Client) handleMessages() {
     }
 }
 
-func (c *Client) SendChat(text string) error {
-    if !c.webrtc.connected {
-        return fmt.Errorf("not connected to peer")
-    }
-
-    msg := struct {
-        Type    string `json:"type"`
-        Content string `json:"content"`
-    }{
-        Type:    "message",
-        Content: text,
-    }
-
-    msgJSON, err := json.Marshal(msg)
-    if err != nil {
-        return fmt.Errorf("failed to marshal message: %v", err)
-    }
-
-    err = c.webrtc.dataChannel.SendText(string(msgJSON))
-    if err != nil {
-        return fmt.Errorf("failed to send message: %v", err)
-    }
-
-    return nil
-}
-
 func (c *Client) SendFile(path string) error {
     if !c.webrtc.connected {
         return fmt.Errorf("not connected to peer")
@@ -201,6 +201,12 @@ func (c *Client) SendFile(path string) error {
         return fmt.Errorf("failed to get file info: %v", err)
     }
 
+    // Calculate file hash
+    fileHash, err := calculateMD5(path)
+    if err != nil {
+        return fmt.Errorf("failed to calculate file hash: %v", err)
+    }
+
     c.webrtc.sendTransfer = transferState{
         inProgress: true,
         startTime:  time.Now(),
@@ -208,6 +214,7 @@ func (c *Client) SendFile(path string) error {
             FileInfo: &FileInfo{
                 Name: info.Name(),
                 Size: info.Size(),
+                MD5:  fileHash,
             },
         },
     }
@@ -220,6 +227,7 @@ func (c *Client) SendFile(path string) error {
         Info: FileInfo{
             Name: info.Name(),
             Size: info.Size(),
+            MD5:  fileHash,
         },
     }
 
@@ -633,18 +641,28 @@ func (c *Client) handleFileComplete() {
         }
     }
 
-    // Close file and compute MD5
+    // Close file first
     c.webrtc.receiveTransfer.fileTransfer.file.Close()
 
-    // Compute MD5 if provided
+    // Compute file hash and verify integrity
+    fileHash, err := calculateMD5(c.webrtc.receiveTransfer.fileTransfer.filePath)
+    if err != nil {
+        c.ui.ShowError(fmt.Sprintf("Failed to calculate file hash: %v", err))
+        c.webrtc.receiveTransfer = transferState{}
+        return
+    }
+    
+    // Verify against provided hash if available
     if c.webrtc.receiveTransfer.fileTransfer.MD5 != "" {
-        if md5sum, err := calculateMD5(c.webrtc.receiveTransfer.fileTransfer.filePath); err == nil {
-            if md5sum != c.webrtc.receiveTransfer.fileTransfer.MD5 {
-                c.ui.ShowError("File integrity check failed")
-                c.webrtc.receiveTransfer = transferState{}
-                return
-            }
+        if fileHash != c.webrtc.receiveTransfer.fileTransfer.MD5 {
+            c.ui.ShowError(fmt.Sprintf("File integrity check failed:\nExpected MD5: %s\nActual MD5:   %s", 
+                c.webrtc.receiveTransfer.fileTransfer.MD5, fileHash))
+            c.webrtc.receiveTransfer = transferState{}
+            return
         }
+        c.ui.LogDebug(fmt.Sprintf("File integrity verified (MD5: %s)", fileHash))
+    } else {
+        c.ui.LogDebug(fmt.Sprintf("File received (MD5: %s)", fileHash))
     }
 
     // Calculate transfer statistics

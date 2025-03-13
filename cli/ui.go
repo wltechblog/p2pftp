@@ -184,14 +184,14 @@ func NewUI(client *Client) UserInterface {
     ui.app.EnableMouse(true)
 
     // Add help text to chat view
-    fmt.Fprintf(ui.chatView, "Commands:\n")
-    fmt.Fprintf(ui.chatView, "  /token - Show your token (click on token to copy)\n")
-    fmt.Fprintf(ui.chatView, "  /connect <token> - Connect to a peer\n")
-    fmt.Fprintf(ui.chatView, "  /accept [token] - Accept connection request\n")
-    fmt.Fprintf(ui.chatView, "  /reject [token] - Reject connection request\n")
-    fmt.Fprintf(ui.chatView, "  /send <path> - Send a file (press Tab for completion)\n")
-    fmt.Fprintf(ui.chatView, "  /quit - Exit program\n\n")
-    fmt.Fprintf(ui.chatView, "Type any message to send chat (without / prefix)\n\n")
+    fmt.Fprintf(ui.chatView, "[::b]Commands:[::-]\n")
+    fmt.Fprintf(ui.chatView, "  [blue]/token[white] - Show your token (click on token to copy)\n")
+    fmt.Fprintf(ui.chatView, "  [blue]/connect[white] <[yellow]token[white]> - Connect to a peer\n")
+    fmt.Fprintf(ui.chatView, "  [blue]/accept[white] [yellow][token][white] - Accept connection request\n")
+    fmt.Fprintf(ui.chatView, "  [blue]/reject[white] [yellow][token][white] - Reject connection request\n")
+    fmt.Fprintf(ui.chatView, "  [blue]/send[white] <[yellow]path[white]> - Send a file (press Tab for completion)\n")
+    fmt.Fprintf(ui.chatView, "  [blue]/quit[white] - Exit program\n\n")
+    fmt.Fprintf(ui.chatView, "[gray]Type any message to send chat (without / prefix)[white]\n\n")
 
     return ui
 }
