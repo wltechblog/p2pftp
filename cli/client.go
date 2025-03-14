@@ -542,7 +542,7 @@ func (c *Client) processChunkData(sequence int, total int, size int, data []byte
     }
 
     // Store chunk and update size
-    c.webrtc.receiveTransfer.chunks[sequence] = binaryData
+    c.webrtc.receiveTransfer.chunks[sequence] = data
 
     // Mark this chunk as received
     if c.webrtc.receiveTransfer.receivedChunks == nil {
@@ -574,7 +574,7 @@ func (c *Client) processChunkData(sequence int, total int, size int, data []byte
     }
     confirmJSON, err := json.Marshal(confirm)
     if err == nil {
-        c.webrtc.dataChannel.SendText(string(confirmJSON))
+        c.webrtc.controlChannel.SendText(string(confirmJSON))
     }
 
     // Update progress every 100ms or on significant changes
