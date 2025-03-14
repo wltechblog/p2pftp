@@ -95,11 +95,8 @@ async function processChunk(chunk) {
     const percentage = Math.min(Number((received * BigInt(100)) / total), 100);
     ui.updateTransferProgress(percentage, `⬇ ${receiveState.fileInfo.name} - ${formatBytes(receiveState.bytesPerSecond)}/s`, "receive");
 
-    // Clear chunk info and check if complete
+    // Clear chunk info
     delete receiveState.fileInfo.currentChunk;
-    if (receiveState.receivedSize >= receiveState.fileInfo.size) {
-        receiveFile();
-    }
 }
 
 // Handle incoming data channel messages
