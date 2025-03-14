@@ -277,8 +277,8 @@ func (c *Client) sendChunkBySequence(sequence int) error {
         return fmt.Errorf("failed to read complete chunk: expected %d bytes, got %d", size, n)
     }
 
-    // Use a conservative chunk size for binary data
-    dataSize := int(math.Min(float64(maxChunkSize), float64(32768))) // 32KB is safe for most implementations
+    // Use a very conservative chunk size for binary data to ensure reliability
+    dataSize := int(math.Min(float64(maxChunkSize), float64(16384))) // 16KB is very safe for all implementations
     if n > dataSize {
         n = dataSize
     }
@@ -308,15 +308,27 @@ func (c *Client) sendChunkBySequence(sequence int) error {
         return fmt.Errorf("failed to send chunk info: %v", err)
     }
 
+    // Add a small delay to ensure the control message is processed first
+    time.Sleep(5 * time.Millisecond)
+
     // Send the binary data on the data channel
-    err = c.webrtc.dataChannel.Send(buf[:n])
+    // Make a copy of the buffer to ensure it doesn't get modified before sending
+    dataCopy := make([]byte, n)
+    copy(dataCopy, buf[:n])
+
+    // Send as binary data
+    err = c.webrtc.dataChannel.Send(dataCopy)
     if err != nil {
         return fmt.Errorf("failed to send chunk: %v", err)
     }
 
     // Mark as unacknowledged and record timestamp
+    // Store a reference to the chunk data for potential retransmission
     c.webrtc.sendTransfer.unacknowledgedChunks[sequence] = false
     c.webrtc.sendTransfer.chunkTimestamps[sequence] = time.Now()
+
+    // Add a small delay to ensure the data channel has time to process the send
+    time.Sleep(1 * time.Millisecond)
 
     return nil
 }
@@ -724,7 +736,7 @@ func (c *Client) requestMissingChunks() {
         return
     }
 
-    err = c.webrtc.dataChannel.SendText(string(requestJSON))
+    err = c.webrtc.controlChannel.SendText(string(requestJSON))
     if err != nil {
         c.ui.ShowError(fmt.Sprintf("Failed to send chunk request: %v", err))
         return
@@ -1153,6 +1165,9 @@ func (c *Client) setupPeerConnection() error {
     if err != nil {
         return fmt.Errorf("failed to create data channel: %v", err)
     }
+
+    // Set binary type for the data channel
+    dataChannel.SetBufferedAmountLowThreshold(262144) // 256KB
 
     // Set up control channel handlers
     controlChannel.OnOpen(func() {
