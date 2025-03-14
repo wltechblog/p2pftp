@@ -266,11 +266,17 @@ function setupDataChannel(channel) {
         ui.addSystemMessage(`Data channel error: ${error}`);
     };
     
-    // Set up message handling through file transfer module
+    // Set up message handling
     import('/static/js/filetransfer.js').then(module => {
         module.init();
-        dataChannel.onmessage = module.handleDataChannelMessage;
     });
+    
+    // Set message handler once
+    dataChannel.onmessage = (event) => {
+        import('/static/js/filetransfer.js').then(module => {
+            module.handleDataChannelMessage(event);
+        });
+    };
 }
 
 // Handle WebRTC offer
