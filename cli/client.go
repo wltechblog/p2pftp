@@ -255,6 +255,39 @@ func (c *Client) sendChunkBySequence(sequence int) error {
         return fmt.Errorf("failed to read complete chunk: expected %d bytes, got %d", size, n)
     }
 
+    // Encode the data to base64
+    encodedData := base64.StdEncoding.EncodeToString(buf[:n])
+
+    // Estimate the JSON message size (type field + sequence + totalChunks + size + data)
+    // This is a rough estimate to check if we might exceed the WebRTC message size limit
+    estimatedSize := len(`{"type":"chunk","sequence":`) + 10 + // sequence number (assuming up to 10 digits)
+                    len(`,"totalChunks":`) + 10 + // total chunks (assuming up to 10 digits)
+                    len(`,"size":`) + 10 + // size (assuming up to 10 digits)
+                    len(`,"data":"`) + len(encodedData) + len(`"}`)
+
+    if estimatedSize > maxWebRTCMessageSize {
+        c.ui.LogDebug(fmt.Sprintf("Warning: Chunk %d is too large (%d bytes). Reducing size.", sequence, estimatedSize))
+
+        // Calculate how much we need to reduce the data
+        // We'll reduce it to ensure the message fits within the WebRTC limit
+        maxEncodedDataSize := maxWebRTCMessageSize - (estimatedSize - len(encodedData)) - 100 // 100 bytes safety margin
+
+        // Recalculate the actual data size needed (before base64 encoding)
+        // Base64 encoding increases size by ~33%, so we divide by 1.33
+        maxDataSize := int(float64(maxEncodedDataSize) / 1.33)
+
+        // Ensure we don't go below a minimum size
+        if maxDataSize < 1024 {
+            return fmt.Errorf("chunk size too small after adjustment: %d bytes", maxDataSize)
+        }
+
+        // Adjust the buffer and re-encode
+        if n > maxDataSize {
+            n = maxDataSize
+        }
+        encodedData = base64.StdEncoding.EncodeToString(buf[:n])
+    }
+
     // Create chunk data
     chunk := struct {
         Type        string `json:"type"`
@@ -267,13 +300,18 @@ func (c *Client) sendChunkBySequence(sequence int) error {
         Sequence:    sequence,
         TotalChunks: c.webrtc.sendTransfer.totalChunks,
         Size:        n,
-        Data:        base64.StdEncoding.EncodeToString(buf[:n]),
+        Data:        encodedData,
     }
 
     // Marshal chunk data
     chunkJSON, err := json.Marshal(chunk)
     if err != nil {
         return fmt.Errorf("failed to marshal chunk: %v", err)
+    }
+
+    // Double-check the size
+    if len(chunkJSON) > maxWebRTCMessageSize {
+        return fmt.Errorf("chunk message too large: %d bytes (limit: %d)", len(chunkJSON), maxWebRTCMessageSize)
     }
 
     // Send the chunk

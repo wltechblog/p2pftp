@@ -1,7 +1,8 @@
 // WebRTC configuration
 export const DEFAULT_CHUNK_SIZE = 16384; // Default to 16KB for compatibility
-export const MAX_CHUNK_SIZE = 1048576; // Maximum supported chunk size (1MB)
+export const MAX_CHUNK_SIZE = 65536; // Maximum supported chunk size (64KB)
 export let CHUNK_SIZE = DEFAULT_CHUNK_SIZE; // Will be negotiated during connection
+export const MAX_MESSAGE_SIZE = 65536; // Maximum WebRTC message size (64KB)
 export const PROGRESS_UPDATE_INTERVAL = 200; // Update progress every 200ms
 export const WS_URL = `wss://${window.location.host}/ws`;
 export const BYTES_PER_SEC_SMOOTHING = 0.1; // EMA smoothing factor for transfer rate

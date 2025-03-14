@@ -620,29 +620,71 @@ function startSlidingWindowTransfer(file, totalChunks) {
             if (dataChannel.readyState !== 'open') return;
 
             const chunk = event.target.result;
-            const chunkData = {
-                type: 'chunk',
-                sequence: sequence,
-                totalChunks: totalChunks,
-                size: chunk.byteLength,
-                data: btoa(String.fromCharCode.apply(null, new Uint8Array(chunk)))
-            };
 
-            // Store chunk for potential retransmission
-            sendState.unacknowledgedChunks[sequence] = chunkData;
+            // Encode the data to base64
+            const encodedData = btoa(String.fromCharCode.apply(null, new Uint8Array(chunk)));
 
-            // Record timestamp when chunk was sent
-            sendState.chunkTimestamps[sequence] = Date.now();
+            // Import the config to get the MAX_MESSAGE_SIZE
+            import('/static/js/config.js').then(config => {
+                // Estimate the JSON message size
+                const estimatedSize = JSON.stringify({
+                    type: 'chunk',
+                    sequence: sequence,
+                    totalChunks: totalChunks,
+                    size: chunk.byteLength,
+                    data: encodedData
+                }).length;
 
-            // Send the chunk
-            dataChannel.send(JSON.stringify(chunkData));
+                let finalEncodedData = encodedData;
+                let finalSize = chunk.byteLength;
 
-            // Update progress based on next sequence to send
-            sendState.offset = Math.min((sendState.nextSequenceToSend + 1) * CHUNK_SIZE, file.size);
-            updateProgress();
+                // Check if the message is too large
+                if (estimatedSize > config.MAX_MESSAGE_SIZE) {
+                    console.debug(`[WebRTC] Chunk ${sequence} is too large (${estimatedSize} bytes). Reducing size.`);
 
-            // Continue sending if window allows
-            trySendNextChunks();
+                    // Calculate how much we need to reduce the data
+                    const maxEncodedDataSize = config.MAX_MESSAGE_SIZE - 200; // 200 bytes for other fields and safety margin
+
+                    // Recalculate the actual data size needed (before base64 encoding)
+                    // Base64 encoding increases size by ~33%, so we divide by 1.33
+                    const maxDataSize = Math.floor(maxEncodedDataSize / 1.33);
+
+                    // Ensure we don't go below a minimum size
+                    if (maxDataSize < 1024) {
+                        console.error(`[WebRTC] Chunk size too small after adjustment: ${maxDataSize} bytes`);
+                        return;
+                    }
+
+                    // Adjust the buffer and re-encode
+                    const adjustedChunk = chunk.slice(0, maxDataSize);
+                    finalEncodedData = btoa(String.fromCharCode.apply(null, new Uint8Array(adjustedChunk)));
+                    finalSize = adjustedChunk.byteLength;
+                }
+
+                const chunkData = {
+                    type: 'chunk',
+                    sequence: sequence,
+                    totalChunks: totalChunks,
+                    size: finalSize,
+                    data: finalEncodedData
+                };
+
+                // Store chunk for potential retransmission
+                sendState.unacknowledgedChunks[sequence] = chunkData;
+
+                // Record timestamp when chunk was sent
+                sendState.chunkTimestamps[sequence] = Date.now();
+
+                // Send the chunk
+                dataChannel.send(JSON.stringify(chunkData));
+
+                // Update progress based on next sequence to send
+                sendState.offset = Math.min((sendState.nextSequenceToSend + 1) * CHUNK_SIZE, file.size);
+                updateProgress();
+
+                // Continue sending if window allows
+                trySendNextChunks();
+            });
         };
 
         thisReader.onerror = (error) => {
