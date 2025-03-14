@@ -584,9 +584,9 @@ function startSlidingWindowTransfer(file, totalChunks) {
 
             // Import the config to get the MAX_MESSAGE_SIZE
             import('/static/js/config.js').then(config => {
-                // Start with an extremely conservative chunk size to avoid WebRTC message size issues
+                // Use the original chunk size minus 4 bytes for safety
                 // WebRTC has a message size limit that varies by implementation
-                let dataSize = Math.min(chunk.byteLength, 8192); // 8KB is extremely safe for all implementations
+                let dataSize = Math.min(chunk.byteLength, 65532); // 64KB - 4 bytes
                 let chunkToSend = chunk.slice(0, dataSize);
 
                 // Create a chunk info message for the control channel
@@ -609,7 +609,7 @@ function startSlidingWindowTransfer(file, totalChunks) {
                 // Send the chunk info on the control channel
                 window.controlChannel.send(JSON.stringify(chunkInfo));
 
-                // Add a longer delay to ensure the control message is processed first
+                // Wait a short time to ensure the control message is processed first
                 setTimeout(() => {
                     try {
                         // Send the binary data on the data channel
@@ -625,7 +625,7 @@ function startSlidingWindowTransfer(file, totalChunks) {
                             sendState.retransmissionQueue.push(sequence);
                         }
                     }
-                }, 10);
+                }, 5);
 
                 // Update progress based on next sequence to send
                 sendState.offset = Math.min((sendState.nextSequenceToSend + 1) * CHUNK_SIZE, file.size);
@@ -996,20 +996,18 @@ export async function handleDataMessage(event) {
             receiveState.missingChunks.delete(sequence);
         }
 
-        // Send chunk confirmation after successful processing with a small delay
-        setTimeout(() => {
-            if (window.controlChannel && window.controlChannel.readyState === 'open') {
-                try {
-                    window.controlChannel.send(JSON.stringify({
-                        type: 'chunk-confirm',
-                        sequence: sequence
-                    }));
-                    console.debug(`[WebRTC] Sent confirmation for chunk ${sequence}`);
-                } catch (error) {
-                    console.error(`[WebRTC] Error sending chunk confirmation:`, error);
-                }
+        // Send chunk confirmation immediately after successful processing
+        if (window.controlChannel && window.controlChannel.readyState === 'open') {
+            try {
+                window.controlChannel.send(JSON.stringify({
+                    type: 'chunk-confirm',
+                    sequence: sequence
+                }));
+                console.debug(`[WebRTC] Sent confirmation for chunk ${sequence}`);
+            } catch (error) {
+                console.error(`[WebRTC] Error sending chunk confirmation:`, error);
             }
-        }, 5);
+        }
 
         // Check if we can update the last received sequence
         updateLastReceivedSequence();

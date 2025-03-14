@@ -277,8 +277,8 @@ func (c *Client) sendChunkBySequence(sequence int) error {
         return fmt.Errorf("failed to read complete chunk: expected %d bytes, got %d", size, n)
     }
 
-    // Use an extremely conservative chunk size for binary data to ensure reliability
-    dataSize := int(math.Min(float64(maxChunkSize), float64(8192))) // 8KB is extremely safe for all implementations
+    // Use the original chunk size minus 4 bytes for safety
+    dataSize := int(math.Min(float64(maxChunkSize), float64(65532))) // 64KB - 4 bytes
     if n > dataSize {
         n = dataSize
     }
@@ -308,33 +308,21 @@ func (c *Client) sendChunkBySequence(sequence int) error {
         return fmt.Errorf("failed to send chunk info: %v", err)
     }
 
-    // We'll use a synchronous approach to ensure chunk info and data stay in sync
     // Wait for a short time to ensure the control message is processed
-    time.Sleep(10 * time.Millisecond)
+    time.Sleep(5 * time.Millisecond)
 
     // Make a copy of the buffer to ensure it doesn't get modified before sending
     dataCopy := make([]byte, n)
     copy(dataCopy, buf[:n])
 
-    // Create a channel to wait for the send to complete
-    sendComplete := make(chan error, 1)
-
-    // Send the binary data on the data channel
-    go func() {
-        // Send as binary data
-        err := c.webrtc.dataChannel.Send(dataCopy)
-        sendComplete <- err
-    }()
-
-    // Wait for the send to complete with a timeout
-    select {
-    case err = <-sendComplete:
-        if err != nil {
-            return fmt.Errorf("failed to send chunk: %v", err)
-        }
-    case <-time.After(500 * time.Millisecond):
-        return fmt.Errorf("timeout sending chunk data")
+    // Send the binary data directly
+    err = c.webrtc.dataChannel.Send(dataCopy)
+    if err != nil {
+        return fmt.Errorf("failed to send chunk: %v", err)
     }
+
+    // Log success for debugging
+    c.ui.LogDebug(fmt.Sprintf("Sent binary chunk %d (%d bytes)", sequence, n))
 
     // Mark as unacknowledged and record timestamp
     // Store a reference to the chunk data for potential retransmission
@@ -567,8 +555,15 @@ func (c *Client) processChunkData(sequence int, total int, size int, data []byte
         return
     }
 
+    // Make a deep copy of the data to ensure it doesn't get modified
+    dataCopy := make([]byte, len(data))
+    copy(dataCopy, data)
+
     // Store chunk and update size
-    c.webrtc.receiveTransfer.chunks[sequence] = data
+    c.webrtc.receiveTransfer.chunks[sequence] = dataCopy
+
+    // Log success for debugging
+    c.ui.LogDebug(fmt.Sprintf("Processed chunk %d (%d bytes)", sequence, len(dataCopy)))
 
     // Mark this chunk as received
     if c.webrtc.receiveTransfer.receivedChunks == nil {
@@ -593,27 +588,20 @@ func (c *Client) processChunkData(sequence int, total int, size int, data []byte
     }
     c.webrtc.receiveTransfer.receivedSize = totalReceived
 
-    // Send confirmation back with a small delay to ensure it's not lost
-    go func() {
-        // Wait a moment to ensure the chunk is fully processed
-        time.Sleep(5 * time.Millisecond)
-
-        confirm := ChunkConfirm{
-            Type:     "chunk-confirm",
-            Sequence: sequence,
+    // Send confirmation immediately
+    confirm := ChunkConfirm{
+        Type:     "chunk-confirm",
+        Sequence: sequence,
+    }
+    confirmJSON, err := json.Marshal(confirm)
+    if err == nil {
+        err := c.webrtc.controlChannel.SendText(string(confirmJSON))
+        if err != nil {
+            c.ui.LogDebug(fmt.Sprintf("Failed to send chunk confirmation: %v", err))
+        } else {
+            c.ui.LogDebug(fmt.Sprintf("Sent confirmation for chunk %d", sequence))
         }
-        confirmJSON, err := json.Marshal(confirm)
-        if err == nil {
-            // Try to send the confirmation, retry a few times if needed
-            for i := 0; i < 3; i++ {
-                err := c.webrtc.controlChannel.SendText(string(confirmJSON))
-                if err == nil {
-                    break
-                }
-                time.Sleep(10 * time.Millisecond)
-            }
-        }
-    }()
+    }
 
     // Update progress every 100ms or on significant changes
     now := time.Now()
@@ -869,26 +857,42 @@ func (c *Client) handleFileComplete() {
         return
     }
 
-    // Write all chunks to file
+    // Reopen the file for writing from the beginning
+    file, err := os.Create(c.webrtc.receiveTransfer.fileTransfer.filePath)
+    if err != nil {
+        c.ui.ShowError(fmt.Sprintf("Failed to reopen file for writing: %v", err))
+        c.webrtc.receiveTransfer = transferState{}
+        return
+    }
+    defer file.Close()
+
+    // Write all chunks to file in order
     for i, chunk := range c.webrtc.receiveTransfer.chunks {
         if chunk == nil {
             c.ui.ShowError(fmt.Sprintf("Missing chunk %d", i))
-            c.webrtc.receiveTransfer.fileTransfer.file.Close()
             c.webrtc.receiveTransfer = transferState{}
             return
         }
 
-        _, err := c.webrtc.receiveTransfer.fileTransfer.file.Write(chunk)
+        c.ui.LogDebug(fmt.Sprintf("Writing chunk %d (%d bytes)", i, len(chunk)))
+
+        _, err := file.Write(chunk)
         if err != nil {
             c.ui.ShowError(fmt.Sprintf("Failed to write chunk: %v", err))
-            c.webrtc.receiveTransfer.fileTransfer.file.Close()
             c.webrtc.receiveTransfer = transferState{}
             return
         }
     }
 
-    // Close file first
-    c.webrtc.receiveTransfer.fileTransfer.file.Close()
+    // Ensure all data is written to disk
+    err = file.Sync()
+    if err != nil {
+        c.ui.ShowError(fmt.Sprintf("Failed to sync file: %v", err))
+        c.webrtc.receiveTransfer = transferState{}
+        return
+    }
+
+    // File will be closed by defer
 
     // Compute file hash and verify integrity
     fileHash, err := calculateMD5(c.webrtc.receiveTransfer.fileTransfer.filePath)
