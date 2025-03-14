@@ -327,8 +327,14 @@ func (c *Client) sendChunkBySequence(sequence int) error {
     framedData[6] = byte(n >> 8)
     framedData[7] = byte(n)
 
-    // Copy the actual data
-    copy(framedData[8:], buf[:n])
+    // Copy the actual data (make sure we only copy exactly n bytes)
+    if n > 0 {
+        copy(framedData[8:8+n], buf[:n])
+    }
+
+    // Log the exact size of the framed data
+    c.ui.LogDebug(fmt.Sprintf("Created framed data for chunk %d: %d bytes header + %d bytes data = %d bytes total",
+        sequence, 8, n, len(framedData)))
 
     // Check if the framed data is too large
     if len(framedData) > maxWebRTCMessageSize {
@@ -904,33 +910,12 @@ func (c *Client) handleFileComplete() {
             return
         }
 
-        // Calculate the expected chunk size
-        var expectedChunkSize int
-        if i == len(c.webrtc.receiveTransfer.chunks)-1 {
-            // Last chunk might be smaller
-            expectedChunkSize = int(expectedSize - totalWritten)
-        } else {
-            // Regular chunk should be full size
-            expectedChunkSize = int(math.Min(float64(maxSupportedChunkSize), float64(expectedSize-totalWritten)))
-        }
+        // We'll use the actual chunk size as is, without padding or truncation
+        // This ensures we write exactly what we received
+        chunkSize := len(chunk)
 
-        // Validate chunk size
-        if len(chunk) != expectedChunkSize {
-            c.ui.LogDebug(fmt.Sprintf("Chunk %d size mismatch: expected %d bytes, got %d bytes",
-                i, expectedChunkSize, len(chunk)))
-
-            // If the chunk is too small, pad it with zeros
-            if len(chunk) < expectedChunkSize {
-                paddedChunk := make([]byte, expectedChunkSize)
-                copy(paddedChunk, chunk)
-                chunk = paddedChunk
-                c.ui.LogDebug(fmt.Sprintf("Padded chunk %d to %d bytes", i, len(chunk)))
-            } else if len(chunk) > expectedChunkSize {
-                // If the chunk is too large, truncate it
-                chunk = chunk[:expectedChunkSize]
-                c.ui.LogDebug(fmt.Sprintf("Truncated chunk %d to %d bytes", i, len(chunk)))
-            }
-        }
+        // Log the chunk size for debugging
+        c.ui.LogDebug(fmt.Sprintf("Chunk %d size: %d bytes", i, chunkSize))
 
         c.ui.LogDebug(fmt.Sprintf("Writing chunk %d (%d bytes)", i, len(chunk)))
 
@@ -1443,8 +1428,9 @@ func (c *Client) setupPeerConnection() error {
         }
 
         // Extract the actual data (make a copy to ensure it doesn't get modified)
+        // Make sure we only copy exactly dataLength bytes, no more
         data := make([]byte, dataLength)
-        copy(data, msg.Data[8:])
+        copy(data, msg.Data[8:8+dataLength])
 
         // Log the received chunk
         c.ui.LogDebug(fmt.Sprintf("Received framed binary chunk %d (%d bytes data, %d bytes total)",

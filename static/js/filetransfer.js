@@ -625,8 +625,13 @@ function startSlidingWindowTransfer(file, totalChunks) {
                         // Write data length (big endian)
                         framedView.setUint32(4, dataSize, false);
 
-                        // Copy the actual data
-                        new Uint8Array(framedData, 8).set(new Uint8Array(chunkToSend));
+                        // Copy the actual data (make sure we only copy exactly dataSize bytes)
+                        if (dataSize > 0) {
+                            new Uint8Array(framedData, 8, dataSize).set(new Uint8Array(chunkToSend, 0, dataSize));
+                        }
+
+                        // Log the exact size of the framed data
+                        console.debug(`[WebRTC] Created framed data for chunk ${sequence}: 8 bytes header + ${dataSize} bytes data = ${framedData.byteLength} bytes total`);
 
                         // Check if the framed data is too large
                         if (framedData.byteLength > config.MAX_MESSAGE_SIZE) {
