@@ -277,8 +277,8 @@ func (c *Client) sendChunkBySequence(sequence int) error {
         return fmt.Errorf("failed to read complete chunk: expected %d bytes, got %d", size, n)
     }
 
-    // Use a very conservative chunk size for binary data to ensure reliability
-    dataSize := int(math.Min(float64(maxChunkSize), float64(16384))) // 16KB is very safe for all implementations
+    // Use an extremely conservative chunk size for binary data to ensure reliability
+    dataSize := int(math.Min(float64(maxChunkSize), float64(8192))) // 8KB is extremely safe for all implementations
     if n > dataSize {
         n = dataSize
     }
@@ -308,18 +308,32 @@ func (c *Client) sendChunkBySequence(sequence int) error {
         return fmt.Errorf("failed to send chunk info: %v", err)
     }
 
-    // Add a small delay to ensure the control message is processed first
-    time.Sleep(5 * time.Millisecond)
+    // We'll use a synchronous approach to ensure chunk info and data stay in sync
+    // Wait for a short time to ensure the control message is processed
+    time.Sleep(10 * time.Millisecond)
 
-    // Send the binary data on the data channel
     // Make a copy of the buffer to ensure it doesn't get modified before sending
     dataCopy := make([]byte, n)
     copy(dataCopy, buf[:n])
 
-    // Send as binary data
-    err = c.webrtc.dataChannel.Send(dataCopy)
-    if err != nil {
-        return fmt.Errorf("failed to send chunk: %v", err)
+    // Create a channel to wait for the send to complete
+    sendComplete := make(chan error, 1)
+
+    // Send the binary data on the data channel
+    go func() {
+        // Send as binary data
+        err := c.webrtc.dataChannel.Send(dataCopy)
+        sendComplete <- err
+    }()
+
+    // Wait for the send to complete with a timeout
+    select {
+    case err = <-sendComplete:
+        if err != nil {
+            return fmt.Errorf("failed to send chunk: %v", err)
+        }
+    case <-time.After(500 * time.Millisecond):
+        return fmt.Errorf("timeout sending chunk data")
     }
 
     // Mark as unacknowledged and record timestamp
@@ -579,15 +593,27 @@ func (c *Client) processChunkData(sequence int, total int, size int, data []byte
     }
     c.webrtc.receiveTransfer.receivedSize = totalReceived
 
-    // Send confirmation back
-    confirm := ChunkConfirm{
-        Type:     "chunk-confirm",
-        Sequence: sequence,
-    }
-    confirmJSON, err := json.Marshal(confirm)
-    if err == nil {
-        c.webrtc.controlChannel.SendText(string(confirmJSON))
-    }
+    // Send confirmation back with a small delay to ensure it's not lost
+    go func() {
+        // Wait a moment to ensure the chunk is fully processed
+        time.Sleep(5 * time.Millisecond)
+
+        confirm := ChunkConfirm{
+            Type:     "chunk-confirm",
+            Sequence: sequence,
+        }
+        confirmJSON, err := json.Marshal(confirm)
+        if err == nil {
+            // Try to send the confirmation, retry a few times if needed
+            for i := 0; i < 3; i++ {
+                err := c.webrtc.controlChannel.SendText(string(confirmJSON))
+                if err == nil {
+                    break
+                }
+                time.Sleep(10 * time.Millisecond)
+            }
+        }
+    }()
 
     // Update progress every 100ms or on significant changes
     now := time.Now()
@@ -1298,24 +1324,30 @@ func (c *Client) setupPeerConnection() error {
 
         // Check if we're expecting a chunk
         if c.webrtc.receiveTransfer.expectedChunk == nil {
-            c.ui.ShowError("Received binary data but no chunk was expected")
+            c.ui.LogDebug("Received binary data but no chunk info was received first")
+            // This could be a race condition where the binary data arrived before the chunk info
+            // We'll store this data temporarily and check for it in the chunk-info handler
+
+            // For now, we'll just ignore it as it will be retransmitted
             return
         }
 
         // Get the expected chunk info
         chunkInfo := c.webrtc.receiveTransfer.expectedChunk
 
+        // Make a copy of the expected chunk info and clear it immediately
+        // This prevents race conditions where another chunk info arrives before we finish processing
+        expectedChunk := *chunkInfo
+        c.webrtc.receiveTransfer.expectedChunk = nil
+
         // Validate the size
-        if len(msg.Data) != chunkInfo.Size {
-            c.ui.ShowError(fmt.Sprintf("Chunk size mismatch. Expected: %d, Got: %d", chunkInfo.Size, len(msg.Data)))
+        if len(msg.Data) != expectedChunk.Size {
+            c.ui.ShowError(fmt.Sprintf("Chunk size mismatch. Expected: %d, Got: %d", expectedChunk.Size, len(msg.Data)))
             return
         }
 
         // Process the binary chunk
-        c.handleBinaryChunkData(chunkInfo.Sequence, chunkInfo.TotalChunks, chunkInfo.Size, msg.Data)
-
-        // Clear the expected chunk
-        c.webrtc.receiveTransfer.expectedChunk = nil
+        c.handleBinaryChunkData(expectedChunk.Sequence, expectedChunk.TotalChunks, expectedChunk.Size, msg.Data)
     })
 
     // Store the peer connection
