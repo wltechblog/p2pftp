@@ -1,0 +1,638 @@
+--- static/js/filetransfer.js.orig
++++ static/js/filetransfer.js
+@@ -6,14 +6,20 @@ import { getDataChannel } from '/static/js/webrtc.js';
+ // File transfer states
+ const receiveState = {
+     buffer: [],
+     receivedSize: 0,
+     fileInfo: null,
+     startTime: 0,
+     lastUpdate: 0,
+     bytesPerSecond: 0,
+-    inProgress: false
++    inProgress: false,
++    missingChunks: new Set(),  // Track missing chunks
++    lastReceivedSequence: -1,  // Last in-order sequence received
++    receivedChunks: new Set(), // Track received chunks
++    pendingRetransmissions: new Set(), // Chunks we've requested to be resent
++    retransmissionTimer: null  // Timer for requesting missing chunks
+ };
+ 
+ const sendState = {
+     currentFile: null,
+     offset: 0,
+-    startTime: 0,
++    startTime: 0,
+@@ -21,7 +27,13 @@ const sendState = {
+     lastOffset: 0,
+     bytesPerSecond: 0,
+-    inProgress: false
++    inProgress: false,
++    windowSize: 16,           // Number of chunks to send before waiting for acks
++    nextSequenceToSend: 0,    // Next sequence number to send
++    lastAckedSequence: -1,    // Last sequence number that was acknowledged
++    unacknowledgedChunks: {}, // Map of sequence numbers to chunks that haven't been acked
++    retransmissionQueue: [],  // Queue of chunks to retransmit
++    retransmissionTimer: null // Timer for retransmissions
+ };
+ 
+ // Initialize file transfer functionality
+@@ -113,7 +125,7 @@ export async function handleDataChannelMessage(event) {
+                 try {
+                     let hasNativeFS = 'showSaveFilePicker' in window;
+                     const fileSize = BigInt(messageObj.info.size);
+                     const chunkSize = BigInt(CHUNK_SIZE);
+-                    const numChunks = Number((fileSize + chunkSize - BigInt(1)) / chunkSize);
++                    const numChunks = messageObj.info.totalChunks || Number((fileSize + chunkSize - BigInt(1)) / chunkSize);
+                     receiveState.fileInfo = messageObj.info;
+ 
+                     if (hasNativeFS) {
+@@ -138,6 +150,18 @@ export async function handleDataChannelMessage(event) {
+                     receiveState.lastUpdate = Date.now();
+                     receiveState.bytesPerSecond = 0;
+                     receiveState.inProgress = true;
++                    receiveState.lastReceivedSequence = -1;
++                    receiveState.receivedChunks = new Set();
++                    receiveState.missingChunks = new Set();
++                    receiveState.pendingRetransmissions = new Set();
++
++                    // Clear any existing retransmission timer
++                    if (receiveState.retransmissionTimer) {
++                        clearInterval(receiveState.retransmissionTimer);
++                    }
++
++                    // Set up timer to check for missing chunks (every 3 seconds)
++                    receiveState.retransmissionTimer = setInterval(checkForMissingChunks, 3000);
+                     
+                     ui.addSystemMessage(`Receiving file: ${receiveState.fileInfo.name} (${formatBytes(receiveState.fileInfo.size)})`);
+                     ui.updateConnectionStatus(`Receiving file...`);
+@@ -160,6 +184,18 @@ export async function handleDataChannelMessage(event) {
+                 receiveState.fileInfo.currentChunk = { sequence, totalChunks, size };
+                 try {
+                     await processChunk(binaryData);
++
++                    // Mark this chunk as received
++                    receiveState.receivedChunks.add(sequence);
++
++                    // If this was a pending retransmission, remove it
++                    if (receiveState.pendingRetransmissions.has(sequence)) {
++                        receiveState.pendingRetransmissions.delete(sequence);
++                    }
++
++                    // If this was a missing chunk, remove it
++                    if (receiveState.missingChunks.has(sequence)) {
++                        receiveState.missingChunks.delete(sequence);
++                    }
+                     
+                     // Send chunk confirmation after successful processing
+                     const dataChannel = getDataChannel();
+@@ -168,12 +204,95 @@ export async function handleDataChannelMessage(event) {
+                             type: 'chunk-confirm',
+                             sequence: sequence
+                         }));
++                        
++                        // Check if we can update the last received sequence
++                        updateLastReceivedSequence();
++                        
++                        // Check if we have all chunks
++                        checkIfComplete();
+                     }
+                 } catch (error) {
+                     console.error('[WebRTC] Error processing chunk:', error);
+                     ui.showError(`Failed to process chunk: ${error.message}`);
+                     return;
+                 }
++            } else if (messageObj.type === 'chunk-confirm') {
++                // Handle chunk confirmation from receiver
++                const { sequence } = messageObj;
++                
++                // Update the last acknowledged sequence if this is the next expected one
++                if (sequence === sendState.lastAckedSequence + 1) {
++                    sendState.lastAckedSequence = sequence;
++                    
++                    // Check for any consecutive acknowledged chunks
++                    let nextSeq = sequence + 1;
++                    while (nextSeq in sendState.unacknowledgedChunks &&
++                           sendState.unacknowledgedChunks[nextSeq] === true) {
++                        sendState.lastAckedSequence = nextSeq;
++                        delete sendState.unacknowledgedChunks[nextSeq];
++                        nextSeq++;
++                    }
++                } else if (sequence > sendState.lastAckedSequence) {
++                    // Mark this chunk as acknowledged but don't update lastAckedSequence yet
++                    sendState.unacknowledgedChunks[sequence] = true;
++                }
++                
++                // Remove from unacknowledged chunks
++                if (sequence in sendState.unacknowledgedChunks) {
++                    delete sendState.unacknowledgedChunks[sequence];
++                }
++                
++                // Continue sending if we have more chunks to send
++                if (typeof window.trySendNextChunks === 'function') {
++                    window.trySendNextChunks();
++                }
++            } else if (messageObj.type === 'request-chunks') {
++                // Handle request for missing chunks
++                const { sequences } = messageObj;
++                
++                if (Array.isArray(sequences) && sequences.length > 0) {
++                    console.debug(`[WebRTC] Received request for chunks: ${sequences.join(', ')}`);
++                    
++                    // Add requested chunks to retransmission queue
++                    for (const sequence of sequences) {
++                        if (!sendState.retransmissionQueue.includes(sequence)) {
++                            sendState.retransmissionQueue.push(sequence);
++                        }
++                    }
++                    
++                    // Sort retransmission queue
++                    sendState.retransmissionQueue.sort((a, b) => a - b);
++                    
++                    // Try to send the requested chunks
++                    if (typeof window.trySendNextChunks === 'function') {
++                        window.trySendNextChunks();
++                    }
++                }
+             } else if (messageObj.type === 'file-complete') {
+-                receiveFile();
++                // Only process file-complete if we're still in progress
++                if (receiveState.inProgress) {
++                    // Check for missing chunks before completing
++                    const totalChunks = receiveState.buffer.length;
++                    let missingCount = 0;
++                    
++                    for (let i = 0; i < totalChunks; i++) {
++                        if (!receiveState.receivedChunks.has(i)) {
++                            missingCount++;
++                            receiveState.missingChunks.add(i);
++                        }
++                    }
++                    
++                    if (missingCount > 0) {
++                        console.debug(`[WebRTC] File marked complete but missing ${missingCount} chunks. Requesting them...`);
++                        requestMissingChunks();
++                    } else {
++                        receiveFile();
++                    }
++                } else {
++                    console.debug('[WebRTC] Ignoring duplicate file-complete message');
++                }
+             }
+         } catch (e) {
+             console.error('[WebRTC] Failed to parse message:', e);
+@@ -181,6 +300,76 @@ export async function handleDataChannelMessage(event) {
+     }
+ }
+ 
++// Function to update the last received sequence number
++function updateLastReceivedSequence() {
++    let nextExpected = receiveState.lastReceivedSequence + 1;
++    
++    // Check if we have consecutive chunks
++    while (receiveState.receivedChunks.has(nextExpected)) {
++        receiveState.lastReceivedSequence = nextExpected;
++        nextExpected++;
++    }
++}
++
++// Function to check if we have all chunks
++function checkIfComplete() {
++    if (!receiveState.inProgress) return;
++    
++    const totalChunks = receiveState.buffer.length;
++    
++    // If we have all chunks, complete the transfer
++    if (receiveState.receivedChunks.size === totalChunks) {
++        console.debug('[WebRTC] All chunks received, completing transfer');
++        receiveFile();
++    }
++}
++
++// Function to check for missing chunks and request them
++function checkForMissingChunks() {
++    if (!receiveState.inProgress) {
++        if (receiveState.retransmissionTimer) {
++            clearInterval(receiveState.retransmissionTimer);
++            receiveState.retransmissionTimer = null;
++        }
++        return;
++    }
++    
++    const totalChunks = receiveState.buffer.length;
++    const lastReceivedSequence = receiveState.lastReceivedSequence;
++    
++    // Look for missing chunks in the already processed range
++    for (let i = 0; i <= lastReceivedSequence + 20 && i < totalChunks; i++) {
++        if (!receiveState.receivedChunks.has(i) && 
++            !receiveState.pendingRetransmissions.has(i)) {
++            receiveState.missingChunks.add(i);
++        }
++    }
++    
++    // Request missing chunks if we have any
++    if (receiveState.missingChunks.size > 0) {
++        requestMissingChunks();
++    }
++}
++
++// Function to request missing chunks
++function requestMissingChunks() {
++    if (receiveState.missingChunks.size === 0) return;
++    
++    const dataChannel = getDataChannel();
++    if (!dataChannel || dataChannel.readyState !== 'open') return;
++    
++    // Convert Set to Array for JSON serialization
++    const missingChunks = Array.from(receiveState.missingChunks);
++    
++    // Limit the number of chunks to request at once
++    const chunksToRequest = missingChunks.slice(0, 50);
++    
++    console.debug(`[WebRTC] Requesting missing chunks: ${chunksToRequest.join(', ')}`);
++    
++    // Send request for missing chunks
++    dataChannel.send(JSON.stringify({
++        type: 'request-chunks',
++        sequences: chunksToRequest
++    }));
++    
++    // Mark these chunks as pending retransmission
++    for (const sequence of chunksToRequest) {
++        receiveState.pendingRetransmissions.add(sequence);
++    }
++}
++
+ // Calculate safe memory size for browsers without File System Access API
+ const maxSafeSize = 2 * 1024 * 1024 * 1024 - (100 * 1024 * 1024); // 2GB - 100MB overhead
+ 
+@@ -201,6 +390,18 @@ export async function sendFile(file) {
+         return;
+     }
+     
++    // Initialize send state
+     sendState.inProgress = true;
+     sendState.currentFile = file;
+     sendState.offset = 0;
+@@ -208,6 +409,17 @@ export async function sendFile(file) {
+     sendState.lastUpdate = Date.now();
+     sendState.lastOffset = 0;
+     sendState.bytesPerSecond = 0;
++    sendState.nextSequenceToSend = 0;
++    sendState.lastAckedSequence = -1;
++    sendState.unacknowledgedChunks = {};
++    sendState.retransmissionQueue = [];
++    
++    // Clear any existing retransmission timer
++    if (sendState.retransmissionTimer) {
++        clearInterval(sendState.retransmissionTimer);
++    }
++    
++    // Set up retransmission timer (check every 2 seconds)
++    sendState.retransmissionTimer = setInterval(checkForRetransmissions, 2000);
+ 
+     // Clear file selection immediately when starting transfer
+     ui.resetFileInterface();
+@@ -222,6 +434,12 @@ export async function sendFile(file) {
+         console.error('[WebRTC] Error calculating MD5:', error);
+         ui.addSystemMessage(`Warning: Could not calculate file checksum. Integrity validation will be skipped.`);
+     }
++
++    // Calculate total chunks
++    const fileSize = BigInt(file.size);
++    const chunkSize = BigInt(CHUNK_SIZE);
++    const totalChunks = Number((fileSize + chunkSize - BigInt(1)) / chunkSize);
++
+     
+     // Send file info first with MD5 hash
+     dataChannel.send(JSON.stringify({
+@@ -229,71 +447,135 @@ export async function sendFile(file) {
+         info: {
+             name: file.name,
+             size: file.size,
+             type: file.type,
+-            md5: md5Hash
++            md5: md5Hash,
++            totalChunks: totalChunks
+         }
+     }));
+     
+     ui.updateTransferProgress(0, `⬆ ${file.name}`, "send");
+     
+-    // Read and send file in chunks
+-    const reader = new FileReader();
+-    
+-    const sendChunk = (chunk) => {
+-        if (!dataChannel || dataChannel.readyState !== 'open') return;
+-
+-        // Use BigInt for large file handling
+-        const offset = BigInt(sendState.offset);
+-        const chunkSize = BigInt(CHUNK_SIZE);
+-        const fileSize = BigInt(sendState.currentFile.size);
+-        const chunkIndex = Number(offset / chunkSize);
+-        const totalChunks = Number((fileSize + chunkSize - BigInt(1)) / chunkSize);
+-        
+-        dataChannel.send(JSON.stringify({
+-            type: 'chunk',
+-            sequence: chunkIndex,
+-            totalChunks: totalChunks,
+-            size: chunk.byteLength,
+-            data: btoa(String.fromCharCode.apply(null, new Uint8Array(chunk)))
+-        }));
+-
+-        sendState.offset += chunk.byteLength;
+-        updateProgress();
+-        
+-        if (sendState.offset < sendState.currentFile.size) {
+-            readNextSlice();
+-        } else {
+-            finishTransfer();
+-        }
+-    };
+-
+-    const readNextSlice = () => {
+-        const slice = file.slice(sendState.offset, sendState.offset + CHUNK_SIZE);
+-        reader.readAsArrayBuffer(slice);
+-    };
+-    
+-    reader.onload = function(event) {
+-        if (dataChannel.readyState === 'open') {
+-            const chunk = event.target.result;
+-            const maxBufferSize = CHUNK_SIZE * 8;
+-
+-            if (dataChannel.bufferedAmount > maxBufferSize) {
+-                const waitAndSend = () => {
+-                    if (dataChannel.bufferedAmount > maxBufferSize) {
+-                        setTimeout(waitAndSend, 100);
+-                        return;
+-                    }
+-                    sendChunk(chunk);
+-                };
+-                setTimeout(waitAndSend, 100);
+-                return;
++    // Start the sliding window transfer
++    startSlidingWindowTransfer(file, totalChunks);
++}
++
++// Function to handle the sliding window transfer
++function startSlidingWindowTransfer(file, totalChunks) {
++    const dataChannel = getDataChannel();
++    if (!dataChannel || dataChannel.readyState !== 'open') return;
++    
++    const reader = new FileReader();
++    let activeReads = 0;
++    const MAX_ACTIVE_READS = 3; // Limit concurrent file reads
++    
++    // Function to send a specific chunk by sequence number
++    const sendChunkBySequence = (sequence) => {
++        if (sequence >= totalChunks) return;
++        
++        const offset = sequence * CHUNK_SIZE;
++        const end = Math.min(offset + CHUNK_SIZE, file.size);
++        const slice = file.slice(offset, end);
++        
++        activeReads++;
++        const thisReader = new FileReader();
++        
++        thisReader.onload = function(event) {
++            activeReads--;
++            
++            if (dataChannel.readyState !== 'open') return;
++            
++            const chunk = event.target.result;
++            const chunkData = {
++                type: 'chunk',
++                sequence: sequence,
++                totalChunks: totalChunks,
++                size: chunk.byteLength,
++                data: btoa(String.fromCharCode.apply(null, new Uint8Array(chunk)))
++            };
++            
++            // Store chunk for potential retransmission
++            sendState.unacknowledgedChunks[sequence] = chunkData;
++            
++            // Send the chunk
++            dataChannel.send(JSON.stringify(chunkData));
++            
++            // Update progress based on next sequence to send
++            sendState.offset = Math.min((sendState.nextSequenceToSend + 1) * CHUNK_SIZE, file.size);
++            updateProgress();
++            
++            // Continue sending if window allows
++            trySendNextChunks();
++        };
++        
++        thisReader.onerror = (error) => {
++            activeReads--;
++            console.error(`[WebRTC] Error reading chunk ${sequence}:`, error);
++            
++            // Add to retransmission queue to try again
++            if (!sendState.retransmissionQueue.includes(sequence)) {
++                sendState.retransmissionQueue.push(sequence);
+             }
++            
++            trySendNextChunks();
++        };
++        
++        thisReader.readAsArrayBuffer(slice);
++    };
++    
++    // Function to try sending next chunks within the window
++    const trySendNextChunks = () => {
++        // First handle any retransmissions
++        while (sendState.retransmissionQueue.length > 0 && 
++               activeReads < MAX_ACTIVE_READS && 
++               dataChannel.bufferedAmount < CHUNK_SIZE * 8) {
++            const sequence = sendState.retransmissionQueue.shift();
++            
++            // If we already have the chunk data, send it directly
++            if (sendState.unacknowledgedChunks[sequence]) {
++                dataChannel.send(JSON.stringify(sendState.unacknowledgedChunks[sequence]));
++                console.debug(`[WebRTC] Retransmitted chunk ${sequence}`);
++            } else {
++                // Otherwise read it from the file
++                sendChunkBySequence(sequence);
++            }
++        }
++        
++        // Then send new chunks within the window
++        while (sendState.nextSequenceToSend < totalChunks && 
++               sendState.nextSequenceToSend <= sendState.lastAckedSequence + sendState.windowSize && 
++               activeReads < MAX_ACTIVE_READS && 
++               dataChannel.bufferedAmount < CHUNK_SIZE * 8) {
++            
++            sendChunkBySequence(sendState.nextSequenceToSend);
++            sendState.nextSequenceToSend++;
++        }
++        
++        // Check if we're done
++        if (sendState.lastAckedSequence === totalChunks - 1) {
++            finishTransfer();
++        }
++    };
++    
++    // Make trySendNextChunks globally available for chunk confirmations
++    window.trySendNextChunks = trySendNextChunks;
++    
++    // Function to check for chunks that need retransmission
++    window.checkForRetransmissions = () => {
++        if (!sendState.inProgress) {
++            if (sendState.retransmissionTimer) {
++                clearInterval(sendState.retransmissionTimer);
++                sendState.retransmissionTimer = null;
++            }
++            return;
++        }
++        
++        // Check for unacknowledged chunks that might need retransmission
++        const now = Date.now();
++        const sequences = Object.keys(sendState.unacknowledgedChunks).map(Number);
++        
++        if (sequences.length > 0) {
++            console.debug(`[WebRTC] Unacknowledged chunks: ${sequences.length}`);
++            
++            // Add old unacknowledged chunks to retransmission queue
++            for (const sequence of sequences) {
++                if (sequence <= sendState.lastAckedSequence) {
++                    // This was already ACKed, remove it
++                    delete sendState.unacknowledgedChunks[sequence];
++                } else if (!sendState.retransmissionQueue.includes(sequence)) {
++                    // Add to retransmission queue
++                    sendState.retransmissionQueue.push(sequence);
++                    console.debug(`[WebRTC] Queuing chunk ${sequence} for retransmission`);
++                }
++            }
++            
++            // Sort retransmission queue by sequence number
++            sendState.retransmissionQueue.sort((a, b) => a - b);
++            
++            // Try to send next chunks including retransmissions
++            trySendNextChunks();
++        }
++    };
++    
++    // Start the transfer
++    trySendNextChunks();
++}
+ 
+-            sendChunk(chunk);
+-        }
+-    };
+-    
+-    reader.onerror = (error) => {
+-        ui.addSystemMessage(`Error reading file: ${error}`);
+-        ui.hideTransferProgress("send");
+-        sendState.inProgress = false;
+-    };
+-    
+-    readNextSlice();
+-}
+ 
+ // Update transfer progress
+ function updateProgress() {
+@@ -319,19 +601,37 @@ function finishTransfer() {
+     if (!dataChannel || dataChannel.readyState !== 'open') return;
+ 
+     try {
++        // Send file-complete message
+         dataChannel.send(JSON.stringify({
+             type: 'file-complete'
+         }));
+         
+         ui.addSystemMessage(`File sent: ${sendState.currentFile.name}`);
+         showNotification('File Sent', `${sendState.currentFile.name} was sent successfully`);
+         updateTitleWithSpinner(false);
+         
++        // Clean up resources
++        if (sendState.retransmissionTimer) {
++            clearInterval(sendState.retransmissionTimer);
++            sendState.retransmissionTimer = null;
++        }
++        
++        // Make trySendNextChunks globally available for chunk confirmations
++        window.trySendNextChunks = null;
++        
+         setTimeout(() => {
+             ui.hideTransferProgress("send");
+             ui.resetFileInterface();
+         }, 2000);
+         
++        // Reset state
+         sendState.currentFile = null;
+         sendState.offset = 0;
+         sendState.inProgress = false;
++        sendState.nextSequenceToSend = 0;
++        sendState.lastAckedSequence = -1;
++        sendState.unacknowledgedChunks = {};
++        sendState.retransmissionQueue = [];
+     } catch (error) {
+         ui.addSystemMessage(`Error completing transfer: ${error}`);
+         ui.hideTransferProgress("send");
++        
++        // Clean up resources even on error
++        if (sendState.retransmissionTimer) {
++            clearInterval(sendState.retransmissionTimer);
++            sendState.retransmissionTimer = null;
++        }
++        
++        window.trySendNextChunks = null;
+         sendState.inProgress = false;
+     }
+ }
+@@ -349,9 +649,17 @@ async function validateFileIntegrity(file) {
+ }
+ 
+ async function receiveFile() {
++    // Set inProgress to false immediately to prevent duplicate processing
++    const wasInProgress = receiveState.inProgress;
++    receiveState.inProgress = false;
++
+     try {
+         ui.updateConnectionStatus('Finalizing file...');
+ 
++        // Clean up retransmission timer
++        if (receiveState.retransmissionTimer) {
++            clearInterval(receiveState.retransmissionTimer);
++            receiveState.retransmissionTimer = null;
++        }
++
+         // Close the writable stream
+         if (receiveState.fileWriter) {
+             await receiveState.fileWriter.close();
+@@ -363,10 +671,15 @@ async function receiveFile() {
+         } else {
+             // For browsers without File System Access API, create blob from chunks
+             const chunks = [];
+-            for (const chunk of receiveState.buffer) {
+-                if (!chunk) {
+-                    throw new Error("Incomplete file transfer");
++            
++            // Verify all chunks are present
++            const totalChunks = receiveState.buffer.length;
++            for (let i = 0; i < totalChunks; i++) {
++                const chunk = receiveState.buffer[i];
++                if (!chunk) {
++                    throw new Error(`Incomplete file transfer: missing chunk ${i}`);
+                 }
++                
+                 chunks.push(chunk);
+             }
+             const blob = new Blob(chunks, { type: 'application/octet-stream' });
+@@ -387,10 +700,13 @@ async function receiveFile() {
+         // Clean up
+         setTimeout(() => {
+             receiveState.buffer = [];
+             receiveState.fileInfo = null;
+             ui.hideTransferProgress("receive");
+             receiveState.bytesPerSecond = 0;
+             receiveState.startTime = 0;
+             receiveState.lastUpdate = 0;
+-            receiveState.inProgress = false;
++            receiveState.lastReceivedSequence = -1;
++            receiveState.receivedChunks = new Set();
++            receiveState.missingChunks = new Set();
++            receiveState.pendingRetransmissions = new Set();
++            // inProgress is already set to false at the beginning of the function
+         }, 100);
+     }
+ }
