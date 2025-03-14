@@ -580,11 +580,16 @@ func (c *Client) processChunkData(sequence int, total int, size int, data []byte
     dataCopy := make([]byte, len(data))
     copy(dataCopy, data)
 
+    // Calculate MD5 of the chunk for debugging
+    chunkHash := md5.Sum(dataCopy)
+    chunkMD5 := hex.EncodeToString(chunkHash[:])
+
     // Store chunk and update size
     c.webrtc.receiveTransfer.chunks[sequence] = dataCopy
 
     // Log success for debugging
-    c.ui.LogDebug(fmt.Sprintf("Processed chunk %d (%d bytes)", sequence, len(dataCopy)))
+    c.ui.LogDebug(fmt.Sprintf("Processed chunk %d (%d bytes, MD5: %s)",
+        sequence, len(dataCopy), chunkMD5))
 
     // Mark this chunk as received
     if c.webrtc.receiveTransfer.receivedChunks == nil {
@@ -887,6 +892,10 @@ func (c *Client) handleFileComplete() {
     }
     defer file.Close()
 
+    // Calculate the total expected file size
+    expectedSize := c.webrtc.receiveTransfer.fileTransfer.Size
+    var totalWritten int64 = 0
+
     // Write all chunks to file in order
     for i, chunk := range c.webrtc.receiveTransfer.chunks {
         if chunk == nil {
@@ -895,14 +904,50 @@ func (c *Client) handleFileComplete() {
             return
         }
 
+        // Calculate the expected chunk size
+        var expectedChunkSize int
+        if i == len(c.webrtc.receiveTransfer.chunks)-1 {
+            // Last chunk might be smaller
+            expectedChunkSize = int(expectedSize - totalWritten)
+        } else {
+            // Regular chunk should be full size
+            expectedChunkSize = int(math.Min(float64(maxSupportedChunkSize), float64(expectedSize-totalWritten)))
+        }
+
+        // Validate chunk size
+        if len(chunk) != expectedChunkSize {
+            c.ui.LogDebug(fmt.Sprintf("Chunk %d size mismatch: expected %d bytes, got %d bytes",
+                i, expectedChunkSize, len(chunk)))
+
+            // If the chunk is too small, pad it with zeros
+            if len(chunk) < expectedChunkSize {
+                paddedChunk := make([]byte, expectedChunkSize)
+                copy(paddedChunk, chunk)
+                chunk = paddedChunk
+                c.ui.LogDebug(fmt.Sprintf("Padded chunk %d to %d bytes", i, len(chunk)))
+            } else if len(chunk) > expectedChunkSize {
+                // If the chunk is too large, truncate it
+                chunk = chunk[:expectedChunkSize]
+                c.ui.LogDebug(fmt.Sprintf("Truncated chunk %d to %d bytes", i, len(chunk)))
+            }
+        }
+
         c.ui.LogDebug(fmt.Sprintf("Writing chunk %d (%d bytes)", i, len(chunk)))
 
-        _, err := file.Write(chunk)
+        n, err := file.Write(chunk)
         if err != nil {
             c.ui.ShowError(fmt.Sprintf("Failed to write chunk: %v", err))
             c.webrtc.receiveTransfer = transferState{}
             return
         }
+
+        totalWritten += int64(n)
+    }
+
+    // Verify the total size
+    if totalWritten != expectedSize {
+        c.ui.LogDebug(fmt.Sprintf("File size mismatch: expected %d bytes, wrote %d bytes",
+            expectedSize, totalWritten))
     }
 
     // Ensure all data is written to disk
@@ -926,8 +971,40 @@ func (c *Client) handleFileComplete() {
     // Verify against provided hash if available
     if c.webrtc.receiveTransfer.fileTransfer.MD5 != "" {
         if fileHash != c.webrtc.receiveTransfer.fileTransfer.MD5 {
-            c.ui.ShowError(fmt.Sprintf("File integrity check failed:\nExpected MD5: %s\nActual MD5:   %s", 
-                c.webrtc.receiveTransfer.fileTransfer.MD5, fileHash))
+            // Save a copy of the file with .corrupted extension for diagnostics
+            corruptedPath := c.webrtc.receiveTransfer.fileTransfer.filePath + ".corrupted"
+            err = os.Rename(c.webrtc.receiveTransfer.fileTransfer.filePath, corruptedPath)
+            if err != nil {
+                c.ui.ShowError(fmt.Sprintf("Failed to rename corrupted file: %v", err))
+            }
+
+            c.ui.ShowError(fmt.Sprintf("File integrity check failed (saved as %s):\nExpected MD5: %s\nActual MD5:   %s",
+                corruptedPath, c.webrtc.receiveTransfer.fileTransfer.MD5, fileHash))
+
+            // Create a diagnostic file with chunk information
+            diagPath := corruptedPath + ".diag"
+            diagFile, err := os.Create(diagPath)
+            if err == nil {
+                defer diagFile.Close()
+                fmt.Fprintf(diagFile, "Expected MD5: %s\n", c.webrtc.receiveTransfer.fileTransfer.MD5)
+                fmt.Fprintf(diagFile, "Actual MD5: %s\n", fileHash)
+                fmt.Fprintf(diagFile, "Total chunks: %d\n", c.webrtc.receiveTransfer.totalChunks)
+                fmt.Fprintf(diagFile, "Received chunks: %d\n", len(c.webrtc.receiveTransfer.receivedChunks))
+
+                // Log chunk sizes and MD5 hashes
+                for i, chunk := range c.webrtc.receiveTransfer.chunks {
+                    if chunk != nil {
+                        chunkHash := md5.Sum(chunk)
+                        chunkMD5 := hex.EncodeToString(chunkHash[:])
+                        fmt.Fprintf(diagFile, "Chunk %d: %d bytes, MD5: %s\n", i, len(chunk), chunkMD5)
+                    } else {
+                        fmt.Fprintf(diagFile, "Chunk %d: missing\n", i)
+                    }
+                }
+
+                c.ui.LogDebug(fmt.Sprintf("Diagnostic information saved to %s", diagPath))
+            }
+
             c.webrtc.receiveTransfer = transferState{}
             return
         }
@@ -1365,8 +1442,9 @@ func (c *Client) setupPeerConnection() error {
             return
         }
 
-        // Extract the actual data
-        data := msg.Data[8:]
+        // Extract the actual data (make a copy to ensure it doesn't get modified)
+        data := make([]byte, dataLength)
+        copy(data, msg.Data[8:])
 
         // Log the received chunk
         c.ui.LogDebug(fmt.Sprintf("Received framed binary chunk %d (%d bytes data, %d bytes total)",

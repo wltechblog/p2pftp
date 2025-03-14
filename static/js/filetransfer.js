@@ -875,9 +875,31 @@ async function validateFileIntegrity(file) {
     ui.updateConnectionStatus('Validating file integrity...');
     const receivedMD5 = await calculateMD5(file);
     console.debug(`[WebRTC] Received file MD5: ${receivedMD5}, Expected: ${receiveState.fileInfo.md5}`);
-    
+
     if (receivedMD5 !== receiveState.fileInfo.md5) {
-        ui.addSystemMessage(`⚠️ File integrity check failed! The file may be corrupted.`);
+        // Create a diagnostic log
+        let diagnosticInfo = `File Integrity Check Failed\n`;
+        diagnosticInfo += `Expected MD5: ${receiveState.fileInfo.md5}\n`;
+        diagnosticInfo += `Actual MD5: ${receivedMD5}\n`;
+        diagnosticInfo += `File size: ${file.size} bytes\n`;
+        diagnosticInfo += `Total chunks: ${receiveState.totalChunks}\n`;
+        diagnosticInfo += `Received chunks: ${receiveState.receivedChunks.size}\n`;
+
+        // Log the diagnostic information
+        console.error(diagnosticInfo);
+
+        // Save the diagnostic information to a file
+        const diagBlob = new Blob([diagnosticInfo], { type: 'text/plain' });
+        const diagUrl = URL.createObjectURL(diagBlob);
+        const a = document.createElement('a');
+        a.href = diagUrl;
+        a.download = `${receiveState.fileInfo.name}.diag`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(diagUrl), 100);
+
+        ui.addSystemMessage(`⚠️ File integrity check failed! The file may be corrupted. Diagnostic information has been saved.`);
         showNotification('File Integrity Error', `${receiveState.fileInfo.name} failed checksum validation`);
     } else {
         ui.addSystemMessage(`✓ File integrity verified (MD5: ${receivedMD5})`);
@@ -992,8 +1014,9 @@ export async function handleDataMessage(event) {
         return;
     }
 
-    // Extract the actual data
-    const data = new Uint8Array(event.data, 8);
+    // Extract the actual data (make a copy to ensure it doesn't get modified)
+    const data = new Uint8Array(dataLength);
+    data.set(new Uint8Array(event.data, 8, dataLength));
 
     // We don't need the expectedChunk anymore since we have the sequence in the frame
     // Just make sure we're in a transfer
