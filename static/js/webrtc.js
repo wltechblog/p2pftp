@@ -251,6 +251,14 @@ function setupDataChannel(channel) {
         ui.updateConnectionStatus('Connected to peer', peerToken);
         ui.showChatAndFileInterface();
         ui.updateConnectButton(false, true);
+
+        // Send capabilities message with our maximum supported chunk size
+        import('/static/js/config.js').then(config => {
+            dataChannel.send(JSON.stringify({
+                type: 'capabilities',
+                maxChunkSize: config.MAX_CHUNK_SIZE
+            }));
+        });
     };
     
     dataChannel.onclose = () => {

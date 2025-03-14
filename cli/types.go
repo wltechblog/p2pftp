@@ -49,19 +49,37 @@ type FileTransfer struct {
 }
 
 const (
-    maxChunkSize = 16384 // 16KB chunks for WebRTC compatibility
+    defaultChunkSize = 16384 // Default to 16KB for compatibility
+    maxSupportedChunkSize = 1048576 // Maximum supported chunk size (1MB)
 )
 
+// This will be negotiated during connection
+var maxChunkSize = defaultChunkSize
+
 type transferState struct {
-    inProgress      bool
-    receivedSize    int64
-    lastUpdateSize  int64
-    fileTransfer    *FileTransfer
-    startTime       time.Time
-    lastUpdate      time.Time
-    chunks          [][]byte
-    totalChunks     int
-    confirmHandler  func(int) // For handling chunk confirmations
+    inProgress          bool
+    receivedSize        int64
+    lastUpdateSize      int64
+    fileTransfer        *FileTransfer
+    startTime           time.Time
+    lastUpdate          time.Time
+    chunks              [][]byte
+    totalChunks         int
+    confirmHandler      func(int) // For handling chunk confirmations
+
+    // Sliding window parameters
+    windowSize          int       // Number of chunks to send before waiting for acks
+    nextSequenceToSend  int       // Next sequence number to send
+    lastAckedSequence   int       // Last sequence number that was acknowledged
+    unacknowledgedChunks map[int]bool // Map of sequence numbers to chunks that haven't been acked
+    retransmissionQueue []int     // Queue of chunks to retransmit
+    retransmissionTimer *time.Timer // Timer for retransmissions
+    chunkTimestamps     map[int]time.Time // Map of sequence numbers to timestamps when they were sent
+    congestionWindow    int       // Dynamic window size that adjusts based on network conditions
+    consecutiveTimeouts int       // Track consecutive timeouts for congestion control
+    missingChunks       map[int]bool // Track missing chunks on receive side
+    receivedChunks      map[int]bool // Track received chunks
+    lastReceivedSequence int      // Last in-order sequence received
 }
 
 type WebRTCState struct {

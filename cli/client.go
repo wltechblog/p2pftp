@@ -10,6 +10,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"sort"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -33,6 +34,259 @@ func (c *Client) handleChunkConfirm(sequence int) {
     if c.webrtc.sendTransfer.confirmHandler != nil {
         c.webrtc.sendTransfer.confirmHandler(sequence)
     }
+}
+
+// Handle chunk confirmation and update sliding window
+func (c *Client) handleChunkConfirmation(sequence int) {
+    // Update the last acknowledged sequence if this is the next expected one
+    if sequence == c.webrtc.sendTransfer.lastAckedSequence + 1 {
+        c.webrtc.sendTransfer.lastAckedSequence = sequence
+
+        // Check for any consecutive acknowledged chunks
+        nextSeq := sequence + 1
+        for {
+            if _, ok := c.webrtc.sendTransfer.unacknowledgedChunks[nextSeq]; ok {
+                if c.webrtc.sendTransfer.unacknowledgedChunks[nextSeq] {
+                    c.webrtc.sendTransfer.lastAckedSequence = nextSeq
+                    delete(c.webrtc.sendTransfer.unacknowledgedChunks, nextSeq)
+                    delete(c.webrtc.sendTransfer.chunkTimestamps, nextSeq)
+                    nextSeq++
+                } else {
+                    break
+                }
+            } else {
+                break
+            }
+        }
+    } else if sequence > c.webrtc.sendTransfer.lastAckedSequence {
+        // Mark this chunk as acknowledged but don't update lastAckedSequence yet
+        c.webrtc.sendTransfer.unacknowledgedChunks[sequence] = true
+    }
+
+    // Remove from unacknowledged chunks and timestamps
+    if _, ok := c.webrtc.sendTransfer.unacknowledgedChunks[sequence]; ok {
+        delete(c.webrtc.sendTransfer.unacknowledgedChunks, sequence)
+        delete(c.webrtc.sendTransfer.chunkTimestamps, sequence)
+    }
+
+    // Increase congestion window on successful ACK (TCP-like slow start/congestion avoidance)
+    if c.webrtc.sendTransfer.congestionWindow < c.webrtc.sendTransfer.windowSize {
+        if c.webrtc.sendTransfer.congestionWindow < 32 {
+            // Slow start - exponential growth
+            c.webrtc.sendTransfer.congestionWindow = int(math.Min(float64(c.webrtc.sendTransfer.windowSize), float64(c.webrtc.sendTransfer.congestionWindow + 1)))
+        } else {
+            // Congestion avoidance - additive increase
+            c.webrtc.sendTransfer.congestionWindow = int(math.Min(
+                float64(c.webrtc.sendTransfer.windowSize),
+                float64(c.webrtc.sendTransfer.congestionWindow) + (1.0 / float64(c.webrtc.sendTransfer.congestionWindow)),
+            ))
+        }
+    }
+
+    // Reset consecutive timeouts counter on successful ACK
+    c.webrtc.sendTransfer.consecutiveTimeouts = 0
+
+    // Continue sending if we have more chunks to send
+    c.trySendNextChunks()
+
+    // Update progress
+    totalSent := int64(c.webrtc.sendTransfer.lastAckedSequence + 1) * int64(maxChunkSize)
+    if totalSent > c.webrtc.sendTransfer.fileTransfer.Size {
+        totalSent = c.webrtc.sendTransfer.fileTransfer.Size
+    }
+
+    now := time.Now()
+    if time.Since(c.webrtc.sendTransfer.lastUpdate) > 100*time.Millisecond {
+        timeDiff := now.Sub(c.webrtc.sendTransfer.lastUpdate).Seconds()
+        if timeDiff > 0 {
+            speed := float64(totalSent-c.webrtc.sendTransfer.lastUpdateSize) / timeDiff
+            percentage := int((float64(totalSent) / float64(c.webrtc.sendTransfer.fileTransfer.Size)) * 100)
+            c.ui.UpdateTransferProgress(fmt.Sprintf("⬆ %s [%d%%] (%.1f MB/s)",
+                c.webrtc.sendTransfer.fileTransfer.Name,
+                percentage,
+                speed/1024/1024),
+                "send")
+            c.webrtc.sendTransfer.lastUpdate = now
+            c.webrtc.sendTransfer.lastUpdateSize = totalSent
+        }
+    }
+}
+
+// Check for chunks that need retransmission
+func (c *Client) checkForRetransmissions() {
+    if !c.webrtc.sendTransfer.inProgress {
+        return
+    }
+
+    // Check for unacknowledged chunks that might need retransmission
+    now := time.Now()
+    var timeoutsDetected int
+
+    // Add old unacknowledged chunks to retransmission queue
+    for sequence, timestamp := range c.webrtc.sendTransfer.chunkTimestamps {
+        if sequence <= c.webrtc.sendTransfer.lastAckedSequence {
+            // This was already ACKed, remove it
+            delete(c.webrtc.sendTransfer.unacknowledgedChunks, sequence)
+            delete(c.webrtc.sendTransfer.chunkTimestamps, sequence)
+        } else {
+            // Check if chunk has timed out (3 seconds)
+            if now.Sub(timestamp) > 3*time.Second {
+                // Add to retransmission queue if not already there
+                alreadyQueued := false
+                for _, seq := range c.webrtc.sendTransfer.retransmissionQueue {
+                    if seq == sequence {
+                        alreadyQueued = true
+                        break
+                    }
+                }
+
+                if !alreadyQueued {
+                    c.webrtc.sendTransfer.retransmissionQueue = append(c.webrtc.sendTransfer.retransmissionQueue, sequence)
+                    timeoutsDetected++
+                    c.ui.LogDebug(fmt.Sprintf("Queuing chunk %d for retransmission (timeout)", sequence))
+                }
+            }
+        }
+    }
+
+    // Implement congestion control
+    if timeoutsDetected > 0 {
+        c.webrtc.sendTransfer.consecutiveTimeouts++
+
+        // Reduce window size on timeouts (TCP-like congestion avoidance)
+        if c.webrtc.sendTransfer.consecutiveTimeouts > 1 {
+            // Multiplicative decrease
+            c.webrtc.sendTransfer.congestionWindow = int(math.Max(8, math.Floor(float64(c.webrtc.sendTransfer.congestionWindow) * 0.7)))
+            c.ui.LogDebug(fmt.Sprintf("Reducing congestion window to %d due to timeouts", c.webrtc.sendTransfer.congestionWindow))
+        }
+    } else {
+        c.webrtc.sendTransfer.consecutiveTimeouts = 0
+
+        // Additive increase if no timeouts
+        if c.webrtc.sendTransfer.congestionWindow < c.webrtc.sendTransfer.windowSize {
+            c.webrtc.sendTransfer.congestionWindow = int(math.Min(
+                float64(c.webrtc.sendTransfer.windowSize),
+                float64(c.webrtc.sendTransfer.congestionWindow + 1),
+            ))
+        }
+    }
+
+    // Sort retransmission queue by sequence number
+    sort.Ints(c.webrtc.sendTransfer.retransmissionQueue)
+
+    // Try to send next chunks including retransmissions
+    c.trySendNextChunks()
+}
+
+// Start the sliding window transfer
+func (c *Client) startSlidingWindowTransfer() error {
+    // Try to send initial chunks within the window
+    return c.trySendNextChunks()
+}
+
+// Try to send next chunks within the window
+func (c *Client) trySendNextChunks() error {
+    if !c.webrtc.connected || !c.webrtc.sendTransfer.inProgress {
+        return nil
+    }
+
+    // Calculate effective window size (min of congestion window and configured window size)
+    effectiveWindowSize := int(math.Min(float64(c.webrtc.sendTransfer.congestionWindow), float64(c.webrtc.sendTransfer.windowSize)))
+
+    // First handle any retransmissions (prioritize them)
+    for len(c.webrtc.sendTransfer.retransmissionQueue) > 0 {
+        sequence := c.webrtc.sendTransfer.retransmissionQueue[0]
+        c.webrtc.sendTransfer.retransmissionQueue = c.webrtc.sendTransfer.retransmissionQueue[1:]
+
+        // Skip if this chunk has already been acknowledged
+        if sequence <= c.webrtc.sendTransfer.lastAckedSequence {
+            continue
+        }
+
+        // Send the chunk
+        err := c.sendChunkBySequence(sequence)
+        if err != nil {
+            return err
+        }
+    }
+
+    // Then send new chunks within the window
+    for c.webrtc.sendTransfer.nextSequenceToSend < c.webrtc.sendTransfer.totalChunks &&
+        c.webrtc.sendTransfer.nextSequenceToSend <= c.webrtc.sendTransfer.lastAckedSequence + effectiveWindowSize {
+
+        // Send the chunk
+        sequence := c.webrtc.sendTransfer.nextSequenceToSend
+        err := c.sendChunkBySequence(sequence)
+        if err != nil {
+            return err
+        }
+
+        c.webrtc.sendTransfer.nextSequenceToSend++
+    }
+
+    return nil
+}
+
+// Send a specific chunk by sequence number
+func (c *Client) sendChunkBySequence(sequence int) error {
+    if sequence >= c.webrtc.sendTransfer.totalChunks {
+        return nil
+    }
+
+    // Calculate offset and size for this chunk
+    offset := int64(sequence) * int64(maxChunkSize)
+    end := int64(math.Min(float64(offset + int64(maxChunkSize)), float64(c.webrtc.sendTransfer.fileTransfer.Size)))
+    size := int(end - offset)
+
+    // Seek to the correct position in the file
+    _, err := c.webrtc.sendTransfer.fileTransfer.file.Seek(offset, 0)
+    if err != nil {
+        return fmt.Errorf("failed to seek in file: %v", err)
+    }
+
+    // Read the chunk
+    buf := make([]byte, size)
+    n, err := c.webrtc.sendTransfer.fileTransfer.file.Read(buf)
+    if err != nil {
+        return fmt.Errorf("failed to read file: %v", err)
+    }
+
+    if n != size {
+        return fmt.Errorf("failed to read complete chunk: expected %d bytes, got %d", size, n)
+    }
+
+    // Create chunk data
+    chunk := struct {
+        Type        string `json:"type"`
+        Sequence    int    `json:"sequence"`
+        TotalChunks int    `json:"totalChunks"`
+        Size        int    `json:"size"`
+        Data        string `json:"data"`
+    }{
+        Type:        "chunk",
+        Sequence:    sequence,
+        TotalChunks: c.webrtc.sendTransfer.totalChunks,
+        Size:        n,
+        Data:        base64.StdEncoding.EncodeToString(buf[:n]),
+    }
+
+    // Marshal chunk data
+    chunkJSON, err := json.Marshal(chunk)
+    if err != nil {
+        return fmt.Errorf("failed to marshal chunk: %v", err)
+    }
+
+    // Send the chunk
+    err = c.webrtc.dataChannel.SendText(string(chunkJSON))
+    if err != nil {
+        return fmt.Errorf("failed to send chunk: %v", err)
+    }
+
+    // Mark as unacknowledged and record timestamp
+    c.webrtc.sendTransfer.unacknowledgedChunks[sequence] = false
+    c.webrtc.sendTransfer.chunkTimestamps[sequence] = time.Now()
+
+    return nil
 }
 
 func (c *Client) SendMessage(msg Message) error {
@@ -70,6 +324,10 @@ func (c *Client) SendFile(path string) error {
         return fmt.Errorf("failed to calculate file hash: %v", err)
     }
 
+    // Calculate total chunks
+    totalChunks := int(math.Ceil(float64(info.Size()) / float64(maxChunkSize)))
+
+    // Initialize sliding window parameters
     c.webrtc.sendTransfer = transferState{
         inProgress: true,
         startTime:  time.Now(),
@@ -79,9 +337,19 @@ func (c *Client) SendFile(path string) error {
                 Size: info.Size(),
                 MD5:  fileHash,
             },
+            file: file,
         },
+        windowSize:          64,  // Default window size
+        nextSequenceToSend:  0,
+        lastAckedSequence:   -1,
+        unacknowledgedChunks: make(map[int]bool),
+        retransmissionQueue: make([]int, 0),
+        chunkTimestamps:     make(map[int]time.Time),
+        congestionWindow:    64,  // Start with full window
+        totalChunks:         totalChunks,
     }
 
+    // Send file info to peer
     fileInfo := struct {
         Type string   `json:"type"`
         Info FileInfo `json:"info"`
@@ -107,82 +375,59 @@ func (c *Client) SendFile(path string) error {
     // Show initial status
     c.ui.UpdateTransferProgress(fmt.Sprintf("⬆ %s [0%%] (0/s)", info.Name()), "send")
 
-    // Send file in chunks
-    buf := make([]byte, maxChunkSize)
-    totalChunks := int(math.Ceil(float64(info.Size()) / float64(maxChunkSize)))
-    sentChunks := 0
-    totalSent := int64(0)
-    lastUpdate := time.Now()
-    lastUpdateSize := int64(0)
-    
-    // Setup confirmation channel for each chunk
+    // Setup confirmation channel for chunk acknowledgments
     chunkConfirms := make(chan int, totalChunks)
-    
+
     // Setup confirmation handler
     c.webrtc.sendTransfer.confirmHandler = func(sequence int) {
         chunkConfirms <- sequence
     }
 
-    // Start reading and sending chunks
-    for {
-        n, err := file.Read(buf)
-        if err == io.EOF {
+    // Setup retransmission timer
+    retransmitTicker := time.NewTicker(1 * time.Second)
+    defer retransmitTicker.Stop()
+
+    // Create a done channel to signal completion
+    done := make(chan bool)
+
+    // Start a goroutine to handle chunk confirmations
+    go func() {
+        for {
+            select {
+            case sequence := <-chunkConfirms:
+                c.handleChunkConfirmation(sequence)
+            case <-done:
+                return
+            }
+        }
+    }()
+
+    // Start a goroutine to handle retransmissions
+    go func() {
+        for {
+            select {
+            case <-retransmitTicker.C:
+                c.checkForRetransmissions()
+            case <-done:
+                return
+            }
+        }
+    }()
+
+    // Start the sliding window transfer
+    err = c.startSlidingWindowTransfer()
+    if err != nil {
+        close(done)
+        return err
+    }
+
+    // Wait for all chunks to be acknowledged
+    for c.webrtc.sendTransfer.inProgress {
+        if c.webrtc.sendTransfer.lastAckedSequence == totalChunks-1 {
+            // All chunks acknowledged, we're done
             break
         }
-        if err != nil {
-            return fmt.Errorf("failed to read file: %v", err)
-        }
-
-        chunk := struct {
-            Type        string `json:"type"`
-            Sequence    int    `json:"sequence"`
-            TotalChunks int    `json:"totalChunks"`
-            Size        int    `json:"size"`
-            Data        string `json:"data"`
-        }{
-            Type:        "chunk",
-            Sequence:    sentChunks,
-            TotalChunks: totalChunks,
-            Size:        n,
-            Data:        base64.StdEncoding.EncodeToString(buf[:n]),
-        }
-
-        chunkJSON, err := json.Marshal(chunk)
-        if err != nil {
-            return fmt.Errorf("failed to marshal chunk: %v", err)
-        }
-
-        // Send chunk
-        err = c.webrtc.dataChannel.SendText(string(chunkJSON))
-        if err != nil {
-            return fmt.Errorf("failed to send chunk: %v", err)
-        }
-
-        // Wait for chunk confirmation
-        select {
-        case <-chunkConfirms:
-            totalSent += int64(n)
-            sentChunks++
-
-            // Update progress
-            now := time.Now()
-            if time.Since(lastUpdate) > 100*time.Millisecond {
-                timeDiff := now.Sub(lastUpdate).Seconds()
-                if timeDiff > 0 {
-                    speed := float64(totalSent-lastUpdateSize) / timeDiff
-                    percentage := int((float64(totalSent) / float64(info.Size())) * 100)
-                    c.ui.UpdateTransferProgress(fmt.Sprintf("⬆ %s [%d%%] (%.1f MB/s)",
-                        info.Name(),
-                        percentage,
-                        speed/1024/1024),
-                        "send")
-                    lastUpdate = now
-                    lastUpdateSize = totalSent
-                }
-            }
-        case <-time.After(5 * time.Second):
-            return fmt.Errorf("timeout waiting for chunk confirmation")
-        }
+        time.Sleep(100 * time.Millisecond)
     }
 
     // Calculate final statistics
@@ -200,11 +445,13 @@ func (c *Client) SendFile(path string) error {
 
     completeJSON, err := json.Marshal(complete)
     if err != nil {
+        close(done)
         return fmt.Errorf("failed to marshal complete message: %v", err)
     }
 
     err = c.webrtc.dataChannel.SendText(string(completeJSON))
     if err != nil {
+        close(done)
         return fmt.Errorf("failed to send complete message: %v", err)
     }
 
@@ -216,6 +463,9 @@ func (c *Client) SendFile(path string) error {
         info.Name(),
         avgSpeed/1024/1024),
         "send")
+
+    // Signal goroutines to exit
+    close(done)
 
     // Reset transfer state
     c.webrtc.sendTransfer = transferState{}
@@ -243,7 +493,21 @@ func (c *Client) handleChunkData(sequence int, total int, size int, data string)
 
     // Store chunk and update size
     c.webrtc.receiveTransfer.chunks[sequence] = binaryData
-    
+
+    // Mark this chunk as received
+    if c.webrtc.receiveTransfer.receivedChunks == nil {
+        c.webrtc.receiveTransfer.receivedChunks = make(map[int]bool)
+    }
+    c.webrtc.receiveTransfer.receivedChunks[sequence] = true
+
+    // If this was a missing chunk, remove it from missing chunks
+    if c.webrtc.receiveTransfer.missingChunks != nil && c.webrtc.receiveTransfer.missingChunks[sequence] {
+        delete(c.webrtc.receiveTransfer.missingChunks, sequence)
+    }
+
+    // Update the last received sequence
+    c.updateLastReceivedSequence()
+
     // Recalculate total received size from scratch to ensure accuracy
     var totalReceived int64
     for _, chunk := range c.webrtc.receiveTransfer.chunks {
@@ -270,7 +534,7 @@ func (c *Client) handleChunkData(sequence int, total int, size int, data string)
     percentage := int((float64(received) / float64(totalSize)) * 100)
     lastPercentage := int((float64(c.webrtc.receiveTransfer.lastUpdateSize) / float64(totalSize)) * 100)
 
-    if time.Since(c.webrtc.receiveTransfer.lastUpdate) > 100*time.Millisecond || 
+    if time.Since(c.webrtc.receiveTransfer.lastUpdate) > 100*time.Millisecond ||
        percentage != lastPercentage {
         // Calculate speed based on data received since last update
         timeDiff := now.Sub(c.webrtc.receiveTransfer.lastUpdate).Seconds()
@@ -287,9 +551,229 @@ func (c *Client) handleChunkData(sequence int, total int, size int, data string)
     }
 
     // Check if file is complete
-    if c.webrtc.receiveTransfer.receivedSize >= c.webrtc.receiveTransfer.fileTransfer.Size {
+    c.checkIfComplete()
+}
+
+// Update the last received sequence number
+func (c *Client) updateLastReceivedSequence() {
+    nextExpected := c.webrtc.receiveTransfer.lastReceivedSequence + 1
+
+    // Check if we have consecutive chunks
+    for {
+        if c.webrtc.receiveTransfer.receivedChunks[nextExpected] {
+            c.webrtc.receiveTransfer.lastReceivedSequence = nextExpected
+            nextExpected++
+        } else {
+            break
+        }
+    }
+}
+
+// Check if we have all chunks
+func (c *Client) checkIfComplete() {
+    if !c.webrtc.receiveTransfer.inProgress {
+        return
+    }
+
+    // Count received chunks
+    receivedCount := len(c.webrtc.receiveTransfer.receivedChunks)
+
+    // If we have all chunks, complete the transfer
+    if receivedCount == c.webrtc.receiveTransfer.totalChunks {
+        c.ui.LogDebug("All chunks received, completing transfer")
+        c.handleFileComplete()
+    } else if c.webrtc.receiveTransfer.receivedSize >= c.webrtc.receiveTransfer.fileTransfer.Size {
+        // Alternative check based on size
         c.handleFileComplete()
     }
+}
+
+// Check for missing chunks and request them
+func (c *Client) checkForMissingChunks() {
+    if !c.webrtc.receiveTransfer.inProgress {
+        return
+    }
+
+    // Initialize missing chunks map if needed
+    if c.webrtc.receiveTransfer.missingChunks == nil {
+        c.webrtc.receiveTransfer.missingChunks = make(map[int]bool)
+    }
+
+    // Look for missing chunks in the already processed range
+    lastReceivedSequence := c.webrtc.receiveTransfer.lastReceivedSequence
+
+    // Calculate the window of chunks we expect to have received
+    lookAheadWindow := 50 // Look ahead up to 50 chunks
+    // We'll use this for future optimizations
+    _ = int(math.Min(float64(c.webrtc.receiveTransfer.totalChunks-1), float64(lastReceivedSequence+lookAheadWindow)))
+
+    // First check for holes in the sequence
+    for i := 0; i <= lastReceivedSequence; i++ {
+        if !c.webrtc.receiveTransfer.receivedChunks[i] {
+            c.webrtc.receiveTransfer.missingChunks[i] = true
+            c.ui.LogDebug(fmt.Sprintf("Detected missing chunk in sequence: %d", i))
+        }
+    }
+
+    // Find the highest received chunk
+    highestReceivedChunk := -1
+    for seq := range c.webrtc.receiveTransfer.receivedChunks {
+        if seq > highestReceivedChunk {
+            highestReceivedChunk = seq
+        }
+    }
+
+    // Check for gaps between last in-order and highest received
+    if highestReceivedChunk > lastReceivedSequence {
+        for i := lastReceivedSequence + 1; i < highestReceivedChunk; i++ {
+            if !c.webrtc.receiveTransfer.receivedChunks[i] {
+                c.webrtc.receiveTransfer.missingChunks[i] = true
+                c.ui.LogDebug(fmt.Sprintf("Detected gap in received chunks: %d", i))
+            }
+        }
+    }
+
+    // Request missing chunks if we have any
+    if len(c.webrtc.receiveTransfer.missingChunks) > 0 {
+        c.requestMissingChunks()
+    }
+}
+
+// Request missing chunks
+func (c *Client) requestMissingChunks() {
+    if len(c.webrtc.receiveTransfer.missingChunks) == 0 {
+        return
+    }
+
+    // Convert map to slice for JSON serialization
+    sequences := make([]int, 0, len(c.webrtc.receiveTransfer.missingChunks))
+    for seq := range c.webrtc.receiveTransfer.missingChunks {
+        sequences = append(sequences, seq)
+    }
+
+    // Limit the number of chunks to request at once
+    maxToRequest := 50
+    if len(sequences) > maxToRequest {
+        sequences = sequences[:maxToRequest]
+    }
+
+    c.ui.LogDebug(fmt.Sprintf("Requesting missing chunks: %v", sequences))
+
+    // Send request for missing chunks
+    request := struct {
+        Type      string `json:"type"`
+        Sequences []int  `json:"sequences"`
+    }{
+        Type:      "request-chunks",
+        Sequences: sequences,
+    }
+
+    requestJSON, err := json.Marshal(request)
+    if err != nil {
+        c.ui.ShowError(fmt.Sprintf("Failed to marshal chunk request: %v", err))
+        return
+    }
+
+    err = c.webrtc.dataChannel.SendText(string(requestJSON))
+    if err != nil {
+        c.ui.ShowError(fmt.Sprintf("Failed to send chunk request: %v", err))
+        return
+    }
+}
+
+// Handle file info message and initialize sliding window parameters
+// Handle file info update message (e.g., MD5 hash update)
+func (c *Client) handleFileInfoUpdate(data map[string]interface{}) {
+    if !c.webrtc.receiveTransfer.inProgress || c.webrtc.receiveTransfer.fileTransfer == nil {
+        return
+    }
+
+    infoMap, ok := data["info"].(map[string]interface{})
+    if !ok {
+        return
+    }
+
+    // Update MD5 hash if provided
+    if md5, ok := infoMap["md5"].(string); ok && md5 != "" {
+        c.webrtc.receiveTransfer.fileTransfer.MD5 = md5
+        c.ui.LogDebug(fmt.Sprintf("Updated file MD5 hash: %s", md5))
+    }
+}
+
+func (c *Client) handleFileInfo(data map[string]interface{}) {
+    if c.webrtc.receiveTransfer.inProgress {
+        c.ui.ShowError("Cannot receive file: Download already in progress")
+        return
+    }
+
+    infoMap, ok := data["info"].(map[string]interface{})
+    if !ok {
+        c.ui.ShowError("Invalid file info format")
+        return
+    }
+
+    name, _ := infoMap["name"].(string)
+    size, _ := infoMap["size"].(float64)
+    md5, _ := infoMap["md5"].(string)
+
+    // Create a unique filename to avoid overwriting existing files
+    baseName := filepath.Base(name)
+    ext := filepath.Ext(baseName)
+    nameWithoutExt := baseName[:len(baseName)-len(ext)]
+
+    filePath := name
+    counter := 1
+    for {
+        if _, err := os.Stat(filePath); os.IsNotExist(err) {
+            break
+        }
+        filePath = fmt.Sprintf("%s-%d%s", nameWithoutExt, counter, ext)
+        counter++
+    }
+
+    // Create file
+    file, err := os.Create(filePath)
+    if err != nil {
+        c.ui.ShowError(fmt.Sprintf("Failed to create file: %v", err))
+        return
+    }
+
+    // Calculate total chunks
+    totalChunks := int(math.Ceil(float64(size) / float64(maxChunkSize)))
+
+    // Initialize transfer state with sliding window parameters
+    c.webrtc.receiveTransfer = transferState{
+        inProgress: true,
+        startTime:  time.Now(),
+        lastUpdate: time.Now(),
+        fileTransfer: &FileTransfer{
+            FileInfo: &FileInfo{
+                Name: name,
+                Size: int64(size),
+                MD5:  md5,
+            },
+            file:     file,
+            filePath: filePath,
+        },
+        chunks:              make([][]byte, totalChunks),
+        totalChunks:         totalChunks,
+        lastReceivedSequence: -1,
+        receivedChunks:      make(map[int]bool),
+        missingChunks:       make(map[int]bool),
+    }
+
+    // Start a timer to check for missing chunks
+    go func() {
+        ticker := time.NewTicker(1 * time.Second)
+        defer ticker.Stop()
+
+        for c.webrtc.receiveTransfer.inProgress {
+            <-ticker.C
+            c.checkForMissingChunks()
+        }
+    }()
+
+    c.ui.LogDebug(fmt.Sprintf("Receiving file: %s (%d bytes, %d chunks)", name, int64(size), totalChunks))
 }
 
 func (c *Client) handleFileComplete() {
@@ -607,6 +1091,21 @@ func (c *Client) setupPeerConnection() error {
         c.webrtc.connected = true
         c.ui.LogDebug("Data channel ready for transfer")
         c.ui.ShowConnectionAccepted("")
+
+        // Send capabilities message with our maximum supported chunk size
+        capabilities := struct {
+            Type         string `json:"type"`
+            MaxChunkSize int    `json:"maxChunkSize"`
+        }{
+            Type:         "capabilities",
+            MaxChunkSize: maxSupportedChunkSize,
+        }
+
+        capabilitiesJSON, err := json.Marshal(capabilities)
+        if err == nil {
+            c.webrtc.dataChannel.SendText(string(capabilitiesJSON))
+            c.ui.LogDebug(fmt.Sprintf("Sent capabilities with max chunk size: %d", maxSupportedChunkSize))
+        }
     })
 
     dataChannel.OnClose(func() {
@@ -637,6 +1136,39 @@ func (c *Client) setupPeerConnection() error {
             if content, ok := data["content"].(string); ok {
                 c.ui.ShowChat(c.webrtc.peerToken, content)
             }
+        case "capabilities":
+            // Handle capabilities message for chunk size negotiation
+            if peerMaxChunkSize, ok := data["maxChunkSize"].(float64); ok {
+                c.ui.LogDebug(fmt.Sprintf("Received peer's max chunk size: %d", int(peerMaxChunkSize)))
+
+                // Use the smaller of our max and peer's max
+                negotiatedSize := int(math.Min(float64(maxSupportedChunkSize), peerMaxChunkSize))
+                maxChunkSize = negotiatedSize
+                c.ui.LogDebug(fmt.Sprintf("Negotiated chunk size: %d", negotiatedSize))
+
+                // Send acknowledgment with the negotiated size
+                ack := struct {
+                    Type               string `json:"type"`
+                    NegotiatedChunkSize int    `json:"negotiatedChunkSize"`
+                }{
+                    Type:               "capabilities-ack",
+                    NegotiatedChunkSize: negotiatedSize,
+                }
+
+                ackJSON, err := json.Marshal(ack)
+                if err == nil {
+                    c.webrtc.dataChannel.SendText(string(ackJSON))
+                }
+            }
+        case "capabilities-ack":
+            // Handle capabilities acknowledgment
+            if negotiatedSize, ok := data["negotiatedChunkSize"].(float64); ok {
+                c.ui.LogDebug(fmt.Sprintf("Peer acknowledged chunk size: %d", int(negotiatedSize)))
+                maxChunkSize = int(negotiatedSize)
+            }
+        case "file-info-update":
+            // Handle file info updates (like MD5 hash)
+            c.handleFileInfoUpdate(data)
         case "file-info":
             c.handleFileInfo(data)
         case "chunk":
@@ -755,52 +1287,5 @@ func (c *Client) handleSDP(msg Message) {
     }
 }
 
-func (c *Client) handleFileInfo(info map[string]interface{}) {
-    if c.webrtc.receiveTransfer.inProgress {
-        c.ui.ShowError("Cannot receive file: Download already in progress")
-        return
-    }
-
-    fileInfo, ok := info["info"].(map[string]interface{})
-    if !ok {
-        c.ui.ShowError("Invalid file info format")
-        return
-    }
-
-    name, _ := fileInfo["name"].(string)
-    size, _ := fileInfo["size"].(float64)
-    md5, _ := fileInfo["md5"].(string)
-
-    // Create downloads directory if it doesn't exist
-    downloadDir := "downloads"
-    os.MkdirAll(downloadDir, 0755)
-
-    filePath := filepath.Join(downloadDir, name)
-    file, err := os.Create(filePath)
-    if err != nil {
-        c.ui.ShowError(fmt.Sprintf("Failed to create file: %v", err))
-        return
-    }
-
-    totalChunks := int(math.Ceil(float64(size) / float64(maxChunkSize)))
-    now := time.Now()
-
-    // Setup new receive transfer
-    c.webrtc.receiveTransfer = transferState{
-        inProgress: true,
-        startTime:  now,
-        lastUpdate: now,
-        fileTransfer: &FileTransfer{
-            FileInfo: &FileInfo{
-                Name: name,
-                Size: int64(size),
-                MD5:  md5,
-            },
-            file:     file,
-            filePath: filePath,
-        },
-        chunks: make([][]byte, totalChunks),
-    }
-
-    c.ui.UpdateTransferProgress(fmt.Sprintf("⬇ %s [0%%] (0/s)", name), "receive")
-}
+// This is a duplicate of the handleFileInfo method defined earlier
+// Removed to fix compilation error
