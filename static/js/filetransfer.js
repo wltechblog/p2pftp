@@ -160,7 +160,7 @@ export async function handleDataChannelMessage(event) {
                     return;
                 }
             } else if (messageObj.type === 'chunk') {
-                const { sequence, total: totalParts, size, data } = messageObj;
+                const { sequence, totalChunks, size, data } = messageObj;
                 
                 // Decode base64 data
                 const binaryData = Uint8Array.from(atob(data), c => c.charCodeAt(0));
@@ -170,7 +170,7 @@ export async function handleDataChannelMessage(event) {
                     return;
                 }
 
-                receiveState.fileInfo.currentChunk = { sequence, totalChunks: totalParts, size };
+                receiveState.fileInfo.currentChunk = { sequence, totalChunks, size };
                 try {
                     await processChunk(binaryData);
                     // Send chunk confirmation after successful processing
