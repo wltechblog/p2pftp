@@ -61,6 +61,9 @@ const (
     // WebRTC has a limit on message size, and we need to account for framing overhead
     // We add 8 bytes of framing (4 bytes sequence + 4 bytes length)
     maxWebRTCMessageSize = 65536 // 64KB is a safe limit for most WebRTC implementations
+
+    // Use a fixed chunk size for all calculations to ensure consistency
+    fixedChunkSize = 65536 - 8 // 64KB - 8 bytes for framing
 )
 
 // This will be negotiated during connection

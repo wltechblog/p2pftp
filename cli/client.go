@@ -111,8 +111,8 @@ func (c *Client) handleChunkConfirmation(sequence int) {
     // Continue sending if we have more chunks to send
     c.trySendNextChunks()
 
-    // Update progress
-    totalSent := int64(c.webrtc.sendTransfer.lastAckedSequence + 1) * int64(maxChunkSize)
+    // Update progress using fixedChunkSize for consistency
+    totalSent := int64(c.webrtc.sendTransfer.lastAckedSequence + 1) * int64(fixedChunkSize)
     if totalSent > c.webrtc.sendTransfer.fileTransfer.Size {
         totalSent = c.webrtc.sendTransfer.fileTransfer.Size
     }
@@ -255,9 +255,9 @@ func (c *Client) sendChunkBySequence(sequence int) error {
         return nil
     }
 
-    // Calculate offset and size for this chunk
-    offset := int64(sequence) * int64(maxChunkSize)
-    end := int64(math.Min(float64(offset + int64(maxChunkSize)), float64(c.webrtc.sendTransfer.fileTransfer.Size)))
+    // Calculate offset and size for this chunk using fixedChunkSize for consistency
+    offset := int64(sequence) * int64(fixedChunkSize)
+    end := int64(math.Min(float64(offset + int64(fixedChunkSize)), float64(c.webrtc.sendTransfer.fileTransfer.Size)))
     size := int(end - offset)
 
     // Seek to the correct position in the file
@@ -277,11 +277,9 @@ func (c *Client) sendChunkBySequence(sequence int) error {
         return fmt.Errorf("failed to read complete chunk: expected %d bytes, got %d", size, n)
     }
 
-    // Use the original chunk size minus 4 bytes for safety
-    dataSize := int(math.Min(float64(maxChunkSize), float64(65532-8))) // 64KB - 4 bytes - 8 bytes for framing
-    if n > dataSize {
-        n = dataSize
-    }
+    // Use fixedChunkSize for consistency
+    // We don't need to limit n here since we've already read the correct amount from the file
+    // and the framing overhead is accounted for in fixedChunkSize
 
     // Create chunk info for the control channel
     chunkInfo := struct {
@@ -397,8 +395,8 @@ func (c *Client) SendFile(path string) error {
         return fmt.Errorf("failed to calculate file hash: %v", err)
     }
 
-    // Calculate total chunks
-    totalChunks := int(math.Ceil(float64(info.Size()) / float64(maxChunkSize)))
+    // Calculate total chunks using fixedChunkSize for consistency
+    totalChunks := int(math.Ceil(float64(info.Size()) / float64(fixedChunkSize)))
 
     // Initialize sliding window parameters
     c.webrtc.sendTransfer = transferState{

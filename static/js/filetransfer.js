@@ -133,7 +133,7 @@ export async function handleControlMessage(event) {
                 try {
                     let hasNativeFS = 'showSaveFilePicker' in window;
                     const fileSize = BigInt(messageObj.info.size);
-                    const chunkSize = BigInt(CHUNK_SIZE);
+                    const chunkSize = BigInt(FIXED_CHUNK_SIZE); // Use fixed chunk size for consistency
                     const numChunks = messageObj.info.totalChunks || Number((fileSize + chunkSize - BigInt(1)) / chunkSize);
                     receiveState.fileInfo = messageObj.info;
 
@@ -585,9 +585,9 @@ function startSlidingWindowTransfer(file, totalChunks) {
 
             // Import the config to get the MAX_MESSAGE_SIZE
             import('/static/js/config.js').then(config => {
-                // Use the original chunk size minus 4 bytes for safety
-                // WebRTC has a message size limit that varies by implementation
-                let dataSize = Math.min(chunk.byteLength, 65532 - 8); // 64KB - 4 bytes - 8 bytes for framing
+                // Use the fixed chunk size for consistency
+                // This ensures we use the same chunk size for all calculations
+                let dataSize = Math.min(chunk.byteLength, config.FIXED_CHUNK_SIZE);
                 let chunkToSend = chunk.slice(0, dataSize);
 
                 // Create a chunk info message for the control channel
@@ -654,8 +654,8 @@ function startSlidingWindowTransfer(file, totalChunks) {
                     }
                 }, 5);
 
-                // Update progress based on next sequence to send
-                sendState.offset = Math.min((sendState.nextSequenceToSend + 1) * CHUNK_SIZE, file.size);
+                // Update progress based on next sequence to send using fixed chunk size
+                sendState.offset = Math.min((sendState.nextSequenceToSend + 1) * FIXED_CHUNK_SIZE, file.size);
                 updateProgress();
 
                 // Continue sending if window allows
