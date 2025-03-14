@@ -311,18 +311,34 @@ func (c *Client) sendChunkBySequence(sequence int) error {
     // Wait for a short time to ensure the control message is processed
     time.Sleep(5 * time.Millisecond)
 
-    // Make a copy of the buffer to ensure it doesn't get modified before sending
-    dataCopy := make([]byte, n)
-    copy(dataCopy, buf[:n])
+    // Create a framed buffer with metadata
+    // Format: [4 bytes sequence][4 bytes length][data bytes]
+    framedData := make([]byte, 8+n)
 
-    // Send the binary data directly
-    err = c.webrtc.dataChannel.Send(dataCopy)
+    // Write sequence number (big endian)
+    framedData[0] = byte(sequence >> 24)
+    framedData[1] = byte(sequence >> 16)
+    framedData[2] = byte(sequence >> 8)
+    framedData[3] = byte(sequence)
+
+    // Write data length (big endian)
+    framedData[4] = byte(n >> 24)
+    framedData[5] = byte(n >> 16)
+    framedData[6] = byte(n >> 8)
+    framedData[7] = byte(n)
+
+    // Copy the actual data
+    copy(framedData[8:], buf[:n])
+
+    // Send the framed binary data
+    err = c.webrtc.dataChannel.Send(framedData)
     if err != nil {
         return fmt.Errorf("failed to send chunk: %v", err)
     }
 
     // Log success for debugging
-    c.ui.LogDebug(fmt.Sprintf("Sent binary chunk %d (%d bytes)", sequence, n))
+    c.ui.LogDebug(fmt.Sprintf("Sent framed binary chunk %d (%d bytes data, %d bytes total)",
+        sequence, n, len(framedData)))
 
     // Mark as unacknowledged and record timestamp
     // Store a reference to the chunk data for potential retransmission
@@ -1326,32 +1342,43 @@ func (c *Client) setupPeerConnection() error {
             return
         }
 
-        // Check if we're expecting a chunk
-        if c.webrtc.receiveTransfer.expectedChunk == nil {
-            c.ui.LogDebug("Received binary data but no chunk info was received first")
-            // This could be a race condition where the binary data arrived before the chunk info
-            // We'll store this data temporarily and check for it in the chunk-info handler
-
-            // For now, we'll just ignore it as it will be retransmitted
+        // Check if we have enough data for the frame header (8 bytes minimum)
+        if len(msg.Data) < 8 {
+            c.ui.ShowError(fmt.Sprintf("Received binary data too small for frame header: %d bytes", len(msg.Data)))
             return
         }
 
-        // Get the expected chunk info
-        chunkInfo := c.webrtc.receiveTransfer.expectedChunk
+        // Parse the frame header
+        // Format: [4 bytes sequence][4 bytes length][data bytes]
+        sequence := int(uint32(msg.Data[0])<<24 | uint32(msg.Data[1])<<16 | uint32(msg.Data[2])<<8 | uint32(msg.Data[3]))
+        dataLength := int(uint32(msg.Data[4])<<24 | uint32(msg.Data[5])<<16 | uint32(msg.Data[6])<<8 | uint32(msg.Data[7]))
 
-        // Make a copy of the expected chunk info and clear it immediately
-        // This prevents race conditions where another chunk info arrives before we finish processing
-        expectedChunk := *chunkInfo
-        c.webrtc.receiveTransfer.expectedChunk = nil
-
-        // Validate the size
-        if len(msg.Data) != expectedChunk.Size {
-            c.ui.ShowError(fmt.Sprintf("Chunk size mismatch. Expected: %d, Got: %d", expectedChunk.Size, len(msg.Data)))
+        // Validate the data length
+        if len(msg.Data) != dataLength + 8 {
+            c.ui.ShowError(fmt.Sprintf("Frame size mismatch. Header says %d bytes data, got %d bytes total",
+                dataLength, len(msg.Data)))
             return
         }
+
+        // Extract the actual data
+        data := msg.Data[8:]
+
+        // Log the received chunk
+        c.ui.LogDebug(fmt.Sprintf("Received framed binary chunk %d (%d bytes data, %d bytes total)",
+            sequence, dataLength, len(msg.Data)))
+
+        // We don't need the expectedChunk anymore since we have the sequence in the frame
+        // Just make sure we're in a transfer
+        if !c.webrtc.receiveTransfer.inProgress {
+            c.ui.ShowError("Received chunk but no download is in progress")
+            return
+        }
+
+        // Get the total chunks from the transfer state
+        totalChunks := c.webrtc.receiveTransfer.totalChunks
 
         // Process the binary chunk
-        c.handleBinaryChunkData(expectedChunk.Sequence, expectedChunk.TotalChunks, expectedChunk.Size, msg.Data)
+        c.handleBinaryChunkData(sequence, totalChunks, dataLength, data)
     })
 
     // Store the peer connection

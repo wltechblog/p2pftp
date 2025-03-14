@@ -166,6 +166,7 @@ export async function handleControlMessage(event) {
                     receiveState.receivedChunks = new Set();
                     receiveState.missingChunks = new Set();
                     receiveState.pendingRetransmissions = new Set();
+                    receiveState.totalChunks = numChunks;
 
                     // Clear any existing retransmission timer
                     if (receiveState.retransmissionTimer) {
@@ -612,8 +613,23 @@ function startSlidingWindowTransfer(file, totalChunks) {
                 // Wait a short time to ensure the control message is processed first
                 setTimeout(() => {
                     try {
-                        // Send the binary data on the data channel
-                        dataChannel.send(chunkToSend);
+                        // Create a framed buffer with metadata
+                        // Format: [4 bytes sequence][4 bytes length][data bytes]
+                        const dataSize = chunkToSend.byteLength;
+                        const framedData = new ArrayBuffer(8 + dataSize);
+                        const framedView = new DataView(framedData);
+
+                        // Write sequence number (big endian)
+                        framedView.setUint32(0, sequence, false);
+
+                        // Write data length (big endian)
+                        framedView.setUint32(4, dataSize, false);
+
+                        // Copy the actual data
+                        new Uint8Array(framedData, 8).set(new Uint8Array(chunkToSend));
+
+                        // Send the framed binary data
+                        dataChannel.send(framedData);
 
                         // Log success for debugging
                         console.debug(`[WebRTC] Sent binary chunk ${sequence} (${chunkToSend.byteLength} bytes)`);
@@ -952,36 +968,44 @@ export async function handleDataMessage(event) {
         return;
     }
 
-    // Check if we're expecting a chunk
-    if (!receiveState.expectedChunk) {
-        console.log('[WebRTC] Received binary data but no chunk info was received first');
-        // This could be a race condition where the binary data arrived before the chunk info
-        // We'll just ignore it as it will be retransmitted
+    // Check if we have enough data for the frame header (8 bytes minimum)
+    if (event.data.byteLength < 8) {
+        console.error(`[WebRTC] Received binary data too small for frame header: ${event.data.byteLength} bytes`);
         return;
     }
 
-    // Get the expected chunk info and clear it immediately to prevent race conditions
-    const expectedChunk = receiveState.expectedChunk;
-    receiveState.expectedChunk = null;
+    // Parse the frame header using DataView for proper endianness handling
+    // Format: [4 bytes sequence][4 bytes length][data bytes]
+    const headerView = new DataView(event.data, 0, 8);
+    const sequence = headerView.getUint32(0, false); // false = big endian
+    const dataLength = headerView.getUint32(4, false);
 
-    const { sequence, totalChunks, size } = expectedChunk;
-
-    // Create a view of the data
-    const dataView = new Uint8Array(event.data);
-
-    // Validate the size
-    if (dataView.byteLength !== size) {
-        console.error(`[WebRTC] Chunk size mismatch. Expected: ${size}, Got: ${dataView.byteLength}`);
+    // Validate the data length
+    if (event.data.byteLength !== dataLength + 8) {
+        console.error(`[WebRTC] Frame size mismatch. Header says ${dataLength} bytes data, got ${event.data.byteLength} bytes total`);
         return;
     }
 
-    console.debug(`[WebRTC] Processing binary chunk ${sequence} (${dataView.byteLength} bytes)`);
+    // Extract the actual data
+    const data = new Uint8Array(event.data, 8);
 
-    receiveState.fileInfo.currentChunk = { sequence, totalChunks, size };
+    // We don't need the expectedChunk anymore since we have the sequence in the frame
+    // Just make sure we're in a transfer
+    if (!receiveState.inProgress) {
+        console.error('[WebRTC] Received chunk but no download is in progress');
+        return;
+    }
+
+    // Get the total chunks from the transfer state
+    const totalChunks = receiveState.totalChunks || 0;
+
+    console.debug(`[WebRTC] Processing framed binary chunk ${sequence} (${dataLength} bytes data, ${event.data.byteLength} bytes total)`);
+
+    receiveState.fileInfo.currentChunk = { sequence, totalChunks, size: dataLength };
 
     try {
         // Process the chunk
-        await processChunk(dataView);
+        await processChunk(data);
 
         // Mark this chunk as received
         receiveState.receivedChunks.add(sequence);
