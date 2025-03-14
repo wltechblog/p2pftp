@@ -30,6 +30,28 @@ type ChunkConfirm struct {
     Sequence int    `json:"sequence"`
 }
 
+// Complete the connection setup when both channels are open
+func (c *Client) completeConnectionSetup() {
+    c.webrtc.connected = true
+    c.ui.LogDebug("Both channels ready for transfer")
+    c.ui.ShowConnectionAccepted("")
+
+    // Send capabilities message with our maximum supported chunk size
+    capabilities := struct {
+        Type         string `json:"type"`
+        MaxChunkSize int    `json:"maxChunkSize"`
+    }{
+        Type:         "capabilities",
+        MaxChunkSize: maxSupportedChunkSize,
+    }
+
+    capabilitiesJSON, err := json.Marshal(capabilities)
+    if err == nil {
+        c.webrtc.controlChannel.SendText(string(capabilitiesJSON))
+        c.ui.LogDebug(fmt.Sprintf("Sent capabilities with max chunk size: %d", maxSupportedChunkSize))
+    }
+}
+
 func (c *Client) handleChunkConfirm(sequence int) {
     if c.webrtc.sendTransfer.confirmHandler != nil {
         c.webrtc.sendTransfer.confirmHandler(sequence)
@@ -255,70 +277,39 @@ func (c *Client) sendChunkBySequence(sequence int) error {
         return fmt.Errorf("failed to read complete chunk: expected %d bytes, got %d", size, n)
     }
 
-    // Start with a smaller chunk size to ensure we stay within limits
-    // Reduce the initial chunk size to 75% of the maximum to account for base64 encoding overhead
-    maxRawDataSize := int(float64(maxChunkSize) * 0.75)
-    if n > maxRawDataSize {
-        n = maxRawDataSize
+    // Use a conservative chunk size for binary data
+    dataSize := int(math.Min(float64(maxChunkSize), float64(32768))) // 32KB is safe for most implementations
+    if n > dataSize {
+        n = dataSize
     }
 
-    // Encode the data to base64
-    encodedData := base64.StdEncoding.EncodeToString(buf[:n])
-
-    // Create a test chunk to check its exact size
-    testChunk := struct {
+    // Create chunk info for the control channel
+    chunkInfo := struct {
         Type        string `json:"type"`
         Sequence    int    `json:"sequence"`
         TotalChunks int    `json:"totalChunks"`
         Size        int    `json:"size"`
-        Data        string `json:"data"`
     }{
-        Type:        "chunk",
+        Type:        "chunk-info",
         Sequence:    sequence,
         TotalChunks: c.webrtc.sendTransfer.totalChunks,
         Size:        n,
-        Data:        encodedData,
     }
 
-    // Marshal to check exact size
-    testJSON, err := json.Marshal(testChunk)
+    // Marshal the chunk info
+    chunkInfoJSON, err := json.Marshal(chunkInfo)
     if err != nil {
-        return fmt.Errorf("failed to marshal test chunk: %v", err)
+        return fmt.Errorf("failed to marshal chunk info: %v", err)
     }
 
-    // If still too large, reduce size iteratively until it fits
-    for len(testJSON) > maxWebRTCMessageSize-1024 { // Leave 1KB safety margin
-        c.ui.LogDebug(fmt.Sprintf("Chunk %d is too large (%d bytes). Reducing size.", sequence, len(testJSON)))
-
-        // Reduce by 10% each time
-        n = int(float64(n) * 0.9)
-
-        // Ensure we don't go below a minimum size
-        if n < 1024 {
-            return fmt.Errorf("chunk size too small after adjustment: %d bytes", n)
-        }
-
-        // Re-encode with smaller size
-        encodedData = base64.StdEncoding.EncodeToString(buf[:n])
-
-        // Update test chunk
-        testChunk.Size = n
-        testChunk.Data = encodedData
-
-        // Re-marshal to check size
-        testJSON, err = json.Marshal(testChunk)
-        if err != nil {
-            return fmt.Errorf("failed to marshal test chunk: %v", err)
-        }
+    // Send the chunk info on the control channel
+    err = c.webrtc.controlChannel.SendText(string(chunkInfoJSON))
+    if err != nil {
+        return fmt.Errorf("failed to send chunk info: %v", err)
     }
 
-    c.ui.LogDebug(fmt.Sprintf("Final chunk %d size: %d bytes", sequence, len(testJSON)))
-
-    // Use the test JSON directly since we've already marshaled it
-    chunkJSON := testJSON
-
-    // Send the chunk
-    err = c.webrtc.dataChannel.SendText(string(chunkJSON))
+    // Send the binary data on the data channel
+    err = c.webrtc.dataChannel.Send(buf[:n])
     if err != nil {
         return fmt.Errorf("failed to send chunk: %v", err)
     }
@@ -408,7 +399,7 @@ func (c *Client) SendFile(path string) error {
         return fmt.Errorf("failed to marshal file info: %v", err)
     }
 
-    err = c.webrtc.dataChannel.SendText(string(infoJSON))
+    err = c.webrtc.controlChannel.SendText(string(infoJSON))
     if err != nil {
         return fmt.Errorf("failed to send file info: %v", err)
     }
@@ -490,7 +481,7 @@ func (c *Client) SendFile(path string) error {
         return fmt.Errorf("failed to marshal complete message: %v", err)
     }
 
-    err = c.webrtc.dataChannel.SendText(string(completeJSON))
+    err = c.webrtc.controlChannel.SendText(string(completeJSON))
     if err != nil {
         close(done)
         return fmt.Errorf("failed to send complete message: %v", err)
@@ -514,6 +505,18 @@ func (c *Client) SendFile(path string) error {
     return nil
 }
 
+// Handle binary chunk data
+func (c *Client) handleBinaryChunkData(sequence int, total int, size int, data []byte) {
+    if !c.webrtc.receiveTransfer.inProgress {
+        c.ui.ShowError("Received chunk but no download in progress")
+        return
+    }
+
+    // Process the binary data directly
+    c.processChunkData(sequence, total, size, data)
+}
+
+// Handle legacy text-based chunk data (for backward compatibility)
 func (c *Client) handleChunkData(sequence int, total int, size int, data string) {
     if !c.webrtc.receiveTransfer.inProgress {
         c.ui.ShowError("Received chunk but no download in progress")
@@ -526,9 +529,15 @@ func (c *Client) handleChunkData(sequence int, total int, size int, data string)
         return
     }
 
-    if len(binaryData) != size {
+    // Process the decoded data
+    c.processChunkData(sequence, total, size, binaryData)
+}
+
+// Common function to process chunk data
+func (c *Client) processChunkData(sequence int, total int, size int, data []byte) {
+    if len(data) != size {
         c.ui.ShowError(fmt.Sprintf("Chunk size mismatch. Expected: %d, Got: %d",
-            size, len(binaryData)))
+            size, len(data)))
         return
     }
 
@@ -1112,51 +1121,61 @@ func (c *Client) setupPeerConnection() error {
         }
     })
 
+    // Common parameters
     ordered := true
-    maxRetransmits := uint16(30)
     negotiated := true
-    id := uint16(1)
+    maxRetransmits := uint16(30)
+
+    // Create control channel for metadata (ID: 1)
+    controlID := uint16(1)
+    controlChannelConfig := &webrtc.DataChannelInit{
+        Ordered:        &ordered,
+        MaxRetransmits: &maxRetransmits,
+        Negotiated:     &negotiated,
+        ID:             &controlID,
+    }
+
+    controlChannel, err := peerConn.CreateDataChannel("p2pftp-control", controlChannelConfig)
+    if err != nil {
+        return fmt.Errorf("failed to create control channel: %v", err)
+    }
+
+    // Create binary data channel for file transfers (ID: 2)
+    dataID := uint16(2)
     dataChannelConfig := &webrtc.DataChannelInit{
         Ordered:        &ordered,
         MaxRetransmits: &maxRetransmits,
         Negotiated:     &negotiated,
-        ID:            &id,
+        ID:             &dataID,
     }
 
-    dataChannel, err := peerConn.CreateDataChannel("p2pftp", dataChannelConfig)
+    dataChannel, err := peerConn.CreateDataChannel("p2pftp-data", dataChannelConfig)
     if err != nil {
         return fmt.Errorf("failed to create data channel: %v", err)
     }
 
-    dataChannel.OnOpen(func() {
-        c.webrtc.connected = true
-        c.ui.LogDebug("Data channel ready for transfer")
-        c.ui.ShowConnectionAccepted("")
+    // Set up control channel handlers
+    controlChannel.OnOpen(func() {
+        c.ui.LogDebug("Control channel opened")
 
-        // Send capabilities message with our maximum supported chunk size
-        capabilities := struct {
-            Type         string `json:"type"`
-            MaxChunkSize int    `json:"maxChunkSize"`
-        }{
-            Type:         "capabilities",
-            MaxChunkSize: maxSupportedChunkSize,
-        }
+        // Store the control channel
+        c.webrtc.controlChannel = controlChannel
 
-        capabilitiesJSON, err := json.Marshal(capabilities)
-        if err == nil {
-            c.webrtc.dataChannel.SendText(string(capabilitiesJSON))
-            c.ui.LogDebug(fmt.Sprintf("Sent capabilities with max chunk size: %d", maxSupportedChunkSize))
+        // Check if both channels are open
+        if c.webrtc.dataChannel != nil && c.webrtc.dataChannel.ReadyState() == webrtc.DataChannelStateOpen {
+            c.completeConnectionSetup()
         }
     })
 
-    dataChannel.OnClose(func() {
-        c.webrtc.connected = false
+    controlChannel.OnClose(func() {
+        c.ui.LogDebug("Control channel closed")
         c.disconnectPeer()
     })
 
-    dataChannel.OnMessage(func(msg webrtc.DataChannelMessage) {
+    // Handle control channel messages (JSON)
+    controlChannel.OnMessage(func(msg webrtc.DataChannelMessage) {
         if !msg.IsString {
-            c.ui.ShowError("Unexpected binary message")
+            c.ui.ShowError("Unexpected binary message on control channel")
             return
         }
 
@@ -1198,7 +1217,7 @@ func (c *Client) setupPeerConnection() error {
 
                 ackJSON, err := json.Marshal(ack)
                 if err == nil {
-                    c.webrtc.dataChannel.SendText(string(ackJSON))
+                    c.webrtc.controlChannel.SendText(string(ackJSON))
                 }
             }
         case "capabilities-ack":
@@ -1212,13 +1231,18 @@ func (c *Client) setupPeerConnection() error {
             c.handleFileInfoUpdate(data)
         case "file-info":
             c.handleFileInfo(data)
-        case "chunk":
+        case "chunk-info":
+            // Handle chunk info for upcoming binary data
             if sequence, ok := data["sequence"].(float64); ok {
                 if totalChunks, ok := data["totalChunks"].(float64); ok {
                     if size, ok := data["size"].(float64); ok {
-                        if base64Data, ok := data["data"].(string); ok {
-                            c.handleChunkData(int(sequence), int(totalChunks), int(size), base64Data)
+                        // Store expected chunk info
+                        c.webrtc.receiveTransfer.expectedChunk = &ChunkInfo{
+                            Sequence:    int(sequence),
+                            TotalChunks: int(totalChunks),
+                            Size:        int(size),
                         }
+                        c.ui.LogDebug(fmt.Sprintf("Expecting chunk %d of size %d bytes", int(sequence), int(size)))
                     }
                 }
             }
@@ -1231,7 +1255,55 @@ func (c *Client) setupPeerConnection() error {
         }
     })
 
-    c.webrtc.dataChannel = dataChannel
+    // Set up data channel handlers
+    dataChannel.OnOpen(func() {
+        c.ui.LogDebug("Data channel opened")
+
+        // Store the data channel
+        c.webrtc.dataChannel = dataChannel
+
+        // Check if both channels are open
+        if c.webrtc.controlChannel != nil && c.webrtc.controlChannel.ReadyState() == webrtc.DataChannelStateOpen {
+            c.completeConnectionSetup()
+        }
+    })
+
+    dataChannel.OnClose(func() {
+        c.ui.LogDebug("Data channel closed")
+        c.disconnectPeer()
+    })
+
+    // Handle binary data channel messages
+    dataChannel.OnMessage(func(msg webrtc.DataChannelMessage) {
+        // We expect binary data on this channel
+        if msg.IsString {
+            c.ui.ShowError("Unexpected text message on binary channel")
+            return
+        }
+
+        // Check if we're expecting a chunk
+        if c.webrtc.receiveTransfer.expectedChunk == nil {
+            c.ui.ShowError("Received binary data but no chunk was expected")
+            return
+        }
+
+        // Get the expected chunk info
+        chunkInfo := c.webrtc.receiveTransfer.expectedChunk
+
+        // Validate the size
+        if len(msg.Data) != chunkInfo.Size {
+            c.ui.ShowError(fmt.Sprintf("Chunk size mismatch. Expected: %d, Got: %d", chunkInfo.Size, len(msg.Data)))
+            return
+        }
+
+        // Process the binary chunk
+        c.handleBinaryChunkData(chunkInfo.Sequence, chunkInfo.TotalChunks, chunkInfo.Size, msg.Data)
+
+        // Clear the expected chunk
+        c.webrtc.receiveTransfer.expectedChunk = nil
+    })
+
+    // Store the peer connection
     c.webrtc.peerConn = peerConn
 
     peerConn.OnICECandidate(func(candidate *webrtc.ICECandidate) {

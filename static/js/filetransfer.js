@@ -584,8 +584,9 @@ function startSlidingWindowTransfer(file, totalChunks) {
 
             // Import the config to get the MAX_MESSAGE_SIZE
             import('/static/js/config.js').then(config => {
-                // Use the full chunk size since we're sending binary data
-                let dataSize = Math.min(chunk.byteLength, config.CHUNK_SIZE);
+                // Start with a conservative chunk size to avoid WebRTC message size issues
+                // WebRTC has a message size limit that varies by implementation
+                let dataSize = Math.min(chunk.byteLength, 32768); // 32KB is a safe size for most implementations
                 let chunkToSend = chunk.slice(0, dataSize);
 
                 // Create a chunk info message for the control channel
