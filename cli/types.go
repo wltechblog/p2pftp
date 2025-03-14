@@ -37,6 +37,12 @@ type FileInfo struct {
     MD5  string `json:"md5,omitempty"`
 }
 
+type ChunkInfo struct {
+    Sequence    int `json:"sequence"`
+    TotalChunks int `json:"totalChunks"`
+    Size        int `json:"size"`
+}
+
 type FileTransfer struct {
     *FileInfo
     file       *os.File
@@ -84,15 +90,17 @@ type transferState struct {
     missingChunks       map[int]bool // Track missing chunks on receive side
     receivedChunks      map[int]bool // Track received chunks
     lastReceivedSequence int      // Last in-order sequence received
+    expectedChunk       *ChunkInfo // Expected chunk info for binary data
 }
 
 type WebRTCState struct {
-    peerToken      string
-    isInitiator    bool
-    connected      bool
-    peerConn       *webrtc.PeerConnection
-    dataChannel    *webrtc.DataChannel
-    sendTransfer   transferState
+    peerToken       string
+    isInitiator     bool
+    connected       bool
+    peerConn        *webrtc.PeerConnection
+    controlChannel  *webrtc.DataChannel // For metadata and control messages
+    dataChannel     *webrtc.DataChannel // For binary data transfer
+    sendTransfer    transferState
     receiveTransfer transferState
 }
 

@@ -314,10 +314,7 @@ func (c *Client) sendChunkBySequence(sequence int) error {
 
     c.ui.LogDebug(fmt.Sprintf("Final chunk %d size: %d bytes", sequence, len(testJSON)))
 
-    // Create the actual chunk data (reuse the test chunk)
-    chunk := testChunk
-
-    // Marshal chunk data (we already know it will fit)
+    // Use the test JSON directly since we've already marshaled it
     chunkJSON := testJSON
 
     // Send the chunk

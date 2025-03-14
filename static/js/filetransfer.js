@@ -114,8 +114,8 @@ async function processChunk(chunk) {
     delete receiveState.fileInfo.currentChunk;
 }
 
-// Handle incoming data channel messages
-export async function handleDataChannelMessage(event) {
+// Handle incoming control channel messages (JSON)
+export async function handleControlMessage(event) {
     const data = event.data;
 
     if (typeof data === 'string') {
@@ -183,53 +183,14 @@ export async function handleDataChannelMessage(event) {
                     ui.showError(`Failed to set up file reception: ${error.message}`);
                     return;
                 }
-            } else if (messageObj.type === 'chunk') {
-                const { sequence, totalChunks, size, data } = messageObj;
+            } else if (messageObj.type === 'chunk-info') {
+                // This is just the metadata about a chunk that's coming on the binary channel
+                const { sequence, totalChunks, size } = messageObj;
 
-                // Decode base64 data
-                const binaryData = Uint8Array.from(atob(data), c => c.charCodeAt(0));
+                // Store the expected chunk info for validation when we receive the binary data
+                receiveState.expectedChunk = { sequence, totalChunks, size };
 
-                if (binaryData.byteLength !== size) {
-                    console.error(`[WebRTC] Chunk size mismatch. Expected: ${size}, Got: ${binaryData.byteLength}`);
-                    return;
-                }
-
-                receiveState.fileInfo.currentChunk = { sequence, totalChunks, size };
-                try {
-                    await processChunk(binaryData);
-
-                    // Mark this chunk as received
-                    receiveState.receivedChunks.add(sequence);
-
-                    // If this was a pending retransmission, remove it
-                    if (receiveState.pendingRetransmissions.has(sequence)) {
-                        receiveState.pendingRetransmissions.delete(sequence);
-                    }
-
-                    // If this was a missing chunk, remove it
-                    if (receiveState.missingChunks.has(sequence)) {
-                        receiveState.missingChunks.delete(sequence);
-                    }
-
-                    // Send chunk confirmation after successful processing
-                    const dataChannel = getDataChannel();
-                    if (dataChannel && dataChannel.readyState === 'open') {
-                        dataChannel.send(JSON.stringify({
-                            type: 'chunk-confirm',
-                            sequence: sequence
-                        }));
-                    }
-
-                    // Check if we can update the last received sequence
-                    updateLastReceivedSequence();
-
-                    // Check if we have all chunks
-                    checkIfComplete();
-                } catch (error) {
-                    console.error('[WebRTC] Error processing chunk:', error);
-                    ui.showError(`Failed to process chunk: ${error.message}`);
-                    return;
-                }
+                console.debug(`[WebRTC] Expecting chunk ${sequence} of size ${size} bytes`);
             } else if (messageObj.type === 'chunk-confirm') {
                 // Handle chunk confirmation from receiver
                 const { sequence } = messageObj;
@@ -623,65 +584,32 @@ function startSlidingWindowTransfer(file, totalChunks) {
 
             // Import the config to get the MAX_MESSAGE_SIZE
             import('/static/js/config.js').then(config => {
-                // Start with a smaller chunk size to ensure we stay within limits
-                // Reduce the initial chunk size to 75% of the maximum to account for base64 encoding overhead
-                let maxRawDataSize = Math.floor(config.CHUNK_SIZE * 0.75);
-                let dataSize = Math.min(chunk.byteLength, maxRawDataSize);
-                let chunkToEncode = chunk.slice(0, dataSize);
+                // Use the full chunk size since we're sending binary data
+                let dataSize = Math.min(chunk.byteLength, config.CHUNK_SIZE);
+                let chunkToSend = chunk.slice(0, dataSize);
 
-                // Encode the data to base64
-                let encodedData = btoa(String.fromCharCode.apply(null, new Uint8Array(chunkToEncode)));
-
-                // Create a test chunk to check its exact size
-                let testChunk = {
-                    type: 'chunk',
+                // Create a chunk info message for the control channel
+                const chunkInfo = {
+                    type: 'chunk-info',
                     sequence: sequence,
                     totalChunks: totalChunks,
-                    size: dataSize,
-                    data: encodedData
+                    size: dataSize
                 };
 
-                // Check exact size
-                let testJSON = JSON.stringify(testChunk);
-
-                // If still too large, reduce size iteratively until it fits
-                while (testJSON.length > config.MAX_MESSAGE_SIZE - 1024) { // Leave 1KB safety margin
-                    console.debug(`[WebRTC] Chunk ${sequence} is too large (${testJSON.length} bytes). Reducing size.`);
-
-                    // Reduce by 10% each time
-                    dataSize = Math.floor(dataSize * 0.9);
-
-                    // Ensure we don't go below a minimum size
-                    if (dataSize < 1024) {
-                        console.error(`[WebRTC] Chunk size too small after adjustment: ${dataSize} bytes`);
-                        return;
-                    }
-
-                    // Re-encode with smaller size
-                    chunkToEncode = chunk.slice(0, dataSize);
-                    encodedData = btoa(String.fromCharCode.apply(null, new Uint8Array(chunkToEncode)));
-
-                    // Update test chunk
-                    testChunk.size = dataSize;
-                    testChunk.data = encodedData;
-
-                    // Re-check size
-                    testJSON = JSON.stringify(testChunk);
-                }
-
-                console.debug(`[WebRTC] Final chunk ${sequence} size: ${testJSON.length} bytes`);
-
-                // Use the test chunk as our actual chunk data
-                const chunkData = testChunk;
-
-                // Store chunk for potential retransmission
-                sendState.unacknowledgedChunks[sequence] = chunkData;
+                // Store binary data for potential retransmission
+                sendState.unacknowledgedChunks[sequence] = {
+                    info: chunkInfo,
+                    data: chunkToSend
+                };
 
                 // Record timestamp when chunk was sent
                 sendState.chunkTimestamps[sequence] = Date.now();
 
-                // Send the chunk
-                dataChannel.send(JSON.stringify(chunkData));
+                // Send the chunk info on the control channel
+                window.controlChannel.send(JSON.stringify(chunkInfo));
+
+                // Send the binary data on the data channel
+                dataChannel.send(chunkToSend);
 
                 // Update progress based on next sequence to send
                 sendState.offset = Math.min((sendState.nextSequenceToSend + 1) * CHUNK_SIZE, file.size);
@@ -720,7 +648,14 @@ function startSlidingWindowTransfer(file, totalChunks) {
 
             // If we already have the chunk data, send it directly
             if (sendState.unacknowledgedChunks[sequence]) {
-                dataChannel.send(JSON.stringify(sendState.unacknowledgedChunks[sequence]));
+                const { info, data } = sendState.unacknowledgedChunks[sequence];
+
+                // Send the chunk info on the control channel
+                window.controlChannel.send(JSON.stringify(info));
+
+                // Send the binary data on the data channel
+                dataChannel.send(data);
+
                 // Update timestamp for retransmitted chunk
                 sendState.chunkTimestamps[sequence] = Date.now();
                 console.debug(`[WebRTC] Retransmitted chunk ${sequence}`);
@@ -849,8 +784,8 @@ function finishTransfer() {
     if (!dataChannel || dataChannel.readyState !== 'open') return;
 
     try {
-        // Send file-complete message
-        dataChannel.send(JSON.stringify({
+        // Send file-complete message on the control channel
+        window.controlChannel.send(JSON.stringify({
             type: 'file-complete'
         }));
 
@@ -990,5 +925,71 @@ async function receiveFile() {
             receiveState.pendingRetransmissions = new Set();
             // inProgress is already set to false at the beginning of the function
         }, 100);
+    }
+}
+
+// Handle binary data channel messages
+export async function handleDataMessage(event) {
+    // Binary data should be an ArrayBuffer
+    if (!(event.data instanceof ArrayBuffer)) {
+        console.error('[WebRTC] Unexpected data type on binary channel:', typeof event.data);
+        return;
+    }
+
+    // Check if we're expecting a chunk
+    if (!receiveState.expectedChunk) {
+        console.error('[WebRTC] Received binary data but no chunk was expected');
+        return;
+    }
+
+    const { sequence, totalChunks, size } = receiveState.expectedChunk;
+
+    // Create a view of the data
+    const dataView = new Uint8Array(event.data);
+
+    // Validate the size
+    if (dataView.byteLength !== size) {
+        console.error(`[WebRTC] Chunk size mismatch. Expected: ${size}, Got: ${dataView.byteLength}`);
+        return;
+    }
+
+    receiveState.fileInfo.currentChunk = { sequence, totalChunks, size };
+
+    try {
+        // Process the chunk
+        await processChunk(dataView);
+
+        // Mark this chunk as received
+        receiveState.receivedChunks.add(sequence);
+
+        // If this was a pending retransmission, remove it
+        if (receiveState.pendingRetransmissions.has(sequence)) {
+            receiveState.pendingRetransmissions.delete(sequence);
+        }
+
+        // If this was a missing chunk, remove it
+        if (receiveState.missingChunks.has(sequence)) {
+            receiveState.missingChunks.delete(sequence);
+        }
+
+        // Send chunk confirmation after successful processing
+        if (window.controlChannel && window.controlChannel.readyState === 'open') {
+            window.controlChannel.send(JSON.stringify({
+                type: 'chunk-confirm',
+                sequence: sequence
+            }));
+        }
+
+        // Clear the expected chunk
+        receiveState.expectedChunk = null;
+
+        // Check if we can update the last received sequence
+        updateLastReceivedSequence();
+
+        // Check if we have all chunks
+        checkIfComplete();
+    } catch (error) {
+        console.error('[WebRTC] Error processing chunk:', error);
+        ui.showError(`Failed to process chunk: ${error.message}`);
     }
 }

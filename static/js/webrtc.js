@@ -208,12 +208,22 @@ function initiatePeerConnection(isInitiator) {
         }
     };
 
-    // Create data channel
-    const dataChannel = peerConnection.createDataChannel('p2pftp', {
+    // Create control channel for metadata
+    const controlChannel = peerConnection.createDataChannel('p2pftp-control', {
         negotiated: true,
-        id: 1
+        id: 1,
+        ordered: true
     });
-    setupDataChannel(dataChannel);
+
+    // Create binary data channel for file transfers
+    const dataChannel = peerConnection.createDataChannel('p2pftp-data', {
+        negotiated: true,
+        id: 2,
+        ordered: true,
+        binaryType: 'arraybuffer'  // Use binary mode
+    });
+
+    setupChannels(controlChannel, dataChannel);
     
     // Create offer if initiator
     if (isInitiator) {
@@ -236,53 +246,88 @@ function initiatePeerConnection(isInitiator) {
     }
 }
 
-// Set up data channel event handlers
-function setupDataChannel(channel) {
-    dataChannel = channel;
-    
-    console.debug(`[WebRTC] Setting up data channel (ID: ${channel.id}, Label: ${channel.label})`);
-    console.debug(`[WebRTC] Channel config - Ordered: ${channel.ordered}, MaxRetransmits: ${channel.maxRetransmits}`);
-    console.debug(`[WebRTC] Channel negotiated: ${channel.negotiated}, Protocol: ${channel.protocol}`);
+// Set up control and data channels
+function setupChannels(control, data) {
+    // Store references to both channels
+    window.controlChannel = control;
+    dataChannel = data;  // Keep the global reference for backward compatibility
 
-    dataChannel.onopen = () => {
-        isConnecting = false;
-        console.debug(`[WebRTC] Data channel opened (State: ${channel.readyState})`);
-        ui.addSystemMessage('Peer connection established');
-        ui.updateConnectionStatus('Connected to peer', peerToken);
-        ui.showChatAndFileInterface();
-        ui.updateConnectButton(false, true);
+    console.debug(`[WebRTC] Setting up control channel (ID: ${control.id}, Label: ${control.label})`);
+    console.debug(`[WebRTC] Setting up data channel (ID: ${data.id}, Label: ${data.label})`);
 
-        // Send capabilities message with our maximum supported chunk size
-        import('/static/js/config.js').then(config => {
-            dataChannel.send(JSON.stringify({
-                type: 'capabilities',
-                maxChunkSize: config.MAX_CHUNK_SIZE
-            }));
-        });
+    // Control channel handlers
+    control.onopen = () => {
+        console.debug(`[WebRTC] Control channel opened (State: ${control.readyState})`);
+
+        // Wait for both channels to be open
+        if (data.readyState === 'open') {
+            completeConnectionSetup();
+        }
     };
-    
-    dataChannel.onclose = () => {
-        console.debug(`[WebRTC] Data channel closed (Last state: ${channel.readyState})`);
-        ui.addSystemMessage('Peer connection closed');
-        ui.updateConnectionStatus('Disconnected from peer');
-        ui.hideChatAndFileInterface();
-        resetConnectionState();
+
+    control.onclose = () => {
+        console.debug(`[WebRTC] Control channel closed`);
+        handleDisconnection();
     };
-    
-    dataChannel.onerror = (error) => {
+
+    control.onerror = (error) => {
+        console.error(`[WebRTC] Control channel error:`, error);
+        ui.addSystemMessage(`Control channel error: ${error}`);
+    };
+
+    // Data channel handlers
+    data.onopen = () => {
+        console.debug(`[WebRTC] Data channel opened (State: ${data.readyState})`);
+
+        // Wait for both channels to be open
+        if (control.readyState === 'open') {
+            completeConnectionSetup();
+        }
+    };
+
+    data.onclose = () => {
+        console.debug(`[WebRTC] Data channel closed`);
+        handleDisconnection();
+    };
+
+    data.onerror = (error) => {
         console.error(`[WebRTC] Data channel error:`, error);
         ui.addSystemMessage(`Data channel error: ${error}`);
     };
-    
+
     // Initialize transfer module and set up message handling
-    let messageHandlerSet = false;
     import('/static/js/filetransfer.js').then(module => {
-        if (!messageHandlerSet) {
-            module.init();
-            dataChannel.onmessage = module.handleDataChannelMessage;
-            messageHandlerSet = true;
-        }
+        module.init();
+
+        // Set up message handlers for both channels
+        control.onmessage = module.handleControlMessage;
+        data.onmessage = module.handleDataMessage;
     });
+}
+
+// Complete the connection setup when both channels are open
+function completeConnectionSetup() {
+    isConnecting = false;
+    ui.addSystemMessage('Peer connection established');
+    ui.updateConnectionStatus('Connected to peer', peerToken);
+    ui.showChatAndFileInterface();
+    ui.updateConnectButton(false, true);
+
+    // Send capabilities message with our maximum supported chunk size
+    import('/static/js/config.js').then(config => {
+        window.controlChannel.send(JSON.stringify({
+            type: 'capabilities',
+            maxChunkSize: config.MAX_CHUNK_SIZE
+        }));
+    });
+}
+
+// Handle disconnection
+function handleDisconnection() {
+    ui.addSystemMessage('Peer connection closed');
+    ui.updateConnectionStatus('Disconnected from peer');
+    ui.hideChatAndFileInterface();
+    resetConnectionState();
 }
 
 // Handle WebRTC offer
