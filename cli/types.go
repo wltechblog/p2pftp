@@ -56,10 +56,10 @@ type FileTransfer struct {
 
 const (
     defaultChunkSize = 16384 // Default to 16KB for compatibility
-    maxSupportedChunkSize = 65536 // Maximum supported chunk size (64KB)
+    maxSupportedChunkSize = 65536 - 8 // Maximum supported chunk size (64KB - 8 bytes for framing)
 
-    // WebRTC has a limit on message size, and we need to account for base64 encoding overhead
-    // Base64 encoding increases size by ~33%, so we need to limit the raw chunk size
+    // WebRTC has a limit on message size, and we need to account for framing overhead
+    // We add 8 bytes of framing (4 bytes sequence + 4 bytes length)
     maxWebRTCMessageSize = 65536 // 64KB is a safe limit for most WebRTC implementations
 )
 

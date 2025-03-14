@@ -278,7 +278,7 @@ func (c *Client) sendChunkBySequence(sequence int) error {
     }
 
     // Use the original chunk size minus 4 bytes for safety
-    dataSize := int(math.Min(float64(maxChunkSize), float64(65532))) // 64KB - 4 bytes
+    dataSize := int(math.Min(float64(maxChunkSize), float64(65532-8))) // 64KB - 4 bytes - 8 bytes for framing
     if n > dataSize {
         n = dataSize
     }
@@ -329,6 +329,11 @@ func (c *Client) sendChunkBySequence(sequence int) error {
 
     // Copy the actual data
     copy(framedData[8:], buf[:n])
+
+    // Check if the framed data is too large
+    if len(framedData) > maxWebRTCMessageSize {
+        return fmt.Errorf("framed data too large: %d bytes (limit: %d)", len(framedData), maxWebRTCMessageSize)
+    }
 
     // Send the framed binary data
     err = c.webrtc.dataChannel.Send(framedData)

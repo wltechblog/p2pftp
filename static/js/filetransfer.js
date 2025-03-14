@@ -587,7 +587,7 @@ function startSlidingWindowTransfer(file, totalChunks) {
             import('/static/js/config.js').then(config => {
                 // Use the original chunk size minus 4 bytes for safety
                 // WebRTC has a message size limit that varies by implementation
-                let dataSize = Math.min(chunk.byteLength, 65532); // 64KB - 4 bytes
+                let dataSize = Math.min(chunk.byteLength, 65532 - 8); // 64KB - 4 bytes - 8 bytes for framing
                 let chunkToSend = chunk.slice(0, dataSize);
 
                 // Create a chunk info message for the control channel
@@ -627,6 +627,12 @@ function startSlidingWindowTransfer(file, totalChunks) {
 
                         // Copy the actual data
                         new Uint8Array(framedData, 8).set(new Uint8Array(chunkToSend));
+
+                        // Check if the framed data is too large
+                        if (framedData.byteLength > config.MAX_MESSAGE_SIZE) {
+                            console.error(`[WebRTC] Framed data too large: ${framedData.byteLength} bytes (limit: ${config.MAX_MESSAGE_SIZE})`);
+                            throw new Error(`Framed data too large: ${framedData.byteLength} bytes`);
+                        }
 
                         // Send the framed binary data
                         dataChannel.send(framedData);
