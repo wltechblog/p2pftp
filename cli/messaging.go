@@ -17,6 +17,16 @@ func (c *Client) SendChat(text string) error {
 	if c.webrtc.dataChannel == nil {
 		return fmt.Errorf("connection not fully established, please wait or reconnect")
 	}
+	
+	// Check that the data channel is in the open state
+	if c.webrtc.dataChannel.ReadyState() != webrtc.DataChannelStateOpen {
+		return fmt.Errorf("data channel is not ready (state: %s), please wait or reconnect",
+			c.webrtc.dataChannel.ReadyState().String())
+	}
+	
+	// Log the current state of the connection
+	c.ui.LogDebug(fmt.Sprintf("Sending chat message with data channel state: %s",
+		c.webrtc.dataChannel.ReadyState().String()))
 
 	msg := struct {
 		Type    string `json:"type"`
@@ -31,13 +41,19 @@ func (c *Client) SendChat(text string) error {
 		return fmt.Errorf("failed to marshal message: %v", err)
 	}
 
-	// Check if data channel is initialized
+	// Check if data channel is initialized and open
 	if c.webrtc.dataChannel == nil {
 		return fmt.Errorf("data channel not initialized, connection may not be fully established")
+	}
+	
+	// Check data channel state
+	if c.webrtc.dataChannel.ReadyState() != webrtc.DataChannelStateOpen {
+		return fmt.Errorf("data channel is not in open state (current state: %s)", c.webrtc.dataChannel.ReadyState().String())
 	}
 
 	err = c.webrtc.dataChannel.SendText(string(msgJSON))
 	if err != nil {
+		c.ui.LogDebug(fmt.Sprintf("Error sending chat message: %v", err))
 		return fmt.Errorf("failed to send message: %v", err)
 	}
 

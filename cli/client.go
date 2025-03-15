@@ -1,6 +1,8 @@
 package main
 
 import (
+	"fmt"
+
 	"github.com/gorilla/websocket"
 )
 
@@ -32,14 +34,24 @@ func (c *Client) disconnectPeer() {
 	
 	// Close WebRTC connections
 	if c.webrtc.peerConn != nil {
+		// Log the connection state before closing
+		c.ui.LogDebug(fmt.Sprintf("Closing peer connection (state: %s)", c.webrtc.peerConn.ConnectionState().String()))
 		c.webrtc.peerConn.Close()
 		c.webrtc.peerConn = nil
 	}
+	
+	// Close control channel
 	if c.webrtc.controlChannel != nil {
+		// Log the channel state before closing
+		c.ui.LogDebug(fmt.Sprintf("Closing control channel (state: %s)", c.webrtc.controlChannel.ReadyState().String()))
 		c.webrtc.controlChannel.Close()
 		c.webrtc.controlChannel = nil
 	}
+	
+	// Close data channel
 	if c.webrtc.dataChannel != nil {
+		// Log the channel state before closing
+		c.ui.LogDebug(fmt.Sprintf("Closing data channel (state: %s)", c.webrtc.dataChannel.ReadyState().String()))
 		c.webrtc.dataChannel.Close()
 		c.webrtc.dataChannel = nil
 	}

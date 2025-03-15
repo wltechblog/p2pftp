@@ -111,6 +111,16 @@ func (c *Client) setupPeerConnection() error {
 		c.ui.LogDebug("Control channel closed")
 		c.disconnectPeer()
 	})
+	
+	// Handle control channel state changes
+	controlChannel.OnBufferedAmountLow(func() {
+		c.ui.LogDebug("Control channel buffer amount low")
+	})
+	
+	// Add state change handler
+	controlChannel.OnError(func(err error) {
+		c.ui.LogDebug(fmt.Sprintf("Control channel error: %v", err))
+	})
 
 	// Handle control channel messages (JSON)
 	controlChannel.OnMessage(func(msg webrtc.DataChannelMessage) {
@@ -157,9 +167,19 @@ func (c *Client) setupPeerConnection() error {
 
 				ackJSON, err := json.Marshal(ack)
 				if err == nil {
-					// Double-check that control channel is still initialized
+					// Double-check that control channel is still initialized and open
 					if c.webrtc.controlChannel != nil {
-						c.webrtc.controlChannel.SendText(string(ackJSON))
+						if c.webrtc.controlChannel.ReadyState() == webrtc.DataChannelStateOpen {
+							err := c.webrtc.controlChannel.SendText(string(ackJSON))
+							if err != nil {
+								c.ui.LogDebug(fmt.Sprintf("Error sending capabilities acknowledgment: %v", err))
+							} else {
+								c.ui.LogDebug("Sent capabilities acknowledgment")
+							}
+						} else {
+							c.ui.LogDebug(fmt.Sprintf("Cannot send capabilities acknowledgment: control channel is not open (state: %s)",
+								c.webrtc.controlChannel.ReadyState().String()))
+						}
 					} else {
 						c.ui.LogDebug("Cannot send capabilities acknowledgment: control channel is not initialized")
 					}
@@ -217,6 +237,16 @@ func (c *Client) setupPeerConnection() error {
 		c.ui.LogDebug("Data channel closed")
 		c.disconnectPeer()
 	})
+	
+	// Handle data channel state changes
+	dataChannel.OnBufferedAmountLow(func() {
+		c.ui.LogDebug("Data channel buffer amount low")
+	})
+	
+	// Add state change handler
+	dataChannel.OnError(func(err error) {
+		c.ui.LogDebug(fmt.Sprintf("Data channel error: %v", err))
+	})
 
 	// Handle binary data channel messages
 	dataChannel.OnMessage(func(msg webrtc.DataChannelMessage) {
@@ -269,6 +299,9 @@ func (c *Client) setupPeerConnection() error {
 
 	// Store the peer connection
 	c.webrtc.peerConn = peerConn
+	
+	// Log the initial connection state
+	c.ui.LogDebug(fmt.Sprintf("Initial peer connection state: %s", peerConn.ConnectionState().String()))
 
 	peerConn.OnICECandidate(func(candidate *webrtc.ICECandidate) {
 		if candidate == nil {
@@ -372,9 +405,29 @@ func (c *Client) completeConnectionSetup() {
 		c.ui.LogDebug("Cannot complete connection setup: one or both channels are not initialized")
 		return
 	}
+	
+	// Check that both channels are in the open state
+	if c.webrtc.controlChannel.ReadyState() != webrtc.DataChannelStateOpen {
+		c.ui.LogDebug(fmt.Sprintf("Cannot complete connection setup: control channel is not open (state: %s)",
+			c.webrtc.controlChannel.ReadyState().String()))
+		return
+	}
+	
+	if c.webrtc.dataChannel.ReadyState() != webrtc.DataChannelStateOpen {
+		c.ui.LogDebug(fmt.Sprintf("Cannot complete connection setup: data channel is not open (state: %s)",
+			c.webrtc.dataChannel.ReadyState().String()))
+		return
+	}
+	
+	// Check peer connection state
+	if c.webrtc.peerConn != nil && c.webrtc.peerConn.ConnectionState() != webrtc.PeerConnectionStateConnected {
+		c.ui.LogDebug(fmt.Sprintf("Warning: Peer connection is not in connected state (state: %s)",
+			c.webrtc.peerConn.ConnectionState().String()))
+	}
 
 	c.webrtc.connected = true
-	c.ui.LogDebug("Both channels ready for transfer")
+	c.ui.LogDebug(fmt.Sprintf("Both channels ready for transfer. Control: %s, Data: %s",
+		c.webrtc.controlChannel.ReadyState().String(), c.webrtc.dataChannel.ReadyState().String()))
 	c.ui.ShowConnectionAccepted("")
 
 	// Send capabilities message with our maximum supported chunk size
@@ -388,10 +441,19 @@ func (c *Client) completeConnectionSetup() {
 
 	capabilitiesJSON, err := json.Marshal(capabilities)
 	if err == nil {
-		// Double-check that control channel is still initialized
+		// Double-check that control channel is still initialized and open
 		if c.webrtc.controlChannel != nil {
-			c.webrtc.controlChannel.SendText(string(capabilitiesJSON))
-			c.ui.LogDebug(fmt.Sprintf("Sent capabilities with max chunk size: %d", maxSupportedChunkSize))
+			if c.webrtc.controlChannel.ReadyState() == webrtc.DataChannelStateOpen {
+				err := c.webrtc.controlChannel.SendText(string(capabilitiesJSON))
+				if err != nil {
+					c.ui.LogDebug(fmt.Sprintf("Error sending capabilities: %v", err))
+				} else {
+					c.ui.LogDebug(fmt.Sprintf("Sent capabilities with max chunk size: %d", maxSupportedChunkSize))
+				}
+			} else {
+				c.ui.LogDebug(fmt.Sprintf("Cannot send capabilities: control channel is not open (state: %s)",
+					c.webrtc.controlChannel.ReadyState().String()))
+			}
 		} else {
 			c.ui.LogDebug("Cannot send capabilities: control channel is not initialized")
 		}
