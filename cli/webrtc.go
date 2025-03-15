@@ -120,6 +120,16 @@ func (c *Client) setupPeerConnection() error {
 	// Add state change handler
 	controlChannel.OnError(func(err error) {
 		c.ui.LogDebug(fmt.Sprintf("Control channel error: %v", err))
+		
+		// If we're in the middle of a transfer, log it but don't disconnect
+		// The transfer functions will handle this gracefully
+		if c.webrtc.sendTransfer.inProgress || c.webrtc.receiveTransfer.inProgress {
+			c.ui.LogDebug("Control channel error during transfer - continuing with best effort")
+		} else {
+			// If we're not transferring, it's safer to disconnect
+			c.ui.LogDebug("Control channel error - disconnecting")
+			c.disconnectPeer()
+		}
 	})
 
 	// Handle control channel messages (JSON)
@@ -246,6 +256,16 @@ func (c *Client) setupPeerConnection() error {
 	// Add state change handler
 	dataChannel.OnError(func(err error) {
 		c.ui.LogDebug(fmt.Sprintf("Data channel error: %v", err))
+		
+		// If we're in the middle of a transfer, log it but don't disconnect
+		// The transfer functions will handle this gracefully
+		if c.webrtc.sendTransfer.inProgress || c.webrtc.receiveTransfer.inProgress {
+			c.ui.LogDebug("Data channel error during transfer - continuing with best effort")
+		} else {
+			// If we're not transferring, it's safer to disconnect
+			c.ui.LogDebug("Data channel error - disconnecting")
+			c.disconnectPeer()
+		}
 	})
 
 	// Handle binary data channel messages
