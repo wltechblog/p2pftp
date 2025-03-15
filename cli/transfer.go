@@ -10,7 +10,10 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"sync"
 	"time"
+
+	"github.com/pion/webrtc/v3"
 )
 
 // ChunkConfirm message for acknowledging received chunks
@@ -21,13 +24,47 @@ type ChunkConfirm struct {
 
 // SendFile initiates a file transfer to the connected peer
 func (c *Client) SendFile(path string) error {
+	// Create a mutex to protect access to the WebRTC state during the file transfer
+	transferMutex := &sync.Mutex{}
+	
+	// First check if we're connected and not already transferring
+	transferMutex.Lock()
 	if !c.webrtc.connected {
+		transferMutex.Unlock()
 		return fmt.Errorf("not connected to peer")
 	}
 
 	if c.webrtc.sendTransfer.inProgress {
+		transferMutex.Unlock()
 		return fmt.Errorf("upload already in progress")
 	}
+	transferMutex.Unlock()
+	
+	// Make a local copy of the channels to prevent nil pointer issues if they change during transfer
+	transferMutex.Lock()
+	controlChannel := c.webrtc.controlChannel
+	dataChannel := c.webrtc.dataChannel
+	transferMutex.Unlock()
+	
+	// Ensure both data channels are initialized
+	if controlChannel == nil || dataChannel == nil {
+		return fmt.Errorf("connection not fully established, please wait or reconnect")
+	}
+	
+	// Check that both channels are in the open state
+	if controlChannel.ReadyState() != webrtc.DataChannelStateOpen {
+		return fmt.Errorf("control channel is not ready (state: %s), please wait or reconnect",
+			controlChannel.ReadyState().String())
+	}
+	
+	if dataChannel.ReadyState() != webrtc.DataChannelStateOpen {
+		return fmt.Errorf("data channel is not ready (state: %s), please wait or reconnect",
+			dataChannel.ReadyState().String())
+	}
+	
+	// Log the current state of the connection
+	c.ui.LogDebug(fmt.Sprintf("Starting file transfer with control channel state: %s, data channel state: %s",
+		controlChannel.ReadyState().String(), dataChannel.ReadyState().String()))
 
 	file, err := os.Open(path)
 	if err != nil {
@@ -89,8 +126,15 @@ func (c *Client) SendFile(path string) error {
 		return fmt.Errorf("failed to marshal file info: %v", err)
 	}
 
-	err = c.webrtc.controlChannel.SendText(string(infoJSON))
+	// Check if control channel is still valid
+	if controlChannel.ReadyState() != webrtc.DataChannelStateOpen {
+		return fmt.Errorf("control channel is not in open state (current state: %s)",
+			controlChannel.ReadyState().String())
+	}
+
+	err = controlChannel.SendText(string(infoJSON))
 	if err != nil {
+		c.ui.LogDebug(fmt.Sprintf("Error sending file info: %v", err))
 		return fmt.Errorf("failed to send file info: %v", err)
 	}
 
@@ -149,6 +193,56 @@ func (c *Client) SendFile(path string) error {
 			// All chunks acknowledged, we're done
 			break
 		}
+		
+		// Check if connection is still valid - use the local variables to avoid nil pointer issues
+		// Also check the channel states in a safe way
+		channelsValid := true
+		var controlState, dataState webrtc.DataChannelState
+		
+		// Use a function to safely check channel state
+		checkChannelState := func(channel *webrtc.DataChannel) (webrtc.DataChannelState, bool) {
+			defer func() {
+				if r := recover(); r != nil {
+					c.ui.LogDebug(fmt.Sprintf("Recovered from panic while checking channel state: %v", r))
+				}
+			}()
+			
+			if channel == nil {
+				return webrtc.DataChannelStateClosed, false
+			}
+			
+			return channel.ReadyState(), true
+		}
+		
+		// Check control channel
+		var controlValid bool
+		controlState, controlValid = checkChannelState(controlChannel)
+		if !controlValid || controlState != webrtc.DataChannelStateOpen {
+			channelsValid = false
+		}
+		
+		// Check data channel
+		var dataValid bool
+		dataState, dataValid = checkChannelState(dataChannel)
+		if !dataValid || dataState != webrtc.DataChannelStateOpen {
+			channelsValid = false
+		}
+		
+		if !channelsValid {
+			c.ui.LogDebug(fmt.Sprintf("Connection issue during file transfer - control: %s, data: %s",
+				controlState.String(), dataState.String()))
+			close(done)
+			
+			// Show completion message with warning
+			c.ui.UpdateTransferProgress(fmt.Sprintf("⬆ %s - Incomplete (connection issue)",
+				info.Name()),
+				"send")
+				
+			// Reset transfer state
+			c.webrtc.sendTransfer = transferState{}
+			return fmt.Errorf("connection issue during file transfer")
+		}
+		
 		time.Sleep(100 * time.Millisecond)
 	}
 
@@ -158,27 +252,56 @@ func (c *Client) SendFile(path string) error {
 	// Show completion message
 	c.ui.UpdateTransferProgress(fmt.Sprintf("⬆ %s - Finishing transfer...", info.Name()), "send")
 
-	// Send complete message
-	complete := struct {
-		Type string `json:"type"`
-	}{
-		Type: "file-complete",
-	}
+	// Try to send complete message if the control channel is still open
+	// Use a defer to recover from any panics that might occur
+	defer func() {
+		if r := recover(); r != nil {
+			c.ui.LogDebug(fmt.Sprintf("Recovered from panic in SendFile: %v", r))
+		}
+	}()
+	
+	// Check if control channel is still valid and open
+	if controlChannel != nil {
+		// Check the channel state in a safe way
+		channelState := controlChannel.ReadyState()
+		if channelState == webrtc.DataChannelStateOpen {
+			complete := struct {
+				Type string `json:"type"`
+			}{
+				Type: "file-complete",
+			}
 
-	completeJSON, err := json.Marshal(complete)
-	if err != nil {
-		close(done)
-		return fmt.Errorf("failed to marshal complete message: %v", err)
+			completeJSON, err := json.Marshal(complete)
+			if err == nil {
+				// Try to send the message, but don't crash if it fails
+				err = func() (sendErr error) {
+					// Recover from any panics during send
+					defer func() {
+						if r := recover(); r != nil {
+							c.ui.LogDebug(fmt.Sprintf("Recovered from panic while sending complete message: %v", r))
+							sendErr = fmt.Errorf("panic during send: %v", r)
+						}
+					}()
+					
+					return controlChannel.SendText(string(completeJSON))
+				}()
+				
+				if err != nil {
+					c.ui.LogDebug(fmt.Sprintf("Error sending complete message: %v", err))
+					// Continue anyway, as the file transfer is complete
+				} else {
+					c.ui.LogDebug("Sent file-complete message successfully")
+					// Wait a moment for the message to be sent
+					time.Sleep(100 * time.Millisecond)
+				}
+			}
+		} else {
+			c.ui.LogDebug(fmt.Sprintf("Cannot send file-complete message: control channel not in open state (state: %s)",
+				channelState.String()))
+		}
+	} else {
+		c.ui.LogDebug("Cannot send file-complete message: control channel is nil")
 	}
-
-	err = c.webrtc.controlChannel.SendText(string(completeJSON))
-	if err != nil {
-		close(done)
-		return fmt.Errorf("failed to send complete message: %v", err)
-	}
-
-	// Wait a moment for the message to be sent
-	time.Sleep(100 * time.Millisecond)
 
 	// Show final completion message
 	c.ui.UpdateTransferProgress(fmt.Sprintf("⬆ %s - Complete (avg: %.1f MB/s)",
@@ -228,8 +351,21 @@ func (c *Client) handleBinaryChunkData(sequence int, total int, size int, data [
 		return
 	}
 
+	// Check if control channel is initialized and open
+	if c.webrtc.controlChannel == nil {
+		c.ui.ShowError("Control channel not initialized, connection may not be fully established")
+		return
+	}
+	
+	// Check control channel state
+	if c.webrtc.controlChannel.ReadyState() != webrtc.DataChannelStateOpen {
+		c.ui.ShowError(fmt.Sprintf("Control channel is not in open state (current state: %s)", c.webrtc.controlChannel.ReadyState().String()))
+		return
+	}
+
 	err = c.webrtc.controlChannel.SendText(string(confirmJSON))
 	if err != nil {
+		c.ui.LogDebug(fmt.Sprintf("Error sending chunk confirmation: %v", err))
 		c.ui.ShowError(fmt.Sprintf("Failed to send chunk confirmation: %v", err))
 		return
 	}
@@ -270,6 +406,15 @@ func (c *Client) handleBinaryChunkData(sequence int, total int, size int, data [
 
 	// Check if we've received all chunks
 	if c.webrtc.receiveTransfer.lastReceivedSequence == total-1 {
+		// Check if channels are still valid before completing
+		if c.webrtc.controlChannel == nil || c.webrtc.dataChannel == nil {
+			c.ui.LogDebug("Connection lost during file transfer, but all chunks received - completing anyway")
+		} else if c.webrtc.controlChannel.ReadyState() != webrtc.DataChannelStateOpen ||
+		          c.webrtc.dataChannel.ReadyState() != webrtc.DataChannelStateOpen {
+			c.ui.LogDebug(fmt.Sprintf("Channels not in open state, but all chunks received - completing anyway (control: %s, data: %s)",
+				c.webrtc.controlChannel.ReadyState().String(), c.webrtc.dataChannel.ReadyState().String()))
+		}
+		
 		c.handleFileComplete()
 	}
 }
@@ -277,6 +422,20 @@ func (c *Client) handleBinaryChunkData(sequence int, total int, size int, data [
 // Check for missing chunks and request them
 func (c *Client) checkForMissingChunks() {
 	if !c.webrtc.receiveTransfer.inProgress {
+		return
+	}
+	
+	// Check if connection is still valid
+	if c.webrtc.controlChannel == nil || c.webrtc.dataChannel == nil {
+		c.ui.LogDebug("Cannot check for missing chunks: connection lost")
+		return
+	}
+	
+	// Check if channels are in open state
+	if c.webrtc.controlChannel.ReadyState() != webrtc.DataChannelStateOpen ||
+	   c.webrtc.dataChannel.ReadyState() != webrtc.DataChannelStateOpen {
+		c.ui.LogDebug(fmt.Sprintf("Cannot check for missing chunks: channels not in open state (control: %s, data: %s)",
+			c.webrtc.controlChannel.ReadyState().String(), c.webrtc.dataChannel.ReadyState().String()))
 		return
 	}
 
@@ -303,8 +462,21 @@ func (c *Client) checkForMissingChunks() {
 			continue
 		}
 
+		// Check if control channel is initialized and open
+		if c.webrtc.controlChannel == nil {
+			c.ui.ShowError("Control channel not initialized, connection may not be fully established")
+			continue
+		}
+		
+		// Check control channel state
+		if c.webrtc.controlChannel.ReadyState() != webrtc.DataChannelStateOpen {
+			c.ui.ShowError(fmt.Sprintf("Control channel is not in open state (current state: %s)", c.webrtc.controlChannel.ReadyState().String()))
+			continue
+		}
+
 		err = c.webrtc.controlChannel.SendText(string(requestJSON))
 		if err != nil {
+			c.ui.LogDebug(fmt.Sprintf("Error sending chunk request: %v", err))
 			c.ui.ShowError(fmt.Sprintf("Failed to send chunk request: %v", err))
 			continue
 		}
@@ -409,6 +581,13 @@ func (c *Client) handleFileInfo(data map[string]interface{}) {
 
 func (c *Client) handleFileComplete() {
 	if !c.webrtc.receiveTransfer.inProgress {
+		return
+	}
+	
+	// Check if file transfer is still valid
+	if c.webrtc.receiveTransfer.fileTransfer == nil || c.webrtc.receiveTransfer.fileTransfer.file == nil {
+		c.ui.LogDebug("Cannot complete file transfer: file handle is not valid")
+		c.webrtc.receiveTransfer = transferState{}
 		return
 	}
 
@@ -546,8 +725,52 @@ func (c *Client) handleChunkConfirmation(sequence int) {
 	// Reset consecutive timeouts counter on successful ACK
 	c.webrtc.sendTransfer.consecutiveTimeouts = 0
 
-	// Continue sending if we have more chunks to send
-	c.trySendNextChunks()
+	// Continue sending if we have more chunks to send and connection is still valid
+	// Use a function to safely check channel state
+	checkChannelState := func(channel *webrtc.DataChannel) (webrtc.DataChannelState, bool) {
+		defer func() {
+			if r := recover(); r != nil {
+				c.ui.LogDebug(fmt.Sprintf("Recovered from panic while checking channel state: %v", r))
+			}
+		}()
+		
+		if channel == nil {
+			return webrtc.DataChannelStateClosed, false
+		}
+		
+		return channel.ReadyState(), true
+	}
+	
+	// Check control channel
+	controlValid := false
+	var controlState webrtc.DataChannelState
+	if c.webrtc.controlChannel != nil {
+		controlState, controlValid = checkChannelState(c.webrtc.controlChannel)
+	}
+	
+	// Check data channel
+	dataValid := false
+	var dataState webrtc.DataChannelState
+	if c.webrtc.dataChannel != nil {
+		dataState, dataValid = checkChannelState(c.webrtc.dataChannel)
+	}
+	
+	if controlValid && dataValid &&
+	   controlState == webrtc.DataChannelStateOpen &&
+	   dataState == webrtc.DataChannelStateOpen {
+		// Use a defer to recover from any panics
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					c.ui.LogDebug(fmt.Sprintf("Recovered from panic in trySendNextChunks: %v", r))
+				}
+			}()
+			c.trySendNextChunks()
+		}()
+	} else {
+		c.ui.LogDebug(fmt.Sprintf("Cannot send more chunks: channels not in open state (control: %s, data: %s)",
+			controlState.String(), dataState.String()))
+	}
 
 	// Update progress using fixedChunkSize for consistency
 	totalSent := int64(c.webrtc.sendTransfer.lastAckedSequence + 1) * int64(fixedChunkSize)
@@ -634,8 +857,52 @@ func (c *Client) checkForRetransmissions() {
 	// Sort retransmission queue by sequence number
 	sort.Ints(c.webrtc.sendTransfer.retransmissionQueue)
 
-	// Try to send next chunks including retransmissions
-	c.trySendNextChunks()
+	// Try to send next chunks including retransmissions if connection is still valid
+	// Use a function to safely check channel state
+	checkChannelState := func(channel *webrtc.DataChannel) (webrtc.DataChannelState, bool) {
+		defer func() {
+			if r := recover(); r != nil {
+				c.ui.LogDebug(fmt.Sprintf("Recovered from panic while checking channel state: %v", r))
+			}
+		}()
+		
+		if channel == nil {
+			return webrtc.DataChannelStateClosed, false
+		}
+		
+		return channel.ReadyState(), true
+	}
+	
+	// Check control channel
+	controlValid := false
+	var controlState webrtc.DataChannelState
+	if c.webrtc.controlChannel != nil {
+		controlState, controlValid = checkChannelState(c.webrtc.controlChannel)
+	}
+	
+	// Check data channel
+	dataValid := false
+	var dataState webrtc.DataChannelState
+	if c.webrtc.dataChannel != nil {
+		dataState, dataValid = checkChannelState(c.webrtc.dataChannel)
+	}
+	
+	if controlValid && dataValid &&
+	   controlState == webrtc.DataChannelStateOpen &&
+	   dataState == webrtc.DataChannelStateOpen {
+		// Use a defer to recover from any panics
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					c.ui.LogDebug(fmt.Sprintf("Recovered from panic in trySendNextChunks: %v", r))
+				}
+			}()
+			c.trySendNextChunks()
+		}()
+	} else {
+		c.ui.LogDebug(fmt.Sprintf("Cannot send retransmissions: channels not in open state (control: %s, data: %s)",
+			controlState.String(), dataState.String()))
+	}
 }
 
 // Start the sliding window transfer
@@ -646,8 +913,55 @@ func (c *Client) startSlidingWindowTransfer() error {
 
 // Try to send next chunks within the window
 func (c *Client) trySendNextChunks() error {
+	// Use a defer to recover from any panics
+	defer func() {
+		if r := recover(); r != nil {
+			c.ui.LogDebug(fmt.Sprintf("Recovered from panic in trySendNextChunks: %v", r))
+		}
+	}()
+	
 	if !c.webrtc.connected || !c.webrtc.sendTransfer.inProgress {
 		return nil
+	}
+	
+	// Use a function to safely check channel state
+	checkChannelState := func(channel *webrtc.DataChannel) (webrtc.DataChannelState, bool) {
+		defer func() {
+			if r := recover(); r != nil {
+				c.ui.LogDebug(fmt.Sprintf("Recovered from panic while checking channel state: %v", r))
+			}
+		}()
+		
+		if channel == nil {
+			return webrtc.DataChannelStateClosed, false
+		}
+		
+		return channel.ReadyState(), true
+	}
+	
+	// Check control channel
+	controlValid := false
+	var controlState webrtc.DataChannelState
+	if c.webrtc.controlChannel != nil {
+		controlState, controlValid = checkChannelState(c.webrtc.controlChannel)
+	}
+	
+	// Check data channel
+	dataValid := false
+	var dataState webrtc.DataChannelState
+	if c.webrtc.dataChannel != nil {
+		dataState, dataValid = checkChannelState(c.webrtc.dataChannel)
+	}
+	
+	if !controlValid || !dataValid {
+		c.ui.LogDebug("Cannot send chunks: channels not initialized")
+		return fmt.Errorf("channels not initialized")
+	}
+	
+	if controlState != webrtc.DataChannelStateOpen || dataState != webrtc.DataChannelStateOpen {
+		c.ui.LogDebug(fmt.Sprintf("Cannot send chunks: channels not in open state (control: %s, data: %s)",
+			controlState.String(), dataState.String()))
+		return fmt.Errorf("channels not in open state")
 	}
 
 	// Calculate effective window size (min of congestion window and configured window size)
@@ -738,10 +1052,51 @@ func (c *Client) sendChunkBySequence(sequence int) error {
 		return fmt.Errorf("failed to marshal chunk info: %v", err)
 	}
 
-	// Send the chunk info on the control channel
-	err = c.webrtc.controlChannel.SendText(string(chunkInfoJSON))
-	if err != nil {
-		return fmt.Errorf("failed to send chunk info: %v", err)
+	// Use a function to safely check channel state
+	checkChannelState := func(channel *webrtc.DataChannel) (webrtc.DataChannelState, bool) {
+		defer func() {
+			if r := recover(); r != nil {
+				c.ui.LogDebug(fmt.Sprintf("Recovered from panic while checking channel state: %v", r))
+			}
+		}()
+		
+		if channel == nil {
+			return webrtc.DataChannelStateClosed, false
+		}
+		
+		return channel.ReadyState(), true
+	}
+	
+	// Check control channel
+	controlValid := false
+	var controlState webrtc.DataChannelState
+	if c.webrtc.controlChannel != nil {
+		controlState, controlValid = checkChannelState(c.webrtc.controlChannel)
+	}
+	
+	if !controlValid {
+		return fmt.Errorf("control channel not initialized, connection may not be fully established")
+	}
+	
+	if controlState != webrtc.DataChannelStateOpen {
+		return fmt.Errorf("control channel is not in open state (current state: %s)", controlState.String())
+	}
+
+	// Send the chunk info on the control channel - use a function to safely send
+	sendErr := func() (sendErr error) {
+		defer func() {
+			if r := recover(); r != nil {
+				c.ui.LogDebug(fmt.Sprintf("Recovered from panic while sending chunk info: %v", r))
+				sendErr = fmt.Errorf("panic during send: %v", r)
+			}
+		}()
+		
+		return c.webrtc.controlChannel.SendText(string(chunkInfoJSON))
+	}()
+	
+	if sendErr != nil {
+		c.ui.LogDebug(fmt.Sprintf("Error sending chunk info: %v", sendErr))
+		return fmt.Errorf("failed to send chunk info: %v", sendErr)
 	}
 
 	// Wait for a short time to ensure the control message is processed
@@ -777,10 +1132,36 @@ func (c *Client) sendChunkBySequence(sequence int) error {
 		return fmt.Errorf("framed data too large: %d bytes (limit: %d)", len(framedData), maxWebRTCMessageSize)
 	}
 
-	// Send the framed binary data
-	err = c.webrtc.dataChannel.Send(framedData)
-	if err != nil {
-		return fmt.Errorf("failed to send chunk: %v", err)
+	// Check data channel
+	dataValid := false
+	var dataState webrtc.DataChannelState
+	if c.webrtc.dataChannel != nil {
+		dataState, dataValid = checkChannelState(c.webrtc.dataChannel)
+	}
+	
+	if !dataValid {
+		return fmt.Errorf("data channel not initialized, connection may not be fully established")
+	}
+	
+	if dataState != webrtc.DataChannelStateOpen {
+		return fmt.Errorf("data channel is not in open state (current state: %s)", dataState.String())
+	}
+
+	// Send the framed binary data - use a function to safely send
+	sendErr := func() (sendErr error) {
+		defer func() {
+			if r := recover(); r != nil {
+				c.ui.LogDebug(fmt.Sprintf("Recovered from panic while sending chunk data: %v", r))
+				sendErr = fmt.Errorf("panic during send: %v", r)
+			}
+		}()
+		
+		return c.webrtc.dataChannel.Send(framedData)
+	}()
+	
+	if sendErr != nil {
+		c.ui.LogDebug(fmt.Sprintf("Error sending chunk: %v", sendErr))
+		return fmt.Errorf("failed to send chunk: %v", sendErr)
 	}
 
 	// Log success for debugging

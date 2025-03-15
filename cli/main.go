@@ -7,6 +7,8 @@ import (
 	"net/url"
 
 	"github.com/gorilla/websocket"
+
+	"github.com/wltechblog/p2pftp/cli/ui"
 )
 
 // main is the entry point for the CLI application
@@ -26,17 +28,18 @@ func main() {
     }
     defer conn.Close()
 
-    // Create client first
+    // Create client
     client := NewClient(conn)
 
     // Create UI with back-reference to client
-    ui := NewUI(client)
+    userInterface := ui.NewUI(client)
+    client.SetUI(userInterface)
 
     // Start message handler
     go client.handleMessages()
 
     // Run UI (blocks until exit)
-    if err := ui.Run(); err != nil {
+    if err := userInterface.Run(); err != nil {
         fmt.Printf("Error running UI: %v\n", err)
     }
 }

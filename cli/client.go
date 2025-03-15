@@ -4,65 +4,320 @@ import (
 	"fmt"
 
 	"github.com/gorilla/websocket"
+
+	"github.com/wltechblog/p2pftp/cli/transfer"
+	"github.com/wltechblog/p2pftp/cli/webrtc"
 )
+
+// Constants from config.go
+const (
+	maxWebRTCMessageSize = 262144 // 256KB - Maximum size for WebRTC messages
+	fixedChunkSize       = 262144 // 256KB - Fixed chunk size for consistency
+)
+
+// Client represents the P2PFTP client
+type Client struct {
+	conn            *websocket.Conn
+	token           string
+	ui              UserInterface
+	webrtcConn      *webrtc.Connection
+	webrtcSignaling *webrtc.Signaling
+	webrtcChannels  *webrtc.Channels
+	sender          *transfer.Sender
+	receiver        *transfer.Receiver
+}
+
+// UserInterface defines the interface for the UI implementation
+type UserInterface interface {
+	ShowError(msg string)
+	LogDebug(msg string)
+	ShowChat(from string, msg string)
+	ShowConnectionRequest(token string)
+	ShowConnectionAccepted(msg string)
+	ShowConnectionRejected(token string)
+	SetToken(token string)
+	UpdateTransferProgress(status string, direction string)
+}
+
+// Message represents a message exchanged with the server
+type Message struct {
+	Type      string `json:"type"`
+	Token     string `json:"token,omitempty"`
+	PeerToken string `json:"peerToken,omitempty"`
+	SDP       string `json:"sdp,omitempty"`
+	ICE       string `json:"ice,omitempty"`
+}
 
 // NewClient creates a new client instance
 func NewClient(conn *websocket.Conn) *Client {
-	// Initialize with a properly structured WebRTC state
 	return &Client{
 		conn: conn,
-		webrtc: &WebRTCState{
-			connected:       false,
-			sendTransfer:    transferState{},
-			receiveTransfer: transferState{},
-		},
 	}
 }
 
-// disconnectPeer cleans up resources when a peer connection is terminated
-func (c *Client) disconnectPeer() {
-	// Save the peer token in case we need it
-	peerToken := c.webrtc.peerToken
-	
-	// Close file handles if they exist
-	if c.webrtc.sendTransfer.fileTransfer != nil && c.webrtc.sendTransfer.fileTransfer.file != nil {
-		c.webrtc.sendTransfer.fileTransfer.file.Close()
+// SetUI sets the UI for the client
+func (c *Client) SetUI(ui UserInterface) {
+	c.ui = ui
+}
+
+// SendMessage sends a message to the server
+func (c *Client) SendMessage(msg Message) error {
+	err := c.conn.WriteJSON(msg)
+	if err != nil {
+		c.ui.ShowError("Send failed: " + err.Error())
+		return err
 	}
-	if c.webrtc.receiveTransfer.fileTransfer != nil && c.webrtc.receiveTransfer.fileTransfer.file != nil {
-		c.webrtc.receiveTransfer.fileTransfer.file.Close()
-	}
-	
-	// Close WebRTC connections
-	if c.webrtc.peerConn != nil {
-		// Log the connection state before closing
-		c.ui.LogDebug(fmt.Sprintf("Closing peer connection (state: %s)", c.webrtc.peerConn.ConnectionState().String()))
-		c.webrtc.peerConn.Close()
-		c.webrtc.peerConn = nil
-	}
-	
-	// Close control channel
-	if c.webrtc.controlChannel != nil {
-		// Log the channel state before closing
-		c.ui.LogDebug(fmt.Sprintf("Closing control channel (state: %s)", c.webrtc.controlChannel.ReadyState().String()))
-		c.webrtc.controlChannel.Close()
-		c.webrtc.controlChannel = nil
+	return nil
+}
+
+// SendSignalingMessage sends a signaling message to the server
+func (c *Client) SendSignalingMessage(msg webrtc.SignalingMessage) error {
+	// Convert to our Message type
+	message := Message{
+		Type:      msg.Type,
+		Token:     msg.Token,
+		PeerToken: msg.PeerToken,
+		SDP:       msg.SDP,
+		ICE:       msg.ICE,
 	}
 	
-	// Close data channel
-	if c.webrtc.dataChannel != nil {
-		// Log the channel state before closing
-		c.ui.LogDebug(fmt.Sprintf("Closing data channel (state: %s)", c.webrtc.dataChannel.ReadyState().String()))
-		c.webrtc.dataChannel.Close()
-		c.webrtc.dataChannel = nil
+	// Send the message
+	return c.SendMessage(message)
+}
+
+// Connect initiates a connection to a peer
+func (c *Client) Connect(peerToken string) error {
+	// Initialize WebRTC components
+	c.initWebRTC(peerToken, true)
+	
+	// Send connect message to server
+	return c.SendMessage(Message{
+		Type:      "connect",
+		PeerToken: peerToken,
+	})
+}
+
+// Accept accepts a connection request
+func (c *Client) Accept(peerToken string) error {
+	// Initialize WebRTC components
+	c.initWebRTC(peerToken, false)
+	
+	// Send accept message to server
+	return c.SendMessage(Message{
+		Type:      "accept",
+		PeerToken: peerToken,
+	})
+}
+
+// Reject rejects a connection request
+func (c *Client) Reject(peerToken string) error {
+	// Clean up any existing connection
+	c.Disconnect()
+	
+	// Send reject message to server
+	return c.SendMessage(Message{
+		Type:      "reject",
+		PeerToken: peerToken,
+	})
+}
+
+// SendChat sends a chat message
+func (c *Client) SendChat(text string) error {
+	if c.webrtcChannels == nil {
+		return fmt.Errorf("not connected to peer")
 	}
 	
-	// Reset the WebRTC state with proper initialization
-	c.webrtc = &WebRTCState{
-		peerToken:      peerToken, // Keep the peer token for reference
-		connected:      false,
-		sendTransfer:   transferState{},
-		receiveTransfer: transferState{},
+	return c.webrtcChannels.SendChatMessage(text)
+}
+
+// SendFile sends a file to the peer
+func (c *Client) SendFile(path string) error {
+	if c.sender == nil {
+		return fmt.Errorf("not connected to peer")
 	}
 	
-	c.ui.LogDebug("Peer connection cleaned up")
+	return c.sender.SendFile(path)
+}
+
+// Disconnect disconnects from the peer
+func (c *Client) Disconnect() error {
+	if c.webrtcConn != nil {
+		c.webrtcConn.Disconnect()
+		c.webrtcConn = nil
+		c.webrtcSignaling = nil
+		c.webrtcChannels = nil
+		c.sender = nil
+		c.receiver = nil
+	}
+	
+	return nil
+}
+
+// initWebRTC initializes the WebRTC components
+func (c *Client) initWebRTC(peerToken string, isInitiator bool) {
+	// Create WebRTC connection
+	c.webrtcConn = webrtc.NewConnection(
+		c.ui,
+		func() {
+			c.ui.ShowConnectionAccepted("")
+		},
+		fixedChunkSize,
+		maxWebRTCMessageSize,
+	)
+	
+	// Create WebRTC signaling
+	c.webrtcSignaling = webrtc.NewSignaling(
+		c.webrtcConn,
+		c,
+		c.ui,
+	)
+	
+	// Create sender and receiver
+	c.sender = transfer.NewSender(
+		c.webrtcConn.GetControlChannel(),
+		c.webrtcConn.GetDataChannel(),
+		c.ui,
+		func(status string, direction string) {
+			c.ui.UpdateTransferProgress(status, direction)
+		},
+		fixedChunkSize,
+		maxWebRTCMessageSize,
+	)
+	
+	c.receiver = transfer.NewReceiver(
+		c.webrtcConn.GetControlChannel(),
+		c.webrtcConn.GetDataChannel(),
+		c.ui,
+		func(status string, direction string) {
+			c.ui.UpdateTransferProgress(status, direction)
+		},
+		fixedChunkSize,
+	)
+	
+	// Create WebRTC channels
+	c.webrtcChannels = webrtc.NewChannels(
+		c.webrtcConn,
+		c.ui,
+		c.receiver,
+		c.receiver,
+	)
+	
+	// Set up WebRTC connection
+	err := c.webrtcConn.SetupPeerConnection()
+	if err != nil {
+		c.ui.ShowError(fmt.Sprintf("Failed to setup peer connection: %v", err))
+		return
+	}
+	
+	// Set up WebRTC signaling
+	c.webrtcSignaling.SetupICEHandlers()
+	
+	// Set up WebRTC channels
+	c.webrtcChannels.SetupChannelHandlers()
+	
+	// If we're the initiator, create an offer
+	if isInitiator {
+		err := c.webrtcSignaling.CreateOffer()
+		if err != nil {
+			c.ui.ShowError(fmt.Sprintf("Failed to create offer: %v", err))
+			return
+		}
+	}
+}
+
+// handleMessages processes incoming WebSocket messages from the server
+func (c *Client) handleMessages() {
+	c.ui.LogDebug("Message handler started, waiting for server token...")
+	for {
+		var msg Message
+		err := c.conn.ReadJSON(&msg)
+		if err != nil {
+			c.ui.LogDebug(fmt.Sprintf("Error reading message: %v", err))
+			c.ui.ShowError("Connection error - please try again")
+			return
+		}
+
+		switch msg.Type {
+		case "token":
+			c.token = msg.Token
+			c.ui.SetToken(msg.Token)
+
+		case "request":
+			c.ui.ShowConnectionRequest(msg.Token)
+
+		case "accepted":
+			if c.webrtcSignaling == nil {
+				c.ui.ShowError("No active connection attempt")
+				continue
+			}
+			
+			err := c.webrtcSignaling.CreateOffer()
+			if err != nil {
+				c.ui.ShowError(fmt.Sprintf("Failed to create offer: %v", err))
+				continue
+			}
+
+		case "offer":
+			if c.webrtcSignaling == nil {
+				c.ui.ShowError("No active connection attempt")
+				continue
+			}
+			
+			err := c.webrtcSignaling.HandleOffer(webrtc.SignalingMessage{
+				Type:      msg.Type,
+				Token:     msg.Token,
+				PeerToken: msg.PeerToken,
+				SDP:       msg.SDP,
+				ICE:       msg.ICE,
+			})
+			if err != nil {
+				c.ui.ShowError(fmt.Sprintf("Failed to handle offer: %v", err))
+				continue
+			}
+
+		case "answer":
+			if c.webrtcSignaling == nil {
+				c.ui.ShowError("No active connection attempt")
+				continue
+			}
+			
+			err := c.webrtcSignaling.HandleAnswer(webrtc.SignalingMessage{
+				Type:      msg.Type,
+				Token:     msg.Token,
+				PeerToken: msg.PeerToken,
+				SDP:       msg.SDP,
+				ICE:       msg.ICE,
+			})
+			if err != nil {
+				c.ui.ShowError(fmt.Sprintf("Failed to handle answer: %v", err))
+				continue
+			}
+
+		case "ice":
+			if c.webrtcSignaling == nil {
+				c.ui.ShowError("No active connection attempt")
+				continue
+			}
+			
+			err := c.webrtcSignaling.HandleICE(webrtc.SignalingMessage{
+				Type:      msg.Type,
+				Token:     msg.Token,
+				PeerToken: msg.PeerToken,
+				SDP:       msg.SDP,
+				ICE:       msg.ICE,
+			})
+			if err != nil {
+				c.ui.ShowError(fmt.Sprintf("Failed to handle ICE candidate: %v", err))
+				continue
+			}
+
+		case "rejected":
+			c.ui.ShowConnectionRejected(msg.Token)
+			c.Disconnect()
+
+		case "error":
+			c.ui.ShowError(msg.SDP)
+			c.Disconnect()
+		}
+	}
 }
