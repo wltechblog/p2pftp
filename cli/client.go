@@ -9,11 +9,7 @@ import (
 	"github.com/wltechblog/p2pftp/cli/webrtc"
 )
 
-// Constants from config.go
-const (
-	maxWebRTCMessageSize = 262144 // 256KB - Maximum size for WebRTC messages
-	fixedChunkSize       = 262144 // 256KB - Fixed chunk size for consistency
-)
+// Use constants from config.go
 
 // Client represents the P2PFTP client
 type Client struct {
@@ -27,26 +23,7 @@ type Client struct {
 	receiver        *transfer.Receiver
 }
 
-// UserInterface defines the interface for the UI implementation
-type UserInterface interface {
-	ShowError(msg string)
-	LogDebug(msg string)
-	ShowChat(from string, msg string)
-	ShowConnectionRequest(token string)
-	ShowConnectionAccepted(msg string)
-	ShowConnectionRejected(token string)
-	SetToken(token string)
-	UpdateTransferProgress(status string, direction string)
-}
-
-// Message represents a message exchanged with the server
-type Message struct {
-	Type      string `json:"type"`
-	Token     string `json:"token,omitempty"`
-	PeerToken string `json:"peerToken,omitempty"`
-	SDP       string `json:"sdp,omitempty"`
-	ICE       string `json:"ice,omitempty"`
-}
+// Using UserInterface and Message types from the main package
 
 // NewClient creates a new client instance
 func NewClient(conn *websocket.Conn) *Client {
@@ -161,8 +138,8 @@ func (c *Client) initWebRTC(peerToken string, isInitiator bool) {
 		func() {
 			c.ui.ShowConnectionAccepted("")
 		},
-		fixedChunkSize,
-		maxWebRTCMessageSize,
+		262144, // fixedChunkSize from config.go
+		262144, // maxWebRTCMessageSize from config.go
 	)
 	
 	// Create WebRTC signaling
@@ -180,8 +157,8 @@ func (c *Client) initWebRTC(peerToken string, isInitiator bool) {
 		func(status string, direction string) {
 			c.ui.UpdateTransferProgress(status, direction)
 		},
-		fixedChunkSize,
-		maxWebRTCMessageSize,
+		262144, // fixedChunkSize from config.go
+		262144, // maxWebRTCMessageSize from config.go
 	)
 	
 	c.receiver = transfer.NewReceiver(
@@ -191,7 +168,7 @@ func (c *Client) initWebRTC(peerToken string, isInitiator bool) {
 		func(status string, direction string) {
 			c.ui.UpdateTransferProgress(status, direction)
 		},
-		fixedChunkSize,
+		262144, // fixedChunkSize from config.go
 	)
 	
 	// Create WebRTC channels
