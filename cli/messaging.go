@@ -12,6 +12,11 @@ func (c *Client) SendChat(text string) error {
 	if !c.webrtc.connected {
 		return fmt.Errorf("not connected to peer")
 	}
+	
+	// Ensure data channel is initialized
+	if c.webrtc.dataChannel == nil {
+		return fmt.Errorf("connection not fully established, please wait or reconnect")
+	}
 
 	msg := struct {
 		Type    string `json:"type"`
@@ -24,6 +29,11 @@ func (c *Client) SendChat(text string) error {
 	msgJSON, err := json.Marshal(msg)
 	if err != nil {
 		return fmt.Errorf("failed to marshal message: %v", err)
+	}
+
+	// Check if data channel is initialized
+	if c.webrtc.dataChannel == nil {
+		return fmt.Errorf("data channel not initialized, connection may not be fully established")
 	}
 
 	err = c.webrtc.dataChannel.SendText(string(msgJSON))
@@ -39,10 +49,16 @@ func (c *Client) Connect(peerToken string) error {
 	if c.webrtc.connected {
 		return fmt.Errorf("already connected to a peer")
 	}
+	
+	// Initialize with a properly structured WebRTC state
 	c.webrtc = &WebRTCState{
-		peerToken:   peerToken,
-		isInitiator: true,
+		peerToken:      peerToken,
+		isInitiator:    true,
+		connected:      false,
+		sendTransfer:   transferState{},
+		receiveTransfer: transferState{},
 	}
+	
 	return c.SendMessage(Message{Type: "connect", PeerToken: peerToken})
 }
 
@@ -51,7 +67,16 @@ func (c *Client) Accept(peerToken string) error {
 	if c.webrtc.connected {
 		return fmt.Errorf("already connected to a peer")
 	}
-	c.webrtc = &WebRTCState{peerToken: peerToken, isInitiator: false}
+	
+	// Initialize with a properly structured WebRTC state
+	c.webrtc = &WebRTCState{
+		peerToken:      peerToken,
+		isInitiator:    false,
+		connected:      false,
+		sendTransfer:   transferState{},
+		receiveTransfer: transferState{},
+	}
+	
 	return c.SendMessage(Message{Type: "accept", PeerToken: peerToken})
 }
 

@@ -157,7 +157,12 @@ func (c *Client) setupPeerConnection() error {
 
 				ackJSON, err := json.Marshal(ack)
 				if err == nil {
-					c.webrtc.controlChannel.SendText(string(ackJSON))
+					// Double-check that control channel is still initialized
+					if c.webrtc.controlChannel != nil {
+						c.webrtc.controlChannel.SendText(string(ackJSON))
+					} else {
+						c.ui.LogDebug("Cannot send capabilities acknowledgment: control channel is not initialized")
+					}
 				}
 			}
 		case "capabilities-ack":
@@ -362,6 +367,12 @@ func (c *Client) handleSDP(msg Message) {
 
 // Complete the connection setup when both channels are open
 func (c *Client) completeConnectionSetup() {
+	// Double-check that both channels are actually initialized
+	if c.webrtc.controlChannel == nil || c.webrtc.dataChannel == nil {
+		c.ui.LogDebug("Cannot complete connection setup: one or both channels are not initialized")
+		return
+	}
+
 	c.webrtc.connected = true
 	c.ui.LogDebug("Both channels ready for transfer")
 	c.ui.ShowConnectionAccepted("")
@@ -377,7 +388,12 @@ func (c *Client) completeConnectionSetup() {
 
 	capabilitiesJSON, err := json.Marshal(capabilities)
 	if err == nil {
-		c.webrtc.controlChannel.SendText(string(capabilitiesJSON))
-		c.ui.LogDebug(fmt.Sprintf("Sent capabilities with max chunk size: %d", maxSupportedChunkSize))
+		// Double-check that control channel is still initialized
+		if c.webrtc.controlChannel != nil {
+			c.webrtc.controlChannel.SendText(string(capabilitiesJSON))
+			c.ui.LogDebug(fmt.Sprintf("Sent capabilities with max chunk size: %d", maxSupportedChunkSize))
+		} else {
+			c.ui.LogDebug("Cannot send capabilities: control channel is not initialized")
+		}
 	}
 }
