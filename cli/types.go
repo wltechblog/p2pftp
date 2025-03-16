@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/wltechblog/p2pftp/cli/webrtc"
+	ourwebrtc "github.com/wltechblog/p2pftp/cli/webrtc"
 )
 
 // This file contains common types and interfaces used throughout the application.
@@ -21,7 +21,7 @@ type UserInterface interface {
 
 // MessageSender sends messages to the signaling server
 type MessageSender interface {
-	SendSignalingMessage(msg webrtc.SignalingMessage) error
+	SendSignalingMessage(msg ourwebrtc.SignalingMessage) error
 }
 
 // Message represents a message exchanged with the server

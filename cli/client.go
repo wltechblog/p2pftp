@@ -4,9 +4,10 @@ import (
 	"fmt"
 
 	"github.com/gorilla/websocket"
+	pionwebrtc "github.com/pion/webrtc/v3"
 
 	"github.com/wltechblog/p2pftp/cli/transfer"
-	"github.com/wltechblog/p2pftp/cli/webrtc"
+	ourwebrtc "github.com/wltechblog/p2pftp/cli/webrtc" // Our custom webrtc package
 )
 
 // Use constants from config.go
@@ -16,11 +17,39 @@ type Client struct {
 	conn            *websocket.Conn
 	token           string
 	ui              UserInterface
-	webrtcConn      *webrtc.Connection
-	webrtcSignaling *webrtc.Signaling
-	webrtcChannels  *webrtc.Channels
+	webrtcConn      *ClientWebRTCConnection
+	webrtcSignaling *ourwebrtc.Signaling
+	webrtcChannels  *ourwebrtc.Channels
 	sender          *transfer.Sender
 	receiver        *transfer.Receiver
+}
+
+// ClientWebRTCConnection extends the ourwebrtc.Connection with client-specific functionality
+type ClientWebRTCConnection struct {
+	*ourwebrtc.Connection
+	client *Client
+}
+
+// OnChannelsReady is called when both channels are ready
+func (c *ClientWebRTCConnection) OnChannelsReady() {
+	// Make sure the channels are initialized
+	if c.Connection.GetControlChannel() == nil || c.Connection.GetDataChannel() == nil {
+		c.client.ui.LogDebug("Cannot set up channel handlers: channels not initialized")
+		return
+	}
+	
+	// Make sure the channels are in the open state
+	if c.Connection.GetControlChannel().ReadyState() != pionwebrtc.DataChannelStateOpen ||
+	   c.Connection.GetDataChannel().ReadyState() != pionwebrtc.DataChannelStateOpen {
+		c.client.ui.LogDebug("Cannot set up channel handlers: channels not in open state")
+		return
+	}
+	
+	// Set up WebRTC channels
+	c.client.webrtcChannels.SetupChannelHandlers()
+	
+	// Log that channels are ready
+	c.client.ui.LogDebug("Channels are ready, handlers set up")
 }
 
 // Using UserInterface and Message types from the main package
@@ -48,7 +77,7 @@ func (c *Client) SendMessage(msg Message) error {
 }
 
 // SendSignalingMessage sends a signaling message to the server
-func (c *Client) SendSignalingMessage(msg webrtc.SignalingMessage) error {
+func (c *Client) SendSignalingMessage(msg ourwebrtc.SignalingMessage) error {
 	// Convert to our Message type
 	message := Message{
 		Type:      msg.Type,
@@ -58,8 +87,15 @@ func (c *Client) SendSignalingMessage(msg webrtc.SignalingMessage) error {
 		ICE:       msg.ICE,
 	}
 	
+	// Log the message type
+	c.ui.LogDebug(fmt.Sprintf("Sending signaling message: %s", msg.Type))
+	
 	// Send the message
-	return c.SendMessage(message)
+	err := c.SendMessage(message)
+	if err != nil {
+		c.ui.LogDebug(fmt.Sprintf("Error sending signaling message: %v", err))
+	}
+	return err
 }
 
 // Connect initiates a connection to a peer
@@ -119,7 +155,7 @@ func (c *Client) SendFile(path string) error {
 // Disconnect disconnects from the peer
 func (c *Client) Disconnect() error {
 	if c.webrtcConn != nil {
-		c.webrtcConn.Disconnect()
+		c.webrtcConn.Connection.Disconnect()
 		c.webrtcConn = nil
 		c.webrtcSignaling = nil
 		c.webrtcChannels = nil
@@ -133,26 +169,29 @@ func (c *Client) Disconnect() error {
 // initWebRTC initializes the WebRTC components
 func (c *Client) initWebRTC(peerToken string, isInitiator bool) {
 	// Create WebRTC connection
-	c.webrtcConn = webrtc.NewConnection(
-		c.ui,
-		func() {
-			c.ui.ShowConnectionAccepted("")
-		},
-		262144, // fixedChunkSize from config.go
-		262144, // maxWebRTCMessageSize from config.go
-	)
+	c.webrtcConn = &ClientWebRTCConnection{
+		Connection: ourwebrtc.NewConnection(
+			c.ui,
+			func() {
+				c.ui.ShowConnectionAccepted("")
+			},
+			262144, // fixedChunkSize from config.go
+			262144, // maxWebRTCMessageSize from config.go
+		),
+		client: c,
+	}
 	
 	// Create WebRTC signaling
-	c.webrtcSignaling = webrtc.NewSignaling(
-		c.webrtcConn,
+	c.webrtcSignaling = ourwebrtc.NewSignaling(
+		c.webrtcConn.Connection,
 		c,
 		c.ui,
 	)
 	
 	// Create sender and receiver
 	c.sender = transfer.NewSender(
-		c.webrtcConn.GetControlChannel(),
-		c.webrtcConn.GetDataChannel(),
+		c.webrtcConn.Connection.GetControlChannel(),
+		c.webrtcConn.Connection.GetDataChannel(),
 		c.ui,
 		func(status string, direction string) {
 			c.ui.UpdateTransferProgress(status, direction)
@@ -162,8 +201,8 @@ func (c *Client) initWebRTC(peerToken string, isInitiator bool) {
 	)
 	
 	c.receiver = transfer.NewReceiver(
-		c.webrtcConn.GetControlChannel(),
-		c.webrtcConn.GetDataChannel(),
+		c.webrtcConn.Connection.GetControlChannel(),
+		c.webrtcConn.Connection.GetDataChannel(),
 		c.ui,
 		func(status string, direction string) {
 			c.ui.UpdateTransferProgress(status, direction)
@@ -172,15 +211,15 @@ func (c *Client) initWebRTC(peerToken string, isInitiator bool) {
 	)
 	
 	// Create WebRTC channels
-	c.webrtcChannels = webrtc.NewChannels(
-		c.webrtcConn,
+	c.webrtcChannels = ourwebrtc.NewChannels(
+		c.webrtcConn.Connection,
 		c.ui,
 		c.receiver,
 		c.receiver,
 	)
 	
 	// Set up WebRTC connection
-	err := c.webrtcConn.SetupPeerConnection()
+	err := c.webrtcConn.Connection.SetupPeerConnection()
 	if err != nil {
 		c.ui.ShowError(fmt.Sprintf("Failed to setup peer connection: %v", err))
 		return
@@ -189,8 +228,8 @@ func (c *Client) initWebRTC(peerToken string, isInitiator bool) {
 	// Set up WebRTC signaling
 	c.webrtcSignaling.SetupICEHandlers()
 	
-	// Set up WebRTC channels
-	c.webrtcChannels.SetupChannelHandlers()
+	// We'll set up the channel handlers after the channels are created
+	// This happens in the OnOpen callbacks in the Connection
 	
 	// If we're the initiator, create an offer
 	if isInitiator {
@@ -202,17 +241,25 @@ func (c *Client) initWebRTC(peerToken string, isInitiator bool) {
 	}
 }
 
+// logMessage logs a debug message with a timestamp
+func (c *Client) logMessage(format string, args ...interface{}) {
+	c.ui.LogDebug(fmt.Sprintf(format, args...))
+}
+
 // handleMessages processes incoming WebSocket messages from the server
 func (c *Client) handleMessages() {
-	c.ui.LogDebug("Message handler started, waiting for server token...")
+	c.logMessage("Message handler started, waiting for server token...")
 	for {
 		var msg Message
 		err := c.conn.ReadJSON(&msg)
 		if err != nil {
-			c.ui.LogDebug(fmt.Sprintf("Error reading message: %v", err))
+			c.logMessage("Error reading message: %v", err)
 			c.ui.ShowError("Connection error - please try again")
 			return
 		}
+
+		// Log the received message type
+		c.logMessage("Received message: %s", msg.Type)
 
 		switch msg.Type {
 		case "token":
@@ -240,17 +287,24 @@ func (c *Client) handleMessages() {
 				continue
 			}
 			
-			err := c.webrtcSignaling.HandleOffer(webrtc.SignalingMessage{
+			c.logMessage("Creating signaling message for offer")
+			sigMsg := ourwebrtc.SignalingMessage{
 				Type:      msg.Type,
 				Token:     msg.Token,
 				PeerToken: msg.PeerToken,
 				SDP:       msg.SDP,
 				ICE:       msg.ICE,
-			})
+			}
+			
+			c.logMessage("Handling offer")
+			err := c.webrtcSignaling.HandleOffer(sigMsg)
 			if err != nil {
+				c.logMessage("Error handling offer: %v", err)
 				c.ui.ShowError(fmt.Sprintf("Failed to handle offer: %v", err))
 				continue
 			}
+			
+			c.logMessage("Offer handled successfully")
 
 		case "answer":
 			if c.webrtcSignaling == nil {
@@ -258,17 +312,24 @@ func (c *Client) handleMessages() {
 				continue
 			}
 			
-			err := c.webrtcSignaling.HandleAnswer(webrtc.SignalingMessage{
+			c.logMessage("Creating signaling message for answer")
+			sigMsg := ourwebrtc.SignalingMessage{
 				Type:      msg.Type,
 				Token:     msg.Token,
 				PeerToken: msg.PeerToken,
 				SDP:       msg.SDP,
 				ICE:       msg.ICE,
-			})
+			}
+			
+			c.logMessage("Handling answer")
+			err := c.webrtcSignaling.HandleAnswer(sigMsg)
 			if err != nil {
+				c.logMessage("Error handling answer: %v", err)
 				c.ui.ShowError(fmt.Sprintf("Failed to handle answer: %v", err))
 				continue
 			}
+			
+			c.logMessage("Answer handled successfully")
 
 		case "ice":
 			if c.webrtcSignaling == nil {
@@ -276,17 +337,24 @@ func (c *Client) handleMessages() {
 				continue
 			}
 			
-			err := c.webrtcSignaling.HandleICE(webrtc.SignalingMessage{
+			c.logMessage("Creating signaling message for ICE")
+			sigMsg := ourwebrtc.SignalingMessage{
 				Type:      msg.Type,
 				Token:     msg.Token,
 				PeerToken: msg.PeerToken,
 				SDP:       msg.SDP,
 				ICE:       msg.ICE,
-			})
+			}
+			
+			c.logMessage("Handling ICE")
+			err := c.webrtcSignaling.HandleICE(sigMsg)
 			if err != nil {
+				c.logMessage("Error handling ICE: %v", err)
 				c.ui.ShowError(fmt.Sprintf("Failed to handle ICE candidate: %v", err))
 				continue
 			}
+			
+			c.logMessage("ICE handled successfully")
 
 		case "rejected":
 			c.ui.ShowConnectionRejected(msg.Token)

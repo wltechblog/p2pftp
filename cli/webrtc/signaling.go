@@ -43,32 +43,47 @@ func NewSignaling(
 
 // HandleOffer handles an SDP offer
 func (s *Signaling) HandleOffer(msg SignalingMessage) error {
+	s.logger.LogDebug("Handling SDP offer")
+	
 	// Parse the SDP offer
 	var offer webrtc.SessionDescription
 	err := json.Unmarshal([]byte(msg.SDP), &offer)
 	if err != nil {
+		s.logger.LogDebug(fmt.Sprintf("Failed to parse SDP offer: %v", err))
 		return fmt.Errorf("failed to parse SDP offer: %v", err)
 	}
+	
+	s.logger.LogDebug("SDP offer parsed successfully")
 
 	// Set the remote description
+	s.logger.LogDebug("Setting remote description")
 	err = s.connection.state.PeerConn.SetRemoteDescription(offer)
 	if err != nil {
+		s.logger.LogDebug(fmt.Sprintf("Failed to set remote description: %v", err))
 		return fmt.Errorf("failed to set remote description: %v", err)
 	}
+	s.logger.LogDebug("Remote description set successfully")
 
 	// Create an answer
+	s.logger.LogDebug("Creating answer")
 	answer, err := s.connection.state.PeerConn.CreateAnswer(nil)
 	if err != nil {
+		s.logger.LogDebug(fmt.Sprintf("Failed to create answer: %v", err))
 		return fmt.Errorf("failed to create answer: %v", err)
 	}
+	s.logger.LogDebug("Answer created successfully")
 
 	// Set the local description
+	s.logger.LogDebug("Setting local description")
 	err = s.connection.state.PeerConn.SetLocalDescription(answer)
 	if err != nil {
+		s.logger.LogDebug(fmt.Sprintf("Failed to set local description: %v", err))
 		return fmt.Errorf("failed to set local description: %v", err)
 	}
+	s.logger.LogDebug("Local description set successfully")
 
 	// Marshal the answer
+	s.logger.LogDebug("Marshaling answer")
 	answerObj := struct {
 		Type string `json:"type"`
 		SDP  string `json:"sdp"`
@@ -78,73 +93,101 @@ func (s *Signaling) HandleOffer(msg SignalingMessage) error {
 	}
 	answerJSON, err := json.Marshal(answerObj)
 	if err != nil {
+		s.logger.LogDebug(fmt.Sprintf("Failed to marshal answer: %v", err))
 		return fmt.Errorf("failed to marshal answer: %v", err)
 	}
+	s.logger.LogDebug("Answer marshaled successfully")
 
 	// Send the answer
+	s.logger.LogDebug("Sending answer")
 	err = s.sender.SendSignalingMessage(SignalingMessage{
 		Type:      "answer",
 		PeerToken: msg.Token,
 		SDP:       string(answerJSON),
 	})
 	if err != nil {
+		s.logger.LogDebug(fmt.Sprintf("Failed to send answer: %v", err))
 		return fmt.Errorf("failed to send answer: %v", err)
 	}
+	s.logger.LogDebug("Answer sent successfully")
 
 	return nil
 }
 
 // HandleAnswer handles an SDP answer
 func (s *Signaling) HandleAnswer(msg SignalingMessage) error {
+	s.logger.LogDebug("Handling SDP answer")
+	
 	// Parse the SDP answer
 	var answer webrtc.SessionDescription
 	err := json.Unmarshal([]byte(msg.SDP), &answer)
 	if err != nil {
+		s.logger.LogDebug(fmt.Sprintf("Failed to parse SDP answer: %v", err))
 		return fmt.Errorf("failed to parse SDP answer: %v", err)
 	}
+	s.logger.LogDebug("SDP answer parsed successfully")
 
 	// Set the remote description
+	s.logger.LogDebug("Setting remote description")
 	err = s.connection.state.PeerConn.SetRemoteDescription(answer)
 	if err != nil {
+		s.logger.LogDebug(fmt.Sprintf("Failed to set remote description: %v", err))
 		return fmt.Errorf("failed to set remote description: %v", err)
 	}
+	s.logger.LogDebug("Remote description set successfully")
 
 	return nil
 }
 
 // HandleICE handles an ICE candidate
 func (s *Signaling) HandleICE(msg SignalingMessage) error {
+	s.logger.LogDebug("Handling ICE candidate")
+	
 	// Parse the ICE candidate
 	var candidate webrtc.ICECandidateInit
 	err := json.Unmarshal([]byte(msg.ICE), &candidate)
 	if err != nil {
+		s.logger.LogDebug(fmt.Sprintf("Failed to parse ICE candidate: %v", err))
 		return fmt.Errorf("failed to parse ICE candidate: %v", err)
 	}
+	s.logger.LogDebug("ICE candidate parsed successfully")
 
 	// Add the ICE candidate
+	s.logger.LogDebug("Adding ICE candidate")
 	err = s.connection.state.PeerConn.AddICECandidate(candidate)
 	if err != nil {
+		s.logger.LogDebug(fmt.Sprintf("Failed to add ICE candidate: %v", err))
 		return fmt.Errorf("failed to add ICE candidate: %v", err)
 	}
+	s.logger.LogDebug("ICE candidate added successfully")
 
 	return nil
 }
 
 // CreateOffer creates an SDP offer
 func (s *Signaling) CreateOffer() error {
+	s.logger.LogDebug("Creating SDP offer")
+	
 	// Create an offer
+	s.logger.LogDebug("Creating offer")
 	offer, err := s.connection.state.PeerConn.CreateOffer(nil)
 	if err != nil {
+		s.logger.LogDebug(fmt.Sprintf("Failed to create offer: %v", err))
 		return fmt.Errorf("failed to create offer: %v", err)
 	}
+	s.logger.LogDebug("Offer created successfully")
 
 	// Set the local description
+	s.logger.LogDebug("Setting local description")
 	err = s.connection.state.PeerConn.SetLocalDescription(offer)
 	if err != nil {
+		s.logger.LogDebug(fmt.Sprintf("Failed to set local description: %v", err))
 		return fmt.Errorf("failed to set local description: %v", err)
 	}
+	s.logger.LogDebug("Local description set successfully")
 
 	// Marshal the offer
+	s.logger.LogDebug("Marshaling offer")
 	offerObj := struct {
 		Type string `json:"type"`
 		SDP  string `json:"sdp"`
@@ -154,18 +197,23 @@ func (s *Signaling) CreateOffer() error {
 	}
 	offerJSON, err := json.Marshal(offerObj)
 	if err != nil {
+		s.logger.LogDebug(fmt.Sprintf("Failed to marshal offer: %v", err))
 		return fmt.Errorf("failed to marshal offer: %v", err)
 	}
+	s.logger.LogDebug("Offer marshaled successfully")
 
 	// Send the offer
+	s.logger.LogDebug("Sending offer")
 	err = s.sender.SendSignalingMessage(SignalingMessage{
 		Type:      "offer",
 		PeerToken: s.connection.state.PeerToken,
 		SDP:       string(offerJSON),
 	})
 	if err != nil {
+		s.logger.LogDebug(fmt.Sprintf("Failed to send offer: %v", err))
 		return fmt.Errorf("failed to send offer: %v", err)
 	}
+	s.logger.LogDebug("Offer sent successfully")
 
 	return nil
 }
