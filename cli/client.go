@@ -100,38 +100,74 @@ func (c *Client) SendSignalingMessage(msg ourwebrtc.SignalingMessage) error {
 
 // Connect initiates a connection to a peer
 func (c *Client) Connect(peerToken string) error {
+	// Log the connection attempt
+	c.logMessage("Connecting to peer with token: %s", peerToken)
+	
 	// Initialize WebRTC components
 	c.initWebRTC(peerToken, true)
 	
 	// Send connect message to server
-	return c.SendMessage(Message{
+	c.logMessage("Sending connect message to server")
+	err := c.SendMessage(Message{
 		Type:      "connect",
 		PeerToken: peerToken,
 	})
+	
+	if err != nil {
+		c.logMessage("Error sending connect message: %v", err)
+	} else {
+		c.logMessage("Connect message sent successfully")
+	}
+	
+	return err
 }
 
 // Accept accepts a connection request
 func (c *Client) Accept(peerToken string) error {
+	// Log the accept attempt
+	c.logMessage("Accepting connection from peer with token: %s", peerToken)
+	
 	// Initialize WebRTC components
 	c.initWebRTC(peerToken, false)
 	
 	// Send accept message to server
-	return c.SendMessage(Message{
+	c.logMessage("Sending accept message to server")
+	err := c.SendMessage(Message{
 		Type:      "accept",
 		PeerToken: peerToken,
 	})
+	
+	if err != nil {
+		c.logMessage("Error sending accept message: %v", err)
+	} else {
+		c.logMessage("Accept message sent successfully")
+	}
+	
+	return err
 }
 
 // Reject rejects a connection request
 func (c *Client) Reject(peerToken string) error {
+	// Log the reject attempt
+	c.logMessage("Rejecting connection from peer with token: %s", peerToken)
+	
 	// Clean up any existing connection
 	c.Disconnect()
 	
 	// Send reject message to server
-	return c.SendMessage(Message{
+	c.logMessage("Sending reject message to server")
+	err := c.SendMessage(Message{
 		Type:      "reject",
 		PeerToken: peerToken,
 	})
+	
+	if err != nil {
+		c.logMessage("Error sending reject message: %v", err)
+	} else {
+		c.logMessage("Reject message sent successfully")
+	}
+	
+	return err
 }
 
 // SendChat sends a chat message
@@ -154,13 +190,25 @@ func (c *Client) SendFile(path string) error {
 
 // Disconnect disconnects from the peer
 func (c *Client) Disconnect() error {
+	c.logMessage("Disconnecting from peer")
+	
 	if c.webrtcConn != nil {
-		c.webrtcConn.Connection.Disconnect()
+		// Log the connection state before disconnecting
+		if c.webrtcConn.Connection != nil {
+			c.logMessage("Disconnecting WebRTC connection")
+			c.webrtcConn.Connection.Disconnect()
+		}
+		
+		// Clean up all references
 		c.webrtcConn = nil
 		c.webrtcSignaling = nil
 		c.webrtcChannels = nil
 		c.sender = nil
 		c.receiver = nil
+		
+		c.logMessage("Disconnected successfully")
+	} else {
+		c.logMessage("No active connection to disconnect")
 	}
 	
 	return nil
@@ -168,11 +216,14 @@ func (c *Client) Disconnect() error {
 
 // initWebRTC initializes the WebRTC components
 func (c *Client) initWebRTC(peerToken string, isInitiator bool) {
+	c.logMessage("Initializing WebRTC components (isInitiator: %v)", isInitiator)
 	// Create WebRTC connection
+	c.logMessage("Creating WebRTC connection")
 	c.webrtcConn = &ClientWebRTCConnection{
 		Connection: ourwebrtc.NewConnection(
 			c.ui,
 			func() {
+				c.logMessage("Connection setup callback called")
 				c.ui.ShowConnectionAccepted("")
 			},
 			262144, // fixedChunkSize from config.go
@@ -180,6 +231,7 @@ func (c *Client) initWebRTC(peerToken string, isInitiator bool) {
 		),
 		client: c,
 	}
+	c.logMessage("WebRTC connection created")
 	
 	// Create WebRTC signaling
 	c.webrtcSignaling = ourwebrtc.NewSignaling(
@@ -361,6 +413,7 @@ func (c *Client) handleMessages() {
 			c.Disconnect()
 
 		case "error":
+				c.logMessage("Received error message: %s", msg.SDP)
 			c.ui.ShowError(msg.SDP)
 			c.Disconnect()
 		}

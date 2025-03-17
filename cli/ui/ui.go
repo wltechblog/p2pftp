@@ -131,6 +131,13 @@ func (ui *UI) createComponents() {
 // Run starts the UI
 func (ui *UI) Run() error {
 	ui.app.SetRoot(ui.flex, true)
+	
+	// Display help message after a short delay to ensure UI is ready
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		ui.showHelp()
+	}()
+	
 	return ui.app.Run()
 }
 
