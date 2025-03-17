@@ -26,24 +26,30 @@ type Signaling struct {
 	connection *Connection
 	sender     MessageSender
 	logger     Logger
+	hasOffer   bool
+	hasAnswer  bool
 }
 
-// NewSignaling creates a new signaling handler
-func NewSignaling(
-	connection *Connection,
-	sender MessageSender,
-	logger Logger,
-) *Signaling {
+// NewSignaling creates a new signaling instance
+func NewSignaling(connection *Connection, sender MessageSender, logger Logger) *Signaling {
 	return &Signaling{
 		connection: connection,
 		sender:     sender,
 		logger:     logger,
+		hasOffer:   false,
+		hasAnswer:  false,
 	}
 }
 
 // HandleOffer handles an SDP offer
 func (s *Signaling) HandleOffer(msg SignalingMessage) error {
 	s.logger.LogDebug("Handling SDP offer")
+	
+	// Check if we already have an offer
+	if s.hasOffer {
+		s.logger.LogDebug("Already have an offer, ignoring")
+		return fmt.Errorf("already have an offer")
+	}
 	
 	// Parse the SDP offer
 	var offer webrtc.SessionDescription
@@ -63,6 +69,9 @@ func (s *Signaling) HandleOffer(msg SignalingMessage) error {
 		return fmt.Errorf("failed to set remote description: %v", err)
 	}
 	s.logger.LogDebug("Remote description set successfully")
+	
+	// Mark that we have an offer
+	s.hasOffer = true
 
 	// Create an answer
 	s.logger.LogDebug("Creating answer")
@@ -81,6 +90,9 @@ func (s *Signaling) HandleOffer(msg SignalingMessage) error {
 		return fmt.Errorf("failed to set local description: %v", err)
 	}
 	s.logger.LogDebug("Local description set successfully")
+	
+	// Mark that we have an answer
+	s.hasAnswer = true
 
 	// Marshal the answer
 	s.logger.LogDebug("Marshaling answer")
@@ -118,6 +130,18 @@ func (s *Signaling) HandleOffer(msg SignalingMessage) error {
 func (s *Signaling) HandleAnswer(msg SignalingMessage) error {
 	s.logger.LogDebug("Handling SDP answer")
 	
+	// Check if we have an offer
+	if !s.hasOffer {
+		s.logger.LogDebug("No offer to answer, ignoring")
+		return fmt.Errorf("no offer to answer")
+	}
+	
+	// Check if we already have an answer
+	if s.hasAnswer {
+		s.logger.LogDebug("Already have an answer, ignoring")
+		return fmt.Errorf("already have an answer")
+	}
+	
 	// Parse the SDP answer
 	var answer webrtc.SessionDescription
 	err := json.Unmarshal([]byte(msg.SDP), &answer)
@@ -135,6 +159,9 @@ func (s *Signaling) HandleAnswer(msg SignalingMessage) error {
 		return fmt.Errorf("failed to set remote description: %v", err)
 	}
 	s.logger.LogDebug("Remote description set successfully")
+	
+	// Mark that we have an answer
+	s.hasAnswer = true
 
 	return nil
 }
@@ -168,6 +195,12 @@ func (s *Signaling) HandleICE(msg SignalingMessage) error {
 func (s *Signaling) CreateOffer() error {
 	s.logger.LogDebug("Creating SDP offer")
 	
+	// Check if we already have an offer
+	if s.hasOffer {
+		s.logger.LogDebug("Already have an offer, ignoring")
+		return fmt.Errorf("already have an offer")
+	}
+	
 	// Create an offer
 	s.logger.LogDebug("Creating offer")
 	offer, err := s.connection.state.PeerConn.CreateOffer(nil)
@@ -185,6 +218,9 @@ func (s *Signaling) CreateOffer() error {
 		return fmt.Errorf("failed to set local description: %v", err)
 	}
 	s.logger.LogDebug("Local description set successfully")
+	
+	// Mark that we have an offer
+	s.hasOffer = true
 
 	// Marshal the offer
 	s.logger.LogDebug("Marshaling offer")
@@ -226,6 +262,8 @@ func (s *Signaling) SetupICEHandlers() {
 			return
 		}
 
+		s.logger.LogDebug(fmt.Sprintf("ICE candidate: %s", candidate.String()))
+
 		// Marshal the ICE candidate
 		candidateJSON, err := json.Marshal(candidate.ToJSON())
 		if err != nil {
@@ -244,21 +282,10 @@ func (s *Signaling) SetupICEHandlers() {
 			return
 		}
 	})
+}
 
-	// Set up connection state change handler
-	s.connection.state.PeerConn.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {
-		s.logger.LogDebug(fmt.Sprintf("Peer connection state changed: %s", state.String()))
-
-		switch state {
-		case webrtc.PeerConnectionStateFailed:
-			s.logger.LogDebug("Peer connection failed, disconnecting")
-			s.connection.Disconnect()
-		case webrtc.PeerConnectionStateClosed:
-			s.logger.LogDebug("Peer connection closed")
-			s.connection.Disconnect()
-		case webrtc.PeerConnectionStateDisconnected:
-			s.logger.LogDebug("Peer connection disconnected")
-			s.connection.Disconnect()
-		}
-	})
+// Reset resets the signaling state
+func (s *Signaling) Reset() {
+	s.hasOffer = false
+	s.hasAnswer = false
 }

@@ -246,6 +246,12 @@ func (c *Client) Disconnect() error {
 			c.webrtcConn.Connection.Disconnect()
 		}
 		
+		// Reset the signaling state
+		if c.webrtcSignaling != nil {
+			c.logMessage("Resetting signaling state")
+			c.webrtcSignaling.Reset()
+		}
+		
 		// Clean up all references
 		c.webrtcConn = nil
 		c.webrtcSignaling = nil
@@ -389,6 +395,7 @@ func (c *Client) handleMessages() {
 			
 			err := c.webrtcSignaling.CreateOffer()
 			if err != nil {
+				c.logMessage("Error creating offer: %v", err)
 				c.ui.ShowError(fmt.Sprintf("Failed to create offer: %v", err))
 				continue
 			}
