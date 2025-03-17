@@ -1,7 +1,9 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/gorilla/websocket"
 	pionwebrtc "github.com/pion/webrtc/v3"
@@ -100,18 +102,39 @@ func (c *Client) SendSignalingMessage(msg ourwebrtc.SignalingMessage) error {
 
 // Connect initiates a connection to a peer
 func (c *Client) Connect(peerToken string) error {
+	// Validate the token
+	if peerToken == "" {
+		c.logMessage("Error: Empty peer token")
+		return fmt.Errorf("peer token cannot be empty")
+	}
+	
+	// Check if the token is our own token
+	if peerToken == c.token {
+		c.logMessage("Error: Cannot connect to self")
+		return fmt.Errorf("cannot connect to yourself")
+	}
+	
 	// Log the connection attempt
-	c.logMessage("Connecting to peer with token: %s", peerToken)
+	c.logMessage("Connecting to peer with token: '%s'", peerToken)
 	
 	// Initialize WebRTC components
 	c.initWebRTC(peerToken, true)
 	
 	// Send connect message to server
-	c.logMessage("Sending connect message to server")
-	err := c.SendMessage(Message{
+	c.logMessage("Sending connect message to server with peer token: '%s'", peerToken)
+	
+	// Create the message
+	connectMsg := Message{
 		Type:      "connect",
 		PeerToken: peerToken,
-	})
+	}
+	
+	// Log the message for debugging
+	msgJSON, _ := json.Marshal(connectMsg)
+	c.logMessage("Connect message JSON: %s", string(msgJSON))
+	
+	// Send the message
+	err := c.SendMessage(connectMsg)
 	
 	if err != nil {
 		c.logMessage("Error sending connect message: %v", err)
@@ -413,8 +436,24 @@ func (c *Client) handleMessages() {
 			c.Disconnect()
 
 		case "error":
-				c.logMessage("Received error message: %s", msg.SDP)
-			c.ui.ShowError(msg.SDP)
+			// Extract the error message
+			errorMsg := "Connection error"
+			if msg.SDP != "" {
+				errorMsg = msg.SDP
+			}
+			
+			// Log the error message
+			c.logMessage("Received error message: %s", errorMsg)
+			
+			// Check for specific error types
+			if strings.Contains(errorMsg, "Peer not found") {
+				c.logMessage("The peer token was not found on the server")
+				c.ui.ShowError(fmt.Sprintf("Peer not found. Please check the token and try again."))
+			} else {
+				c.ui.ShowError(errorMsg)
+			}
+			
+			// Disconnect
 			c.Disconnect()
 		}
 	}
