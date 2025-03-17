@@ -24,6 +24,7 @@ type Client struct {
 	webrtcChannels  *ourwebrtc.Channels
 	sender          *transfer.Sender
 	receiver        *transfer.Receiver
+	hasCreatedOffer bool
 }
 
 // ClientWebRTCConnection extends the ourwebrtc.Connection with client-specific functionality
@@ -59,7 +60,8 @@ func (c *ClientWebRTCConnection) OnChannelsReady() {
 // NewClient creates a new client instance
 func NewClient(conn *websocket.Conn) *Client {
 	return &Client{
-		conn: conn,
+		conn:            conn,
+		hasCreatedOffer: false,
 	}
 }
 
@@ -121,6 +123,9 @@ func (c *Client) Connect(peerToken string) error {
 	c.logMessage("Connecting to peer with token: '%s'", peerToken)
 	c.logMessage("Our token is: '%s'", c.token)
 	
+	// Reset the hasCreatedOffer flag
+	c.hasCreatedOffer = false
+	
 	// Initialize WebRTC components
 	c.initWebRTC(peerToken, true)
 	
@@ -154,6 +159,9 @@ func (c *Client) Accept(peerToken string) error {
 	// Log the accept attempt
 	c.logMessage("Accepting connection from peer with token: '%s'", peerToken)
 	c.logMessage("Our token is: '%s'", c.token)
+	
+	// Reset the hasCreatedOffer flag
+	c.hasCreatedOffer = false
 	
 	// Initialize WebRTC components
 	c.initWebRTC(peerToken, false)
@@ -238,6 +246,9 @@ func (c *Client) SendFile(path string) error {
 // Disconnect disconnects from the peer
 func (c *Client) Disconnect() error {
 	c.logMessage("Disconnecting from peer")
+	
+	// Reset the hasCreatedOffer flag
+	c.hasCreatedOffer = false
 	
 	if c.webrtcConn != nil {
 		// Log the connection state before disconnecting
@@ -346,12 +357,31 @@ func (c *Client) initWebRTC(peerToken string, isInitiator bool) {
 	
 	// If we're the initiator, create an offer
 	if isInitiator {
-		err := c.webrtcSignaling.CreateOffer()
-		if err != nil {
-			c.ui.ShowError(fmt.Sprintf("Failed to create offer: %v", err))
-			return
-		}
+		// We'll wait for the "accepted" message before creating the offer
+		c.logMessage("Waiting for accepted message before creating offer")
 	}
+}
+
+// createOffer creates an SDP offer
+func (c *Client) createOffer() error {
+	// Check if we've already created an offer
+	if c.hasCreatedOffer {
+		c.logMessage("Already created an offer, ignoring")
+		return nil
+	}
+	
+	// Create the offer
+	c.logMessage("Creating SDP offer")
+	err := c.webrtcSignaling.CreateOffer()
+	if err != nil {
+		c.logMessage("Error creating offer: %v", err)
+		return err
+	}
+	
+	// Mark that we've created an offer
+	c.hasCreatedOffer = true
+	
+	return nil
 }
 
 // logMessage logs a debug message with a timestamp
@@ -393,11 +423,15 @@ func (c *Client) handleMessages() {
 			
 			c.logMessage("Connection accepted by peer with token: '%s'", msg.Token)
 			
-			err := c.webrtcSignaling.CreateOffer()
-			if err != nil {
-				c.logMessage("Error creating offer: %v", err)
-				c.ui.ShowError(fmt.Sprintf("Failed to create offer: %v", err))
-				continue
+			// Create an offer if we haven't already
+			if !c.hasCreatedOffer {
+				err := c.createOffer()
+				if err != nil {
+					c.ui.ShowError(fmt.Sprintf("Failed to create offer: %v", err))
+					continue
+				}
+			} else {
+				c.logMessage("Already created an offer, ignoring accepted message")
 			}
 
 		case "offer":
