@@ -253,6 +253,9 @@ func (c *Connection) completeConnectionSetup() {
 	if c.connectionSetup != nil {
 		c.connectionSetup()
 	}
+	
+	// Notify the client that the channels are ready
+	c.OnChannelsReady()
 
 	// Send capabilities message with our maximum supported chunk size
 	capabilities := struct {
@@ -326,4 +329,21 @@ func (c *Connection) GetControlChannel() *webrtc.DataChannel {
 // GetDataChannel returns the data channel
 func (c *Connection) GetDataChannel() *webrtc.DataChannel {
 	return c.state.DataChannel
+}
+
+// OnChannelsReady is called when both channels are ready
+func (c *Connection) OnChannelsReady() {
+	// This is a hook for clients to implement
+	c.logger.LogDebug("Channels are ready")
+}
+
+// SetPeerToken sets the peer token in the connection state
+func (c *Connection) SetPeerToken(token string) {
+	c.logger.LogDebug(fmt.Sprintf("Setting peer token: %s", token))
+	c.state.PeerToken = token
+}
+
+// GetPeerToken gets the peer token from the connection state
+func (c *Connection) GetPeerToken() string {
+	return c.state.PeerToken
 }

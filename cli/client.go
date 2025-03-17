@@ -70,6 +70,10 @@ func (c *Client) SetUI(ui UserInterface) {
 
 // SendMessage sends a message to the server
 func (c *Client) SendMessage(msg Message) error {
+	// Log the message for debugging
+	msgJSON, _ := json.Marshal(msg)
+	c.logMessage("Sending message to server: %s", string(msgJSON))
+	
 	err := c.conn.WriteJSON(msg)
 	if err != nil {
 		c.ui.ShowError("Send failed: " + err.Error())
@@ -83,7 +87,6 @@ func (c *Client) SendSignalingMessage(msg ourwebrtc.SignalingMessage) error {
 	// Convert to our Message type
 	message := Message{
 		Type:      msg.Type,
-		Token:     msg.Token,
 		PeerToken: msg.PeerToken,
 		SDP:       msg.SDP,
 		ICE:       msg.ICE,
@@ -116,6 +119,7 @@ func (c *Client) Connect(peerToken string) error {
 	
 	// Log the connection attempt
 	c.logMessage("Connecting to peer with token: '%s'", peerToken)
+	c.logMessage("Our token is: '%s'", c.token)
 	
 	// Initialize WebRTC components
 	c.initWebRTC(peerToken, true)
@@ -123,7 +127,7 @@ func (c *Client) Connect(peerToken string) error {
 	// Send connect message to server
 	c.logMessage("Sending connect message to server with peer token: '%s'", peerToken)
 	
-	// Create the message
+	// Create the message - only include the PeerToken
 	connectMsg := Message{
 		Type:      "connect",
 		PeerToken: peerToken,
@@ -148,17 +152,27 @@ func (c *Client) Connect(peerToken string) error {
 // Accept accepts a connection request
 func (c *Client) Accept(peerToken string) error {
 	// Log the accept attempt
-	c.logMessage("Accepting connection from peer with token: %s", peerToken)
+	c.logMessage("Accepting connection from peer with token: '%s'", peerToken)
+	c.logMessage("Our token is: '%s'", c.token)
 	
 	// Initialize WebRTC components
 	c.initWebRTC(peerToken, false)
 	
 	// Send accept message to server
 	c.logMessage("Sending accept message to server")
-	err := c.SendMessage(Message{
+	
+	// Create the message - only include the PeerToken
+	acceptMsg := Message{
 		Type:      "accept",
 		PeerToken: peerToken,
-	})
+	}
+	
+	// Log the message for debugging
+	msgJSON, _ := json.Marshal(acceptMsg)
+	c.logMessage("Accept message JSON: %s", string(msgJSON))
+	
+	// Send the message
+	err := c.SendMessage(acceptMsg)
 	
 	if err != nil {
 		c.logMessage("Error sending accept message: %v", err)
@@ -172,17 +186,27 @@ func (c *Client) Accept(peerToken string) error {
 // Reject rejects a connection request
 func (c *Client) Reject(peerToken string) error {
 	// Log the reject attempt
-	c.logMessage("Rejecting connection from peer with token: %s", peerToken)
+	c.logMessage("Rejecting connection from peer with token: '%s'", peerToken)
+	c.logMessage("Our token is: '%s'", c.token)
 	
 	// Clean up any existing connection
 	c.Disconnect()
 	
 	// Send reject message to server
 	c.logMessage("Sending reject message to server")
-	err := c.SendMessage(Message{
+	
+	// Create the message - only include the PeerToken
+	rejectMsg := Message{
 		Type:      "reject",
 		PeerToken: peerToken,
-	})
+	}
+	
+	// Log the message for debugging
+	msgJSON, _ := json.Marshal(rejectMsg)
+	c.logMessage("Reject message JSON: %s", string(msgJSON))
+	
+	// Send the message
+	err := c.SendMessage(rejectMsg)
 	
 	if err != nil {
 		c.logMessage("Error sending reject message: %v", err)
@@ -240,6 +264,10 @@ func (c *Client) Disconnect() error {
 // initWebRTC initializes the WebRTC components
 func (c *Client) initWebRTC(peerToken string, isInitiator bool) {
 	c.logMessage("Initializing WebRTC components (isInitiator: %v)", isInitiator)
+	
+	// Store the peer token in the connection state
+	c.logMessage("Setting peer token: '%s'", peerToken)
+	
 	// Create WebRTC connection
 	c.logMessage("Creating WebRTC connection")
 	c.webrtcConn = &ClientWebRTCConnection{
@@ -254,6 +282,10 @@ func (c *Client) initWebRTC(peerToken string, isInitiator bool) {
 		),
 		client: c,
 	}
+	
+	// Set the peer token in the connection state
+	c.webrtcConn.Connection.SetPeerToken(peerToken)
+	
 	c.logMessage("WebRTC connection created")
 	
 	// Create WebRTC signaling
@@ -333,15 +365,18 @@ func (c *Client) handleMessages() {
 			return
 		}
 
-		// Log the received message type
-		c.logMessage("Received message: %s", msg.Type)
+		// Log the received message type and content
+		msgJSON, _ := json.Marshal(msg)
+		c.logMessage("Received message: %s", string(msgJSON))
 
 		switch msg.Type {
 		case "token":
 			c.token = msg.Token
+			c.logMessage("Received token: '%s'", c.token)
 			c.ui.SetToken(msg.Token)
 
 		case "request":
+			c.logMessage("Received connection request from peer with token: '%s'", msg.Token)
 			c.ui.ShowConnectionRequest(msg.Token)
 
 		case "accepted":
@@ -349,6 +384,8 @@ func (c *Client) handleMessages() {
 				c.ui.ShowError("No active connection attempt")
 				continue
 			}
+			
+			c.logMessage("Connection accepted by peer with token: '%s'", msg.Token)
 			
 			err := c.webrtcSignaling.CreateOffer()
 			if err != nil {
@@ -362,11 +399,13 @@ func (c *Client) handleMessages() {
 				continue
 			}
 			
+			c.logMessage("Received offer from peer with token: '%s'", msg.Token)
+			
 			c.logMessage("Creating signaling message for offer")
 			sigMsg := ourwebrtc.SignalingMessage{
 				Type:      msg.Type,
 				Token:     msg.Token,
-				PeerToken: msg.PeerToken,
+				PeerToken: c.webrtcConn.Connection.GetPeerToken(),
 				SDP:       msg.SDP,
 				ICE:       msg.ICE,
 			}
@@ -387,11 +426,13 @@ func (c *Client) handleMessages() {
 				continue
 			}
 			
+			c.logMessage("Received answer from peer with token: '%s'", msg.Token)
+			
 			c.logMessage("Creating signaling message for answer")
 			sigMsg := ourwebrtc.SignalingMessage{
 				Type:      msg.Type,
 				Token:     msg.Token,
-				PeerToken: msg.PeerToken,
+				PeerToken: c.webrtcConn.Connection.GetPeerToken(),
 				SDP:       msg.SDP,
 				ICE:       msg.ICE,
 			}
@@ -412,11 +453,13 @@ func (c *Client) handleMessages() {
 				continue
 			}
 			
+			c.logMessage("Received ICE candidate from peer with token: '%s'", msg.Token)
+			
 			c.logMessage("Creating signaling message for ICE")
 			sigMsg := ourwebrtc.SignalingMessage{
 				Type:      msg.Type,
 				Token:     msg.Token,
-				PeerToken: msg.PeerToken,
+				PeerToken: c.webrtcConn.Connection.GetPeerToken(),
 				SDP:       msg.SDP,
 				ICE:       msg.ICE,
 			}
@@ -432,6 +475,7 @@ func (c *Client) handleMessages() {
 			c.logMessage("ICE handled successfully")
 
 		case "rejected":
+			c.logMessage("Connection rejected by peer with token: '%s'", msg.Token)
 			c.ui.ShowConnectionRejected(msg.Token)
 			c.Disconnect()
 
