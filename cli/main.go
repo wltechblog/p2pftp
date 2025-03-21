@@ -107,6 +107,25 @@ func (c *ClientWebRTCConnection) OnChannelsReady() {
 	
 	// Log that channels are ready
 	c.client.ui.LogDebug("Channels are ready, handlers set up")
+	
+	// Verify that the components are properly initialized
+	if c.client.sender == nil {
+		c.client.ui.LogDebug("ERROR: sender is nil after setup")
+	} else {
+		c.client.ui.LogDebug("Sender is properly initialized")
+	}
+	
+	if c.client.receiver == nil {
+		c.client.ui.LogDebug("ERROR: receiver is nil after setup")
+	} else {
+		c.client.ui.LogDebug("Receiver is properly initialized")
+	}
+	
+	if c.client.webrtcChannels == nil {
+		c.client.ui.LogDebug("ERROR: webrtcChannels is nil after setup")
+	} else {
+		c.client.ui.LogDebug("WebRTC channels are properly initialized")
+	}
 }
 
 // Using UserInterface and Message types from the main package

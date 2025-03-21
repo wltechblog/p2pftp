@@ -335,7 +335,7 @@ func (c *Connection) GetDataChannel() *webrtc.DataChannel {
 // OnChannelsReady is called when both channels are ready
 func (c *Connection) OnChannelsReady() {
 	// This is a hook for clients to implement
-	c.logger.LogDebug("Channels are ready")
+	c.logger.LogDebug("Connection.OnChannelsReady called - this is a base method that should be overridden")
 }
 
 // SetPeerToken sets the peer token in the connection state
