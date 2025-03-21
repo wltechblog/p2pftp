@@ -50,9 +50,11 @@ func (c *Channels) SetupChannelHandlers() {
 		
 		c.connection.GetControlChannel().OnMessage(func(msg pionwebrtc.DataChannelMessage) {
 			// Log the message receipt immediately
-			// Process the message in a separate goroutine to avoid blocking the WebRTC thread
-			go func() {
-				c.logger.LogDebug(fmt.Sprintf("WEBRTC CHANNEL RECEIVED MESSAGE (will process in goroutine): %s", string(msg.Data)))
+// Process the message in a separate goroutine to avoid blocking the WebRTC thread
+go func() {
+c.logger.LogDebug("====== WEBRTC MESSAGE RECEIVED START ======")
+c.logger.LogDebug(fmt.Sprintf("Raw message data: %s", string(msg.Data)))
+c.logger.LogDebug(fmt.Sprintf("Message is binary: %v", !msg.IsString))
 				
 			// Process the message in a separate goroutine to avoid blocking the WebRTC thread
 			msgData := msg.Data // Make a copy of the data
@@ -61,12 +63,13 @@ func (c *Channels) SetupChannelHandlers() {
 				c.logger.LogDebug(fmt.Sprintf("Message binary: %v", msg.IsString == false))
 					c.logger.LogDebug(fmt.Sprintf("Message length: %d", len(msgData)))
 					
-					// Try to parse the message to see if it's valid JSON
-					var parsed map[string]interface{}
-					if err := json.Unmarshal(msgData, &parsed); err != nil {
-						c.logger.LogDebug(fmt.Sprintf("Message is not valid JSON: %v", err))
-					} else {
-						c.logger.LogDebug(fmt.Sprintf("Message parsed as JSON: %+v", parsed))
+// Try to parse the message to see if it's valid JSON
+var parsed map[string]interface{}
+if err := json.Unmarshal(msgData, &parsed); err != nil {
+    c.logger.LogDebug(fmt.Sprintf("ERROR: Failed to parse JSON: %v", err))
+    c.logger.LogDebug(fmt.Sprintf("Raw message that failed to parse: %s", string(msgData)))
+} else {
+    c.logger.LogDebug(fmt.Sprintf("Successfully parsed JSON message: %+v", parsed))
 if msgType, ok := parsed["type"].(string); ok {
 c.logger.LogDebug(fmt.Sprintf("Message type: %s", msgType))
 if msgType == "message" {
