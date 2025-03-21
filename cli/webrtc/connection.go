@@ -216,6 +216,83 @@ func (c *Connection) SetupPeerConnection() error {
 		}
 	})
 
+	// Set up handler for incoming data channels (for the non-initiator)
+	peerConn.OnDataChannel(func(d *webrtc.DataChannel) {
+		c.logger.LogDebug(fmt.Sprintf("Received data channel: %s", d.Label()))
+		
+		if d.Label() == "control" {
+			c.logger.LogDebug("Received control channel")
+			c.state.ControlChannel = d
+			
+			// Set up control channel handlers
+			d.OnOpen(func() {
+				c.logger.LogDebug("Control channel opened (received)")
+				
+				// Check if both channels are open
+				if c.state.DataChannel != nil && c.state.DataChannel.ReadyState() == webrtc.DataChannelStateOpen {
+					c.completeConnectionSetup()
+				}
+			})
+			
+			d.OnClose(func() {
+				c.logger.LogDebug("Control channel closed (received)")
+				c.Disconnect()
+			})
+			
+			d.OnBufferedAmountLow(func() {
+				c.logger.LogDebug("Control channel buffer amount low (received)")
+			})
+			
+			d.OnError(func(err error) {
+				c.logger.LogDebug(fmt.Sprintf("Control channel error (received): %v", err))
+				
+				// If we're in the middle of a transfer, log it but don't disconnect
+				if c.state.SendTransfer.InProgress || c.state.ReceiveTransfer.InProgress {
+					c.logger.LogDebug("Control channel error during transfer - continuing with best effort")
+				} else {
+					// If we're not transferring, it's safer to disconnect
+					c.logger.LogDebug("Control channel error - disconnecting")
+					c.Disconnect()
+				}
+			})
+		} else if d.Label() == "data" {
+			c.logger.LogDebug("Received data channel")
+			c.state.DataChannel = d
+			
+			// Set up data channel handlers
+			d.OnOpen(func() {
+				c.logger.LogDebug("Data channel opened (received)")
+				
+				// Check if both channels are open
+				if c.state.ControlChannel != nil && c.state.ControlChannel.ReadyState() == webrtc.DataChannelStateOpen {
+					c.completeConnectionSetup()
+				}
+			})
+			
+			d.OnClose(func() {
+				c.logger.LogDebug("Data channel closed (received)")
+				c.Disconnect()
+			})
+			
+			d.OnBufferedAmountLow(func() {
+				c.logger.LogDebug("Data channel buffer amount low (received)")
+			})
+			
+			d.OnError(func(err error) {
+				c.logger.LogDebug(fmt.Sprintf("Data channel error (received): %v", err))
+				
+				// If we're in the middle of a transfer, log it but don't disconnect
+				if c.state.SendTransfer.InProgress || c.state.ReceiveTransfer.InProgress {
+					c.logger.LogDebug("Data channel error during transfer - continuing with best effort")
+				} else {
+					// If we're not transferring, it's safer to disconnect
+					c.logger.LogDebug("Data channel error - disconnecting")
+					c.Disconnect()
+				}
+			})
+		}
+	})
+	
 	// Store the peer connection
 	c.state.PeerConn = peerConn
 	
