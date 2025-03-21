@@ -181,6 +181,7 @@ func (ui *UI) ShowChat(from string, msg string) {
 
 // AppendChat appends a message to the chat view
 func (ui *UI) AppendChat(msg string) {
+	// Log outside the operation to avoid deadlock
 	ui.LogDebug(fmt.Sprintf("AppendChat called with msg=%s", msg))
 	
 	ui.opChan <- func() {
@@ -188,8 +189,12 @@ func (ui *UI) AppendChat(msg string) {
 		fmt.Fprintf(ui.chatView, "[gray]%s[white] %s\n", timestamp, msg)
 		ui.chatView.ScrollToEnd()
 		
-		ui.LogDebug("Message appended to chat view")
+		// Don't call LogDebug from within the operation to avoid deadlock
+		// Instead, we'll log the completion outside
 	}
+	
+	// Log completion outside the operation
+	ui.LogDebug("Message queued to be appended to chat view")
 }
 
 // UpdateTransferProgress updates the transfer progress

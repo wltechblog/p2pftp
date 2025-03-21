@@ -186,21 +186,39 @@ func (ui *UI) SetToken(token string) {
 
 // ShowConnectionRequest displays a connection request
 func (ui *UI) ShowConnectionRequest(token string) {
+	ui.LogDebug(fmt.Sprintf("ShowConnectionRequest called with token: %s", token))
 	ui.lastRequest = token
 	ui.AppendChat("[yellow]Peer[white] wants to connect (use [blue]/accept[white] to connect)")
-	ui.app.SetFocus(ui.inputField)
+	
+	// Queue the focus change to avoid potential deadlock
+	ui.opChan <- func() {
+		ui.app.SetFocus(ui.inputField)
+		ui.LogDebug("Input field focused after connection request")
+	}
 }
 
 // ShowConnectionAccepted displays a connection accepted message
 func (ui *UI) ShowConnectionAccepted(msg string) {
+	ui.LogDebug("ShowConnectionAccepted called")
 	ui.AppendChat("[green]✓ Connected to Peer[white]")
-	ui.app.SetFocus(ui.inputField)
+	
+	// Queue the focus change to avoid potential deadlock
+	ui.opChan <- func() {
+		ui.app.SetFocus(ui.inputField)
+		ui.LogDebug("Input field focused after connection accepted")
+	}
 }
 
 // ShowConnectionRejected displays a connection rejected message
 func (ui *UI) ShowConnectionRejected(token string) {
+	ui.LogDebug(fmt.Sprintf("ShowConnectionRejected called with token: %s", token))
 	ui.AppendChat("[red]× Connection rejected by Peer[white]")
-	ui.app.SetFocus(ui.inputField)
+	
+	// Queue the focus change to avoid potential deadlock
+	ui.opChan <- func() {
+		ui.app.SetFocus(ui.inputField)
+		ui.LogDebug("Input field focused after connection rejected")
+	}
 }
 
 // copyToClipboard copies text to the clipboard
