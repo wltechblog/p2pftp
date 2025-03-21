@@ -86,7 +86,7 @@ func (r *Receiver) HandleControlMessage(msg []byte) error {
 	case "file-complete":
 		return r.handleFileComplete()
 	case "message":
-		// Handle chat message
+		// Handle cHandle chat message
 		content, ok := message["content"].(string)
 		if !ok {
 			return fmt.Errorf("invalid message format: missing content")

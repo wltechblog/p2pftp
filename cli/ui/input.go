@@ -55,12 +55,17 @@ func (ui *UI) handleCommand(text string) {
 
 // handleChatMessage sends a chat message
 func (ui *UI) handleChatMessage(text string) {
+	ui.LogDebug(fmt.Sprintf("Sending chat message: %s", text))
+	
 	err := ui.client.SendChat(text)
 	if err != nil {
 		ui.ShowError(fmt.Sprintf("Failed to send message: %v", err))
+		ui.LogDebug(fmt.Sprintf("Error sending chat message: %v", err))
 		return
 	}
 
+	ui.LogDebug("Chat message sent successfully")
+	
 	// Show the message in the chat view
 	ui.ShowChat(ui.token, text)
 }

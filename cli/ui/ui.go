@@ -168,19 +168,27 @@ func (ui *UI) LogDebug(msg string) {
 
 // ShowChat displays a chat message
 func (ui *UI) ShowChat(from string, msg string) {
+	ui.LogDebug(fmt.Sprintf("ShowChat called with from=%s, msg=%s", from, msg))
+	
 	if from == ui.token {
+		ui.LogDebug("Showing chat message from self")
 		ui.AppendChat(fmt.Sprintf("[yellow]You[white] %s", msg))
 	} else {
+		ui.LogDebug("Showing chat message from peer")
 		ui.AppendChat(fmt.Sprintf("[yellow]Peer[white] %s", msg))
 	}
 }
 
 // AppendChat appends a message to the chat view
 func (ui *UI) AppendChat(msg string) {
+	ui.LogDebug(fmt.Sprintf("AppendChat called with msg=%s", msg))
+	
 	ui.opChan <- func() {
 		timestamp := time.Now().Format("15:04:05")
 		fmt.Fprintf(ui.chatView, "[gray]%s[white] %s\n", timestamp, msg)
 		ui.chatView.ScrollToEnd()
+		
+		ui.LogDebug("Message appended to chat view")
 	}
 }
 
