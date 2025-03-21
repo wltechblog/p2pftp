@@ -61,18 +61,18 @@ func (s *Sender) SendFile(path string) error {
 	if s.controlChannel == nil || s.dataChannel == nil {
 		return fmt.Errorf("connection not fully established, please wait or reconnect")
 	}
-	
+
 	// Check that both channels are in the open state
 	if s.controlChannel.ReadyState() != webrtc.DataChannelStateOpen {
 		return fmt.Errorf("control channel is not ready (state: %s), please wait or reconnect",
 			s.controlChannel.ReadyState().String())
 	}
-	
+
 	if s.dataChannel.ReadyState() != webrtc.DataChannelStateOpen {
 		return fmt.Errorf("data channel is not ready (state: %s), please wait or reconnect",
 			s.dataChannel.ReadyState().String())
 	}
-	
+
 	// Log the current state of the connection
 	s.logger.LogDebug(fmt.Sprintf("Starting file transfer with control channel state: %s, data channel state: %s",
 		s.controlChannel.ReadyState().String(), s.dataChannel.ReadyState().String()))
@@ -111,14 +111,14 @@ func (s *Sender) SendFile(path string) error {
 			file:     file,
 			filePath: path,
 		},
-		windowSize:          64,  // Default window size
-		nextSequenceToSend:  0,
-		lastAckedSequence:   -1,
+		windowSize:           64, // Default window size
+		nextSequenceToSend:   0,
+		lastAckedSequence:    -1,
 		unacknowledgedChunks: make(map[int]bool),
-		retransmissionQueue: make([]int, 0),
-		chunkTimestamps:     make(map[int]time.Time),
-		congestionWindow:    64,  // Start with full window
-		totalChunks:         totalChunks,
+		retransmissionQueue:  make([]int, 0),
+		chunkTimestamps:      make(map[int]time.Time),
+		congestionWindow:     64, // Start with full window
+		totalChunks:          totalChunks,
 	}
 
 	// Send file info to peer
@@ -206,24 +206,24 @@ func (s *Sender) SendFile(path string) error {
 			// All chunks acknowledged, we're done
 			break
 		}
-		
+
 		// Check if channels are still valid
 		if s.controlChannel.ReadyState() != webrtc.DataChannelStateOpen ||
-		   s.dataChannel.ReadyState() != webrtc.DataChannelStateOpen {
+			s.dataChannel.ReadyState() != webrtc.DataChannelStateOpen {
 			s.logger.LogDebug(fmt.Sprintf("Connection issue during file transfer - control: %s, data: %s",
 				s.controlChannel.ReadyState().String(), s.dataChannel.ReadyState().String()))
 			close(done)
-			
+
 			// Show completion message with warning
 			s.progressCallback(fmt.Sprintf("⬆ %s - Incomplete (connection issue)",
 				info.Name()),
 				"send")
-				
+
 			// Reset transfer state
 			s.state = NewTransferState()
 			return fmt.Errorf("connection issue during file transfer")
 		}
-		
+
 		time.Sleep(100 * time.Millisecond)
 	}
 
@@ -304,17 +304,17 @@ func (s *Sender) HandleControlMessage(msg []byte) error {
 			return fmt.Errorf("invalid chunk-confirm message: missing sequence")
 		}
 		sequence := int(sequenceFloat)
-		
+
 		// Handle the confirmation
 		s.HandleChunkConfirm(sequence)
-		
+
 	case "request-chunks":
 		// Extract sequences
 		sequencesInterface, ok := message["sequences"].([]interface{})
 		if !ok {
 			return fmt.Errorf("invalid request-chunks message: missing sequences")
 		}
-		
+
 		// Convert to []int
 		sequences := make([]int, len(sequencesInterface))
 		for i, seq := range sequencesInterface {
@@ -324,10 +324,10 @@ func (s *Sender) HandleControlMessage(msg []byte) error {
 			}
 			sequences[i] = int(seqFloat)
 		}
-		
+
 		// Handle the request
 		return s.HandleRequestChunks(sequences)
-		
+
 	case "capabilities-ack":
 		// Extract negotiated chunk size
 		negotiatedSizeFloat, ok := message["negotiatedChunkSize"].(float64)
@@ -335,10 +335,10 @@ func (s *Sender) HandleControlMessage(msg []byte) error {
 			return fmt.Errorf("invalid capabilities-ack message: missing negotiatedChunkSize")
 		}
 		negotiatedSize := int(negotiatedSizeFloat)
-		
+
 		// Update our chunk size to the negotiated value
 		s.chunkSize = negotiatedSize
-		
+
 	default:
 		s.logger.LogDebug(fmt.Sprintf("Unknown message type: %s", msgType))
 	}
@@ -351,9 +351,9 @@ func (s *Sender) HandleRequestChunks(sequences []int) error {
 	if !s.state.inProgress {
 		return fmt.Errorf("no file transfer in progress")
 	}
-	
+
 	s.logger.LogDebug(fmt.Sprintf("Received request for %d missing chunks", len(sequences)))
-	
+
 	// Add the requested chunks to the retransmission queue
 	for _, sequence := range sequences {
 		// Validate the sequence number
@@ -361,13 +361,13 @@ func (s *Sender) HandleRequestChunks(sequences []int) error {
 			s.logger.LogDebug(fmt.Sprintf("Ignoring invalid chunk sequence: %d", sequence))
 			continue
 		}
-		
+
 		// Check if this chunk has already been acknowledged
 		if sequence <= s.state.lastAckedSequence {
 			s.logger.LogDebug(fmt.Sprintf("Ignoring already acknowledged chunk: %d", sequence))
 			continue
 		}
-		
+
 		// Add to retransmission queue if not already there
 		alreadyQueued := false
 		for _, seq := range s.state.retransmissionQueue {
@@ -376,18 +376,18 @@ func (s *Sender) HandleRequestChunks(sequences []int) error {
 				break
 			}
 		}
-		
+
 		if !alreadyQueued {
 			s.state.retransmissionQueue = append(s.state.retransmissionQueue, sequence)
 			s.logger.LogDebug(fmt.Sprintf("Queuing chunk %d for retransmission (requested by receiver)", sequence))
 		}
 	}
-	
+
 	// Try to send the requested chunks immediately
 	if s.controlChannel.ReadyState() == webrtc.DataChannelStateOpen &&
-	   s.dataChannel.ReadyState() == webrtc.DataChannelStateOpen {
+		s.dataChannel.ReadyState() == webrtc.DataChannelStateOpen {
 		return s.trySendNextChunks()
 	}
-	
+
 	return nil
 }

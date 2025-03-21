@@ -13,7 +13,7 @@ import (
 // handleChunkConfirmation handles a chunk confirmation
 func (s *Sender) handleChunkConfirmation(sequence int) {
 	// Update the last acknowledged sequence if this is the next expected one
-	if sequence == s.state.lastAckedSequence + 1 {
+	if sequence == s.state.lastAckedSequence+1 {
 		s.state.lastAckedSequence = sequence
 
 		// Check for any consecutive acknowledged chunks
@@ -47,12 +47,12 @@ func (s *Sender) handleChunkConfirmation(sequence int) {
 	if s.state.congestionWindow < s.state.windowSize {
 		if s.state.congestionWindow < 32 {
 			// Slow start - exponential growth
-			s.state.congestionWindow = int(math.Min(float64(s.state.windowSize), float64(s.state.congestionWindow + 1)))
+			s.state.congestionWindow = int(math.Min(float64(s.state.windowSize), float64(s.state.congestionWindow+1)))
 		} else {
 			// Congestion avoidance - additive increase
 			s.state.congestionWindow = int(math.Min(
 				float64(s.state.windowSize),
-				float64(s.state.congestionWindow) + (1.0 / float64(s.state.congestionWindow)),
+				float64(s.state.congestionWindow)+(1.0/float64(s.state.congestionWindow)),
 			))
 		}
 	}
@@ -61,8 +61,8 @@ func (s *Sender) handleChunkConfirmation(sequence int) {
 	s.state.consecutiveTimeouts = 0
 
 	// Continue sending if we have more chunks to send and connection is still valid
-	if s.controlChannel.ReadyState() == webrtc.DataChannelStateOpen && 
-	   s.dataChannel.ReadyState() == webrtc.DataChannelStateOpen {
+	if s.controlChannel.ReadyState() == webrtc.DataChannelStateOpen &&
+		s.dataChannel.ReadyState() == webrtc.DataChannelStateOpen {
 		s.trySendNextChunks()
 	} else {
 		s.logger.LogDebug(fmt.Sprintf("Cannot send more chunks: channels not in open state (control: %s, data: %s)",
@@ -70,7 +70,7 @@ func (s *Sender) handleChunkConfirmation(sequence int) {
 	}
 
 	// Update progress using chunkSize for consistency
-	totalSent := int64(s.state.lastAckedSequence + 1) * int64(s.chunkSize)
+	totalSent := int64(s.state.lastAckedSequence+1) * int64(s.chunkSize)
 	if totalSent > s.state.fileTransfer.Size {
 		totalSent = s.state.fileTransfer.Size
 	}
@@ -136,7 +136,7 @@ func (s *Sender) checkForRetransmissions() {
 		// Reduce window size on timeouts (TCP-like congestion avoidance)
 		if s.state.consecutiveTimeouts > 1 {
 			// Multiplicative decrease
-			s.state.congestionWindow = int(math.Max(8, math.Floor(float64(s.state.congestionWindow) * 0.7)))
+			s.state.congestionWindow = int(math.Max(8, math.Floor(float64(s.state.congestionWindow)*0.7)))
 			s.logger.LogDebug(fmt.Sprintf("Reducing congestion window to %d due to timeouts", s.state.congestionWindow))
 		}
 	} else {
@@ -146,7 +146,7 @@ func (s *Sender) checkForRetransmissions() {
 		if s.state.congestionWindow < s.state.windowSize {
 			s.state.congestionWindow = int(math.Min(
 				float64(s.state.windowSize),
-				float64(s.state.congestionWindow + 1),
+				float64(s.state.congestionWindow+1),
 			))
 		}
 	}
@@ -155,8 +155,8 @@ func (s *Sender) checkForRetransmissions() {
 	sort.Ints(s.state.retransmissionQueue)
 
 	// Try to send next chunks including retransmissions if connection is still valid
-	if s.controlChannel.ReadyState() == webrtc.DataChannelStateOpen && 
-	   s.dataChannel.ReadyState() == webrtc.DataChannelStateOpen {
+	if s.controlChannel.ReadyState() == webrtc.DataChannelStateOpen &&
+		s.dataChannel.ReadyState() == webrtc.DataChannelStateOpen {
 		s.trySendNextChunks()
 	} else {
 		s.logger.LogDebug(fmt.Sprintf("Cannot send retransmissions: channels not in open state (control: %s, data: %s)",
@@ -175,10 +175,10 @@ func (s *Sender) trySendNextChunks() error {
 	if !s.state.inProgress {
 		return nil
 	}
-	
+
 	// Check if channels are still valid
-	if s.controlChannel.ReadyState() != webrtc.DataChannelStateOpen || 
-	   s.dataChannel.ReadyState() != webrtc.DataChannelStateOpen {
+	if s.controlChannel.ReadyState() != webrtc.DataChannelStateOpen ||
+		s.dataChannel.ReadyState() != webrtc.DataChannelStateOpen {
 		s.logger.LogDebug(fmt.Sprintf("Cannot send chunks: channels not in open state (control: %s, data: %s)",
 			s.controlChannel.ReadyState().String(), s.dataChannel.ReadyState().String()))
 		return fmt.Errorf("channels not in open state")
@@ -206,7 +206,7 @@ func (s *Sender) trySendNextChunks() error {
 
 	// Then send new chunks within the window
 	for s.state.nextSequenceToSend < s.state.totalChunks &&
-		s.state.nextSequenceToSend <= s.state.lastAckedSequence + effectiveWindowSize {
+		s.state.nextSequenceToSend <= s.state.lastAckedSequence+effectiveWindowSize {
 
 		// Send the chunk
 		sequence := s.state.nextSequenceToSend
@@ -229,7 +229,7 @@ func (s *Sender) sendChunkBySequence(sequence int) error {
 
 	// Calculate offset and size for this chunk
 	offset := int64(sequence) * int64(s.chunkSize)
-	end := int64(math.Min(float64(offset + int64(s.chunkSize)), float64(s.state.fileTransfer.Size)))
+	end := int64(math.Min(float64(offset+int64(s.chunkSize)), float64(s.state.fileTransfer.Size)))
 	size := int(end - offset)
 
 	// Seek to the correct position in the file

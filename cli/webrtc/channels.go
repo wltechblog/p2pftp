@@ -49,34 +49,41 @@ func (c *Channels) SetupChannelHandlers() {
 		c.logger.LogDebug(fmt.Sprintf("Control channel state: %s", c.connection.GetControlChannel().ReadyState().String()))
 		
 		c.connection.GetControlChannel().OnMessage(func(msg pionwebrtc.DataChannelMessage) {
+			// Log the message receipt immediately
 			// Process the message in a separate goroutine to avoid blocking the WebRTC thread
 			go func() {
-				c.logger.LogDebug(fmt.Sprintf("WEBRTC CHANNEL RECEIVED MESSAGE: %s", string(msg.Data)))
+				c.logger.LogDebug(fmt.Sprintf("WEBRTC CHANNEL RECEIVED MESSAGE (will process in goroutine): %s", string(msg.Data)))
+				
+			// Process the message in a separate goroutine to avoid blocking the WebRTC thread
+			msgData := msg.Data // Make a copy of the data
+			go func() {
+				c.logger.LogDebug(fmt.Sprintf("Processing message in goroutine: %s", string(msgData)))
 				c.logger.LogDebug(fmt.Sprintf("Message binary: %v", msg.IsString == false))
-				c.logger.LogDebug(fmt.Sprintf("Message length: %d", len(msg.Data)))
-				
-				// Try to parse the message to see if it's valid JSON
-				var parsed map[string]interface{}
-				if err := json.Unmarshal(msg.Data, &parsed); err != nil {
-					c.logger.LogDebug(fmt.Sprintf("Message is not valid JSON: %v", err))
-				} else {
-					c.logger.LogDebug(fmt.Sprintf("Message parsed as JSON: %+v", parsed))
-					if msgType, ok := parsed["type"].(string); ok {
-						c.logger.LogDebug(fmt.Sprintf("Message type: %s", msgType))
-					}
-				}
-				
-				if c.msgHandler != nil {
-					c.logger.LogDebug("Calling HandleControlMessage")
-					err := c.msgHandler.HandleControlMessage(msg.Data)
-					if err != nil {
-						c.logger.LogDebug(fmt.Sprintf("Error handling control message: %v", err))
+					c.logger.LogDebug(fmt.Sprintf("Message length: %d", len(msgData)))
+					
+					// Try to parse the message to see if it's valid JSON
+					var parsed map[string]interface{}
+					if err := json.Unmarshal(msgData, &parsed); err != nil {
+						c.logger.LogDebug(fmt.Sprintf("Message is not valid JSON: %v", err))
 					} else {
-						c.logger.LogDebug("HandleControlMessage completed successfully")
+						c.logger.LogDebug(fmt.Sprintf("Message parsed as JSON: %+v", parsed))
+						if msgType, ok := parsed["type"].(string); ok {
+							c.logger.LogDebug(fmt.Sprintf("Message type: %s", msgType))
+						}
 					}
-				} else {
-					c.logger.LogDebug("ERROR: msgHandler is nil, cannot handle control message")
-				}
+					
+				if c.msgHandler != nil {
+						c.logger.LogDebug("Calling HandleControlMessage from goroutine")
+						err := c.msgHandler.HandleControlMessage(msgData)
+						if err != nil {
+							c.logger.LogDebug(fmt.Sprintf("Error handling control message: %v", err))
+						} else {
+							c.logger.LogDebug("HandleControlMessage completed successfully")
+						}
+					} else {
+						c.logger.LogDebug("ERROR: msgHandler is nil, cannot handle control message")
+					}
+			}()
 			}()
 		})
 		
@@ -94,21 +101,28 @@ func (c *Channels) SetupChannelHandlers() {
 		c.logger.LogDebug(fmt.Sprintf("Data channel state: %s", c.connection.GetDataChannel().ReadyState().String()))
 		
 		c.connection.GetDataChannel().OnMessage(func(msg pionwebrtc.DataChannelMessage) {
+			// Log the message receipt immediately
 			// Process the message in a separate goroutine to avoid blocking the WebRTC thread
 			go func() {
-				c.logger.LogDebug(fmt.Sprintf("Received data chunk: %d bytes", len(msg.Data)))
+				c.logger.LogDebug(fmt.Sprintf("Received data chunk: %d bytes (will process in goroutine)", len(msg.Data)))
+			
+			// Process the message in a separate goroutine to avoid blocking the WebRTC thread
+			msgData := msg.Data // Make a copy of the data
+			go func() {
+				c.logger.LogDebug(fmt.Sprintf("Processing data chunk in goroutine: %d bytes", len(msgData)))
 				
-				if c.dataHandler != nil {
-					c.logger.LogDebug("Calling HandleDataChunk")
-					err := c.dataHandler.HandleDataChunk(msg.Data)
-					if err != nil {
+					if c.dataHandler != nil {
+							c.logger.LogDebug("Calling HandleDataChunk from goroutine")
+						err := c.dataHandler.HandleDataChunk(msgData)
+						if err != nil {
 						c.logger.LogDebug(fmt.Sprintf("Error handling data chunk: %v", err))
+						} else {
+							c.logger.LogDebug("HandleDataChunk completed successfully")
+						}
 					} else {
-						c.logger.LogDebug("HandleDataChunk completed successfully")
+						c.logger.LogDebug("ERROR: dataHandler is nil, cannot handle data chunk")
 					}
-				} else {
-					c.logger.LogDebug("ERROR: dataHandler is nil, cannot handle data chunk")
-				}
+			}()
 			}()
 		})
 		

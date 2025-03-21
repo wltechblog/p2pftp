@@ -32,27 +32,27 @@ type ChunkInfo struct {
 
 // TransferState contains the state of a file transfer
 type TransferState struct {
-	inProgress          bool
-	startTime           time.Time
-	lastUpdate          time.Time
-	fileTransfer        *FileTransfer
-	chunks              [][]byte
-	totalChunks         int
+	inProgress           bool
+	startTime            time.Time
+	lastUpdate           time.Time
+	fileTransfer         *FileTransfer
+	chunks               [][]byte
+	totalChunks          int
 	lastReceivedSequence int
-	receivedChunks      map[int]bool
-	missingChunks       map[int]bool
-	receivedSize        int64
-	lastUpdateSize      int64
-	expectedChunk       *ChunkInfo
-	windowSize          int
-	nextSequenceToSend  int
-	lastAckedSequence   int
+	receivedChunks       map[int]bool
+	missingChunks        map[int]bool
+	receivedSize         int64
+	lastUpdateSize       int64
+	expectedChunk        *ChunkInfo
+	windowSize           int
+	nextSequenceToSend   int
+	lastAckedSequence    int
 	unacknowledgedChunks map[int]bool
-	retransmissionQueue []int
-	chunkTimestamps     map[int]time.Time
-	congestionWindow    int
-	consecutiveTimeouts int
-	confirmHandler      func(int)
+	retransmissionQueue  []int
+	chunkTimestamps      map[int]time.Time
+	congestionWindow     int
+	consecutiveTimeouts  int
+	confirmHandler       func(int)
 }
 
 // ChunkConfirm message for acknowledging received chunks
@@ -91,12 +91,12 @@ func CalculateMD5(filePath string) (string, error) {
 // NewTransferState creates a new transfer state
 func NewTransferState() *TransferState {
 	return &TransferState{
-		inProgress:          false,
-		receivedChunks:      make(map[int]bool),
-		missingChunks:       make(map[int]bool),
+		inProgress:           false,
+		receivedChunks:       make(map[int]bool),
+		missingChunks:        make(map[int]bool),
 		unacknowledgedChunks: make(map[int]bool),
-		retransmissionQueue: make([]int, 0),
-		chunkTimestamps:     make(map[int]time.Time),
+		retransmissionQueue:  make([]int, 0),
+		chunkTimestamps:      make(map[int]time.Time),
 	}
 }
 
