@@ -42,8 +42,12 @@ func NewChannels(
 
 // SetupChannelHandlers sets up handlers for the data channels
 func (c *Channels) SetupChannelHandlers() {
+	c.logger.LogDebug("Setting up channel handlers")
+
 	// Set up control channel handler
 	if c.connection.GetControlChannel() != nil {
+		c.logger.LogDebug(fmt.Sprintf("Control channel state: %s", c.connection.GetControlChannel().ReadyState().String()))
+		
 		c.connection.GetControlChannel().OnMessage(func(msg pionwebrtc.DataChannelMessage) {
 			c.logger.LogDebug(fmt.Sprintf("Received control message: %s", string(msg.Data)))
 			
@@ -54,10 +58,20 @@ func (c *Channels) SetupChannelHandlers() {
 				}
 			}
 		})
+		
+		// Add buffer threshold callback
+		c.connection.GetControlChannel().SetBufferedAmountLowThreshold(65536) // 64KB
+		c.connection.GetControlChannel().OnBufferedAmountLow(func() {
+			c.logger.LogDebug("Control channel buffer amount low event triggered")
+		})
+	} else {
+		c.logger.LogDebug("Control channel is nil, cannot set up handler")
 	}
 
 	// Set up data channel handler
 	if c.connection.GetDataChannel() != nil {
+		c.logger.LogDebug(fmt.Sprintf("Data channel state: %s", c.connection.GetDataChannel().ReadyState().String()))
+		
 		c.connection.GetDataChannel().OnMessage(func(msg pionwebrtc.DataChannelMessage) {
 			c.logger.LogDebug(fmt.Sprintf("Received data chunk: %d bytes", len(msg.Data)))
 			
@@ -68,7 +82,11 @@ func (c *Channels) SetupChannelHandlers() {
 				}
 			}
 		})
+	} else {
+		c.logger.LogDebug("Data channel is nil, cannot set up handler")
 	}
+	
+	c.logger.LogDebug("Channel handlers setup complete")
 }
 
 // SendChatMessage sends a chat message on the control channel
@@ -76,6 +94,10 @@ func (c *Channels) SendChatMessage(text string) error {
 	if c.connection.GetControlChannel() == nil {
 		return fmt.Errorf("control channel not initialized")
 	}
+
+	// Log the control channel state
+	c.logger.LogDebug(fmt.Sprintf("Control channel state: %s", c.connection.GetControlChannel().ReadyState().String()))
+	c.logger.LogDebug(fmt.Sprintf("Control channel buffered amount: %d", c.connection.GetControlChannel().BufferedAmount()))
 
 	// Create the message
 	message := struct {
@@ -92,12 +114,16 @@ func (c *Channels) SendChatMessage(text string) error {
 		return fmt.Errorf("failed to marshal message: %v", err)
 	}
 
+	// Log the message being sent
+	c.logger.LogDebug(fmt.Sprintf("Sending chat message: %s", string(messageJSON)))
+
 	// Send the message
 	err = c.connection.GetControlChannel().SendText(string(messageJSON))
 	if err != nil {
 		return fmt.Errorf("failed to send message: %v", err)
 	}
 
+	c.logger.LogDebug("Chat message sent successfully")
 	return nil
 }
 

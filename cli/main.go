@@ -39,21 +39,38 @@ type ClientWebRTCConnection struct {
 
 // OnChannelsReady is called when both channels are ready
 func (c *ClientWebRTCConnection) OnChannelsReady() {
+	c.client.ui.LogDebug("OnChannelsReady called")
+	
 	// Make sure the channels are initialized
 	if c.Connection.GetControlChannel() == nil || c.Connection.GetDataChannel() == nil {
 		c.client.ui.LogDebug("Cannot set up channel handlers: channels not initialized")
 		return
 	}
 	
+	// Log channel states
+	controlState := c.Connection.GetControlChannel().ReadyState()
+	dataState := c.Connection.GetDataChannel().ReadyState()
+	c.client.ui.LogDebug(fmt.Sprintf("Control channel state: %s", controlState.String()))
+	c.client.ui.LogDebug(fmt.Sprintf("Data channel state: %s", dataState.String()))
+	
 	// Make sure the channels are in the open state
-	if c.Connection.GetControlChannel().ReadyState() != pionwebrtc.DataChannelStateOpen ||
-	   c.Connection.GetDataChannel().ReadyState() != pionwebrtc.DataChannelStateOpen {
+	if controlState != pionwebrtc.DataChannelStateOpen ||
+	   dataState != pionwebrtc.DataChannelStateOpen {
 		c.client.ui.LogDebug("Cannot set up channel handlers: channels not in open state")
 		return
 	}
 	
 	// Set up WebRTC channels
 	c.client.webrtcChannels.SetupChannelHandlers()
+	
+	// Send capabilities
+	c.client.ui.LogDebug("Sending capabilities")
+	err := c.client.webrtcChannels.SendCapabilities(262144) // fixedChunkSize from config.go
+	if err != nil {
+		c.client.ui.LogDebug(fmt.Sprintf("Error sending capabilities: %v", err))
+	} else {
+		c.client.ui.LogDebug("Capabilities sent successfully")
+	}
 	
 	// Log that channels are ready
 	c.client.ui.LogDebug("Channels are ready, handlers set up")
