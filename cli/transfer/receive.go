@@ -97,20 +97,30 @@ func (r *Receiver) HandleControlMessage(msg []byte) error {
 		return r.handleFileComplete()
 	case "message":
 		// Handle chat message
-		r.logger.LogDebug("Received chat message")
+		r.logger.LogDebug("CHAT MESSAGE RECEIVED IN HANDLER")
 		
 		content, ok := message["content"].(string)
 		if !ok {
-			r.logger.LogDebug("Invalid message format: missing content")
+			r.logger.LogDebug("ERROR: Invalid message format: missing content")
 			return fmt.Errorf("invalid message format: missing content")
 		}
 		
-		r.logger.LogDebug(fmt.Sprintf("Chat message content: %s", content))
+		r.logger.LogDebug(fmt.Sprintf("Chat message content: '%s'", content))
 		
 		// Display the chat message
-		r.logger.LogDebug("Calling AppendChat")
-		r.logger.AppendChat(fmt.Sprintf("[yellow]Peer[white] %s", content))
+		r.logger.LogDebug("Calling AppendChat with formatted message")
+		formattedMsg := fmt.Sprintf("[yellow]Peer[white] %s", content)
+		r.logger.LogDebug(fmt.Sprintf("Formatted message: '%s'", formattedMsg))
+		
+		r.logger.AppendChat(formattedMsg)
 		r.logger.LogDebug("AppendChat called successfully")
+		
+		// Double-check that the logger implements the AppendChat method
+		if _, ok := r.logger.(interface{ AppendChat(string) }); !ok {
+			r.logger.LogDebug("WARNING: logger does not implement AppendChat method")
+		} else {
+			r.logger.LogDebug("Logger implements AppendChat method")
+		}
 		
 		return nil
 	case "capabilities":

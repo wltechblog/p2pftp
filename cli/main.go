@@ -40,7 +40,6 @@ type ClientWebRTCConnection struct {
 
 
 
-
 // Using UserInterface and Message types from the main package
 
 // NewClient creates a new client instance
@@ -408,12 +407,22 @@ func (c *Client) initWebRTC(peerToken string, isInitiator bool) {
 				
 				// Re-create the WebRTC channels with the actual message and data handlers
 				c.logMessage("Re-creating WebRTC channels with actual handlers")
+				
+				// Verify that the receiver is properly initialized
+				if c.receiver == nil {
+					c.logMessage("ERROR: receiver is nil before creating channels")
+				} else {
+					c.logMessage("Receiver is properly initialized before creating channels")
+				}
+				
 				c.webrtcChannels = ourwebrtc.NewChannels(
 					c.webrtcConn.Connection,
 					c.ui,
 					c.receiver, // Message handler
 					c.receiver, // Data handler
 				)
+				
+				c.logMessage("WebRTC channels created with receiver as message handler")
 				
 				// Set up WebRTC channels
 				c.logMessage("Setting up channel handlers")

@@ -49,7 +49,20 @@ func (c *Channels) SetupChannelHandlers() {
 		c.logger.LogDebug(fmt.Sprintf("Control channel state: %s", c.connection.GetControlChannel().ReadyState().String()))
 		
 		c.connection.GetControlChannel().OnMessage(func(msg pionwebrtc.DataChannelMessage) {
-			c.logger.LogDebug(fmt.Sprintf("Received control message: %s", string(msg.Data)))
+			c.logger.LogDebug(fmt.Sprintf("WEBRTC CHANNEL RECEIVED MESSAGE: %s", string(msg.Data)))
+			c.logger.LogDebug(fmt.Sprintf("Message binary: %v", msg.IsString == false))
+			c.logger.LogDebug(fmt.Sprintf("Message length: %d", len(msg.Data)))
+			
+			// Try to parse the message to see if it's valid JSON
+			var parsed map[string]interface{}
+			if err := json.Unmarshal(msg.Data, &parsed); err != nil {
+				c.logger.LogDebug(fmt.Sprintf("Message is not valid JSON: %v", err))
+			} else {
+				c.logger.LogDebug(fmt.Sprintf("Message parsed as JSON: %+v", parsed))
+				if msgType, ok := parsed["type"].(string); ok {
+					c.logger.LogDebug(fmt.Sprintf("Message type: %s", msgType))
+				}
+			}
 			
 			if c.msgHandler != nil {
 				c.logger.LogDebug("Calling HandleControlMessage")
@@ -101,7 +114,10 @@ func (c *Channels) SetupChannelHandlers() {
 
 // SendChatMessage sends a chat message on the control channel
 func (c *Channels) SendChatMessage(text string) error {
+	c.logger.LogDebug("SendChatMessage called with text: " + text)
+	
 	if c.connection.GetControlChannel() == nil {
+		c.logger.LogDebug("ERROR: Control channel is nil")
 		return fmt.Errorf("control channel not initialized")
 	}
 
@@ -121,19 +137,21 @@ func (c *Channels) SendChatMessage(text string) error {
 	// Marshal the message
 	messageJSON, err := json.Marshal(message)
 	if err != nil {
+		c.logger.LogDebug(fmt.Sprintf("ERROR: Failed to marshal message: %v", err))
 		return fmt.Errorf("failed to marshal message: %v", err)
 	}
 
 	// Log the message being sent
-	c.logger.LogDebug(fmt.Sprintf("Sending chat message: %s", string(messageJSON)))
+	c.logger.LogDebug(fmt.Sprintf("WEBRTC CHANNEL SENDING MESSAGE: %s", string(messageJSON)))
 
 	// Send the message
 	err = c.connection.GetControlChannel().SendText(string(messageJSON))
 	if err != nil {
+		c.logger.LogDebug(fmt.Sprintf("ERROR: Failed to send message: %v", err))
 		return fmt.Errorf("failed to send message: %v", err)
 	}
 
-	c.logger.LogDebug("Chat message sent successfully")
+	c.logger.LogDebug("Chat message sent successfully via WebRTC data channel")
 	return nil
 }
 
