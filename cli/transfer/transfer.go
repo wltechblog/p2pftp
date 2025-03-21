@@ -32,27 +32,38 @@ type ChunkInfo struct {
 
 // TransferState contains the state of a file transfer
 type TransferState struct {
-	inProgress           bool
-	startTime            time.Time
-	lastUpdate           time.Time
-	fileTransfer         *FileTransfer
-	chunks               [][]byte
-	totalChunks          int
-	lastReceivedSequence int
-	receivedChunks       map[int]bool
-	missingChunks        map[int]bool
-	receivedSize         int64
-	lastUpdateSize       int64
-	expectedChunk        *ChunkInfo
-	windowSize           int
-	nextSequenceToSend   int
-	lastAckedSequence    int
-	unacknowledgedChunks map[int]bool
-	retransmissionQueue  []int
-	chunkTimestamps      map[int]time.Time
-	congestionWindow     int
-	consecutiveTimeouts  int
-	confirmHandler       func(int)
+inProgress           bool
+startTime            time.Time
+lastUpdate          time.Time
+fileTransfer         *FileTransfer
+chunks               [][]byte
+totalChunks          int
+lastReceivedSequence int
+receivedChunks       map[int]bool
+missingChunks        map[int]bool
+receivedSize         int64
+lastUpdateSize       int64
+expectedChunk        *ChunkInfo
+windowSize           int
+nextSequenceToSend   int
+lastAckedSequence    int
+unacknowledgedChunks map[int]bool
+retransmissionQueue  []int
+chunkTimestamps      map[int]time.Time
+congestionWindow     int
+consecutiveTimeouts  int
+confirmHandler       func(int)
+peerMaxChunkSize     int
+}
+
+// SetPeerMaxChunkSize sets the peer's maximum chunk size
+func (s *TransferState) SetPeerMaxChunkSize(size int) {
+    s.peerMaxChunkSize = size
+}
+
+// GetPeerMaxChunkSize gets the peer's maximum chunk size
+func (s *TransferState) GetPeerMaxChunkSize() int {
+    return s.peerMaxChunkSize
 }
 
 // ChunkConfirm message for acknowledging received chunks
@@ -111,7 +122,7 @@ func NewFileTransfer(fileInfo *FileInfo, file *os.File, filePath string) *FileTr
 
 // Close closes the file transfer
 func (ft *FileTransfer) Close() {
-	if ft != nil && ft.file != nil {
-		ft.file.Close()
-	}
+if ft != nil && ft.file != nil {
+ft.file.Close()
+}
 }
