@@ -64,18 +64,28 @@ func (r *Receiver) SetDownloadDirectory(dir string) {
 
 // HandleControlMessage handles control channel messages
 func (r *Receiver) HandleControlMessage(msg []byte) error {
+	// Log the raw message
+	r.logger.LogDebug(fmt.Sprintf("HandleControlMessage received raw message: %s", string(msg)))
+	
 	// Parse the message
 	var message map[string]interface{}
 	err := json.Unmarshal(msg, &message)
 	if err != nil {
+		r.logger.LogDebug(fmt.Sprintf("Failed to parse control message: %v", err))
 		return fmt.Errorf("failed to parse control message: %v", err)
 	}
+
+	// Log the parsed message
+	r.logger.LogDebug(fmt.Sprintf("Parsed message: %+v", message))
 
 	// Get the message type
 	msgType, ok := message["type"].(string)
 	if !ok {
+		r.logger.LogDebug("Invalid message format: missing type")
 		return fmt.Errorf("invalid message format: missing type")
 	}
+	
+	r.logger.LogDebug(fmt.Sprintf("Message type: %s", msgType))
 
 	// Handle different message types
 	switch msgType {
