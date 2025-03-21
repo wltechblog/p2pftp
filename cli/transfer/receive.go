@@ -107,20 +107,23 @@ func (r *Receiver) HandleControlMessage(msg []byte) error {
 		
 		r.logger.LogDebug(fmt.Sprintf("Chat message content: '%s'", content))
 		
-		// Display the chat message
-		r.logger.LogDebug("Calling AppendChat with formatted message")
-		formattedMsg := fmt.Sprintf("[yellow]Peer[white] %s", content)
-		r.logger.LogDebug(fmt.Sprintf("Formatted message: '%s'", formattedMsg))
-		
-		r.logger.AppendChat(formattedMsg)
-		r.logger.LogDebug("AppendChat called successfully")
-		
-		// Double-check that the logger implements the AppendChat method
-		if _, ok := r.logger.(interface{ AppendChat(string) }); !ok {
-			r.logger.LogDebug("WARNING: logger does not implement AppendChat method")
-		} else {
-			r.logger.LogDebug("Logger implements AppendChat method")
-		}
+		// Process the chat message in a separate goroutine to avoid blocking the WebRTC thread
+		go func(content string) {
+			// Display the chat message
+			r.logger.LogDebug("Calling AppendChat with formatted message from goroutine")
+			formattedMsg := fmt.Sprintf("[yellow]Peer[white] %s", content)
+			r.logger.LogDebug(fmt.Sprintf("Formatted message: '%s'", formattedMsg))
+			
+			r.logger.AppendChat(formattedMsg)
+			r.logger.LogDebug("AppendChat called successfully from goroutine")
+			
+			// Double-check that the logger implements the AppendChat method
+			if _, ok := r.logger.(interface{ AppendChat(string) }); !ok {
+				r.logger.LogDebug("WARNING: logger does not implement AppendChat method")
+			} else {
+				r.logger.LogDebug("Logger implements AppendChat method")
+			}
+		}(content)
 		
 		return nil
 	case "capabilities":
@@ -151,17 +154,22 @@ func (r *Receiver) HandleDataChunk(data []byte) error {
 // handleFileInfo handles file info messages
 func (r *Receiver) handleFileInfo(message map[string]interface{}) error {
 	// Extract file info
-	name, ok := message["name"].(string)
+	infoMap, ok := message["info"].(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("invalid file info: missing info map")
+	}
+
+	name, ok := infoMap["name"].(string)
 	if !ok {
 		return fmt.Errorf("invalid file info: missing name")
 	}
 
-	size, ok := message["size"].(float64)
+	size, ok := infoMap["size"].(float64)
 	if !ok {
 		return fmt.Errorf("invalid file info: missing size")
 	}
 
-	md5, ok := message["md5"].(string)
+	md5, ok := infoMap["md5"].(string)
 	if !ok {
 		return fmt.Errorf("invalid file info: missing md5")
 	}
@@ -312,8 +320,8 @@ func (r *Receiver) handleCapabilities(message map[string]interface{}) error {
 
 	// Send acknowledgement
 	ack := map[string]interface{}{
-		"type":         "capabilities-ack",
-		"maxChunkSize": r.chunkSize,
+		"type":               "capabilities-ack",
+		"negotiatedChunkSize": r.chunkSize,
 	}
 
 	ackJSON, err := json.Marshal(ack)
@@ -332,16 +340,16 @@ func (r *Receiver) handleCapabilities(message map[string]interface{}) error {
 // handleCapabilitiesAck handles capabilities acknowledgement messages
 func (r *Receiver) handleCapabilitiesAck(message map[string]interface{}) error {
 	// Extract capabilities
-	maxChunkSize, ok := message["maxChunkSize"].(float64)
+	negotiatedChunkSize, ok := message["negotiatedChunkSize"].(float64)
 	if !ok {
-		return fmt.Errorf("invalid capabilities ack: missing maxChunkSize")
+		return fmt.Errorf("invalid capabilities ack: missing negotiatedChunkSize")
 	}
 
 	// Store capabilities
-	r.chunkSize = int(math.Min(float64(r.chunkSize), maxChunkSize))
+	r.chunkSize = int(negotiatedChunkSize)
 
 	// Log capabilities
-	r.logger.LogDebug(fmt.Sprintf("Peer acknowledged capabilities: maxChunkSize=%d", int(maxChunkSize)))
+	r.logger.LogDebug(fmt.Sprintf("Peer acknowledged capabilities: negotiatedChunkSize=%d", int(negotiatedChunkSize)))
 	r.logger.LogDebug(fmt.Sprintf("Using chunk size: %d", r.chunkSize))
 
 	return nil
@@ -404,7 +412,7 @@ func (r *Receiver) processChunk(data []byte) error {
 
 	// Send acknowledgement
 	ack := map[string]interface{}{
-		"type":     "chunk-ack",
+		"type":     "chunk-confirm",
 		"sequence": r.state.lastReceivedSequence,
 	}
 

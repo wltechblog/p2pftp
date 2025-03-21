@@ -49,32 +49,35 @@ func (c *Channels) SetupChannelHandlers() {
 		c.logger.LogDebug(fmt.Sprintf("Control channel state: %s", c.connection.GetControlChannel().ReadyState().String()))
 		
 		c.connection.GetControlChannel().OnMessage(func(msg pionwebrtc.DataChannelMessage) {
-			c.logger.LogDebug(fmt.Sprintf("WEBRTC CHANNEL RECEIVED MESSAGE: %s", string(msg.Data)))
-			c.logger.LogDebug(fmt.Sprintf("Message binary: %v", msg.IsString == false))
-			c.logger.LogDebug(fmt.Sprintf("Message length: %d", len(msg.Data)))
-			
-			// Try to parse the message to see if it's valid JSON
-			var parsed map[string]interface{}
-			if err := json.Unmarshal(msg.Data, &parsed); err != nil {
-				c.logger.LogDebug(fmt.Sprintf("Message is not valid JSON: %v", err))
-			} else {
-				c.logger.LogDebug(fmt.Sprintf("Message parsed as JSON: %+v", parsed))
-				if msgType, ok := parsed["type"].(string); ok {
-					c.logger.LogDebug(fmt.Sprintf("Message type: %s", msgType))
-				}
-			}
-			
-			if c.msgHandler != nil {
-				c.logger.LogDebug("Calling HandleControlMessage")
-				err := c.msgHandler.HandleControlMessage(msg.Data)
-				if err != nil {
-					c.logger.LogDebug(fmt.Sprintf("Error handling control message: %v", err))
+			// Process the message in a separate goroutine to avoid blocking the WebRTC thread
+			go func() {
+				c.logger.LogDebug(fmt.Sprintf("WEBRTC CHANNEL RECEIVED MESSAGE: %s", string(msg.Data)))
+				c.logger.LogDebug(fmt.Sprintf("Message binary: %v", msg.IsString == false))
+				c.logger.LogDebug(fmt.Sprintf("Message length: %d", len(msg.Data)))
+				
+				// Try to parse the message to see if it's valid JSON
+				var parsed map[string]interface{}
+				if err := json.Unmarshal(msg.Data, &parsed); err != nil {
+					c.logger.LogDebug(fmt.Sprintf("Message is not valid JSON: %v", err))
 				} else {
-					c.logger.LogDebug("HandleControlMessage completed successfully")
+					c.logger.LogDebug(fmt.Sprintf("Message parsed as JSON: %+v", parsed))
+					if msgType, ok := parsed["type"].(string); ok {
+						c.logger.LogDebug(fmt.Sprintf("Message type: %s", msgType))
+					}
 				}
-			} else {
-				c.logger.LogDebug("ERROR: msgHandler is nil, cannot handle control message")
-			}
+				
+				if c.msgHandler != nil {
+					c.logger.LogDebug("Calling HandleControlMessage")
+					err := c.msgHandler.HandleControlMessage(msg.Data)
+					if err != nil {
+						c.logger.LogDebug(fmt.Sprintf("Error handling control message: %v", err))
+					} else {
+						c.logger.LogDebug("HandleControlMessage completed successfully")
+					}
+				} else {
+					c.logger.LogDebug("ERROR: msgHandler is nil, cannot handle control message")
+				}
+			}()
 		})
 		
 		// Add buffer threshold callback
@@ -91,19 +94,28 @@ func (c *Channels) SetupChannelHandlers() {
 		c.logger.LogDebug(fmt.Sprintf("Data channel state: %s", c.connection.GetDataChannel().ReadyState().String()))
 		
 		c.connection.GetDataChannel().OnMessage(func(msg pionwebrtc.DataChannelMessage) {
-			c.logger.LogDebug(fmt.Sprintf("Received data chunk: %d bytes", len(msg.Data)))
-			
-			if c.dataHandler != nil {
-				c.logger.LogDebug("Calling HandleDataChunk")
-				err := c.dataHandler.HandleDataChunk(msg.Data)
-				if err != nil {
-					c.logger.LogDebug(fmt.Sprintf("Error handling data chunk: %v", err))
+			// Process the message in a separate goroutine to avoid blocking the WebRTC thread
+			go func() {
+				c.logger.LogDebug(fmt.Sprintf("Received data chunk: %d bytes", len(msg.Data)))
+				
+				if c.dataHandler != nil {
+					c.logger.LogDebug("Calling HandleDataChunk")
+					err := c.dataHandler.HandleDataChunk(msg.Data)
+					if err != nil {
+						c.logger.LogDebug(fmt.Sprintf("Error handling data chunk: %v", err))
+					} else {
+						c.logger.LogDebug("HandleDataChunk completed successfully")
+					}
 				} else {
-					c.logger.LogDebug("HandleDataChunk completed successfully")
+					c.logger.LogDebug("ERROR: dataHandler is nil, cannot handle data chunk")
 				}
-			} else {
-				c.logger.LogDebug("ERROR: dataHandler is nil, cannot handle data chunk")
-			}
+			}()
+		})
+		
+		// Add buffer threshold callback
+		c.connection.GetDataChannel().SetBufferedAmountLowThreshold(262144) // 256KB
+		c.connection.GetDataChannel().OnBufferedAmountLow(func() {
+			c.logger.LogDebug("Data channel buffer amount low event triggered")
 		})
 	} else {
 		c.logger.LogDebug("Data channel is nil, cannot set up handler")
@@ -161,8 +173,8 @@ func (c *Channels) SendCapabilities(maxChunkSize int) error {
 		return fmt.Errorf("control channel not initialized")
 	}
 
-	// Create the capabilities message
-	capabilities := struct {
+	// Create the message
+	message := struct {
 		Type         string `json:"type"`
 		MaxChunkSize int    `json:"maxChunkSize"`
 	}{
@@ -170,14 +182,14 @@ func (c *Channels) SendCapabilities(maxChunkSize int) error {
 		MaxChunkSize: maxChunkSize,
 	}
 
-	// Marshal the capabilities
-	capabilitiesJSON, err := json.Marshal(capabilities)
+	// Marshal the message
+	messageJSON, err := json.Marshal(message)
 	if err != nil {
 		return fmt.Errorf("failed to marshal capabilities: %v", err)
 	}
 
-	// Send the capabilities
-	err = c.connection.GetControlChannel().SendText(string(capabilitiesJSON))
+	// Send the message
+	err = c.connection.GetControlChannel().SendText(string(messageJSON))
 	if err != nil {
 		return fmt.Errorf("failed to send capabilities: %v", err)
 	}
