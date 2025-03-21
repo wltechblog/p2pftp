@@ -2,10 +2,10 @@ package main
 
 // Configuration constants for the application
 const (
-	// WebRTC configuration
-	maxWebRTCMessageSize   = 262144 // 256KB - Maximum size for WebRTC messages
-	maxSupportedChunkSize  = 262144 // 256KB - Maximum supported chunk size
-	fixedChunkSize         = 262144 // 256KB - Fixed chunk size for consistency
+// WebRTC configuration
+maxWebRTCMessageSize   = 262144 // 256KB - Maximum size for WebRTC messages
+maxSupportedChunkSize  = 262136 // 256KB - 8 bytes - Maximum supported chunk size (accounting for frame header)
+fixedChunkSize         = 262136 // 256KB - 8 bytes - Fixed chunk size (accounting for frame header)
 	
 	// UI configuration
 	maxHistoryEntries      = 5      // Maximum number of history entries to display

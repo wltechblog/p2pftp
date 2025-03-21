@@ -384,16 +384,17 @@ func (c *Client) initWebRTC(peerToken string, isInitiator bool) {
 				
 				// Re-create the sender and receiver with the actual channels
 				c.logMessage("Re-creating sender and receiver with actual channels")
-				c.sender = transfer.NewSender(
-					c.webrtcConn.Connection.GetControlChannel(),
-					c.webrtcConn.Connection.GetDataChannel(),
-					c.ui,
-					func(status string, direction string) {
-						c.ui.UpdateTransferProgress(status, direction)
-					},
-					262144, // fixedChunkSize from config.go
-					262144, // maxWebRTCMessageSize from config.go
-				)
+// Create sender with adjusted chunk size to account for frame header
+c.sender = transfer.NewSender(
+c.webrtcConn.Connection.GetControlChannel(),
+c.webrtcConn.Connection.GetDataChannel(),
+c.ui,
+func(status string, direction string) {
+c.ui.UpdateTransferProgress(status, direction)
+},
+262136, // fixedChunkSize - 8 bytes for frame header
+262144, // maxWebRTCMessageSize
+)
 				
 				c.receiver = transfer.NewReceiver(
 					c.webrtcConn.Connection.GetControlChannel(),
@@ -402,8 +403,8 @@ func (c *Client) initWebRTC(peerToken string, isInitiator bool) {
 					func(status string, direction string) {
 						c.ui.UpdateTransferProgress(status, direction)
 					},
-					262144, // fixedChunkSize from config.go
-				)
+262136, // fixedChunkSize - 8 bytes for frame header
+)
 				
 				// Re-create the WebRTC channels with the actual message and data handlers
 				c.logMessage("Re-creating WebRTC channels with actual handlers")
