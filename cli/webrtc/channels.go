@@ -9,9 +9,9 @@ import (
 
 // Channels handles WebRTC data channels
 type Channels struct {
-	connection *Connection
-	logger     Logger
-	msgHandler MessageHandler
+	connection  *Connection
+	logger      Logger
+	msgHandler  MessageHandler
 	dataHandler DataHandler
 }
 
@@ -51,29 +51,16 @@ func (c *Channels) SetupChannelHandlers() {
 		c.connection.GetControlChannel().OnMessage(func(msg pionwebrtc.DataChannelMessage) {
 			c.logger.LogDebug(fmt.Sprintf("Received control message: %s", string(msg.Data)))
 			
-			// Try to parse the message to see if it's a chat message
-			var message map[string]interface{}
-			err := json.Unmarshal(msg.Data, &message)
-			if err == nil {
-				msgType, ok := message["type"].(string)
-				if ok && msgType == "message" {
-					content, ok := message["content"].(string)
-					if ok {
-						c.logger.LogDebug(fmt.Sprintf("Received chat message with content: %s", content))
-					}
-				}
-			}
-			
 			if c.msgHandler != nil {
-				c.logger.LogDebug("Calling msgHandler.HandleControlMessage")
+				c.logger.LogDebug("Calling HandleControlMessage")
 				err := c.msgHandler.HandleControlMessage(msg.Data)
 				if err != nil {
 					c.logger.LogDebug(fmt.Sprintf("Error handling control message: %v", err))
 				} else {
-					c.logger.LogDebug("Message handled successfully")
+					c.logger.LogDebug("HandleControlMessage completed successfully")
 				}
 			} else {
-				c.logger.LogDebug("msgHandler is nil, cannot handle message")
+				c.logger.LogDebug("ERROR: msgHandler is nil, cannot handle control message")
 			}
 		})
 		
@@ -94,10 +81,15 @@ func (c *Channels) SetupChannelHandlers() {
 			c.logger.LogDebug(fmt.Sprintf("Received data chunk: %d bytes", len(msg.Data)))
 			
 			if c.dataHandler != nil {
+				c.logger.LogDebug("Calling HandleDataChunk")
 				err := c.dataHandler.HandleDataChunk(msg.Data)
 				if err != nil {
 					c.logger.LogDebug(fmt.Sprintf("Error handling data chunk: %v", err))
+				} else {
+					c.logger.LogDebug("HandleDataChunk completed successfully")
 				}
+			} else {
+				c.logger.LogDebug("ERROR: dataHandler is nil, cannot handle data chunk")
 			}
 		})
 	} else {
