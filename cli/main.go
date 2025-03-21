@@ -447,35 +447,9 @@ func (c *Client) initWebRTC(peerToken string, isInitiator bool) {
 		c.ui,
 	)
 	
-	// Create sender and receiver
-	c.sender = transfer.NewSender(
-		c.webrtcConn.Connection.GetControlChannel(),
-		c.webrtcConn.Connection.GetDataChannel(),
-		c.ui,
-		func(status string, direction string) {
-			c.ui.UpdateTransferProgress(status, direction)
-		},
-		262144, // fixedChunkSize from config.go
-		262144, // maxWebRTCMessageSize from config.go
-	)
-	
-	c.receiver = transfer.NewReceiver(
-		c.webrtcConn.Connection.GetControlChannel(),
-		c.webrtcConn.Connection.GetDataChannel(),
-		c.ui,
-		func(status string, direction string) {
-			c.ui.UpdateTransferProgress(status, direction)
-		},
-		262144, // fixedChunkSize from config.go
-	)
-	
-	// Create WebRTC channels
-	c.webrtcChannels = ourwebrtc.NewChannels(
-		c.webrtcConn.Connection,
-		c.ui,
-		c.receiver,
-		c.receiver,
-	)
+	// We'll create the sender, receiver, and channels in the OnChannelsReady callback
+	// after the connection is fully established
+	c.logMessage("Sender, receiver, and channels will be created when the connection is established")
 	
 	// Set up WebRTC connection
 	err := c.webrtcConn.Connection.SetupPeerConnection()
