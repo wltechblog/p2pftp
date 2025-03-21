@@ -168,33 +168,41 @@ func (ui *UI) LogDebug(msg string) {
 
 // ShowChat displays a chat message
 func (ui *UI) ShowChat(from string, msg string) {
-	ui.LogDebug(fmt.Sprintf("ShowChat called with from=%s, msg=%s", from, msg))
-	
-	if from == ui.token {
-		ui.LogDebug("Showing chat message from self")
-		ui.AppendChat(fmt.Sprintf("[yellow]You[white] %s", msg))
-	} else {
-		ui.LogDebug("Showing chat message from peer")
-		ui.AppendChat(fmt.Sprintf("[yellow]Peer[white] %s", msg))
-	}
+    // Queue everything in a single operation to avoid deadlocks
+    ui.opChan <- func() {
+        // Log the call
+        timestamp := time.Now().Format("15:04:05")
+        fmt.Fprintf(ui.debugView, "[gray]%s[white] ShowChat called with from=%s, msg=%s\n", 
+            timestamp, from, msg)
+        ui.debugView.ScrollToEnd()
+
+        // Format and append the chat message
+        if from == ui.token {
+            formattedMsg := fmt.Sprintf("[yellow]You[white] %s", msg)
+            fmt.Fprintf(ui.chatView, "[gray]%s[white] %s\n", timestamp, formattedMsg)
+        } else {
+            formattedMsg := fmt.Sprintf("[yellow]Peer[white] %s", msg)
+            fmt.Fprintf(ui.chatView, "[gray]%s[white] %s\n", timestamp, formattedMsg)
+        }
+        ui.chatView.ScrollToEnd()
+    }
 }
 
 // AppendChat appends a message to the chat view
 func (ui *UI) AppendChat(msg string) {
-	// Log outside the operation to avoid deadlock
-	ui.LogDebug(fmt.Sprintf("AppendChat called with msg=%s", msg))
-	
-	ui.opChan <- func() {
-		timestamp := time.Now().Format("15:04:05")
-		fmt.Fprintf(ui.chatView, "[gray]%s[white] %s\n", timestamp, msg)
-		ui.chatView.ScrollToEnd()
-		
-		// Don't call LogDebug from within the operation to avoid deadlock
-		// Instead, we'll log the completion outside
-	}
-	
-	// Log completion outside the operation
-	ui.LogDebug("Message queued to be appended to chat view")
+    // Queue both the chat message and debug messages in a single operation
+    // to ensure proper ordering and avoid deadlock
+    ui.opChan <- func() {
+        // Log first
+        debugTimestamp := time.Now().Format("15:04:05")
+        fmt.Fprintf(ui.debugView, "[gray]%s[white] AppendChat: %s\n", debugTimestamp, msg)
+        ui.debugView.ScrollToEnd()
+        
+        // Then append chat message
+        chatTimestamp := time.Now().Format("15:04:05")
+        fmt.Fprintf(ui.chatView, "[gray]%s[white] %s\n", chatTimestamp, msg)
+        ui.chatView.ScrollToEnd()
+    }
 }
 
 // UpdateTransferProgress updates the transfer progress
