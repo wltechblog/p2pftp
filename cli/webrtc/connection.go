@@ -89,7 +89,30 @@ return fmt.Errorf("failed to create peer connection: %v", err)
 
 c.state.PeerConn = peerConn
 
-// Set up data channels
+// Set up OnDataChannel handler for answering peer
+peerConn.OnDataChannel(func(channel *pionwebrtc.DataChannel) {
+    c.logger.LogDebug(fmt.Sprintf("Received data channel: %s", channel.Label()))
+    
+    if channel.Label() == "control" {
+        c.state.ControlChannel = channel
+        channel.OnOpen(func() {
+            c.logger.LogDebug("Control channel opened (answering peer)")
+            if c.state.DataChannel != nil && c.state.DataChannel.ReadyState() == pionwebrtc.DataChannelStateOpen {
+                c.completeConnectionSetup()
+            }
+        })
+    } else if channel.Label() == "data" {
+        c.state.DataChannel = channel
+        channel.OnOpen(func() {
+            c.logger.LogDebug("Data channel opened (answering peer)")
+            if c.state.ControlChannel != nil && c.state.ControlChannel.ReadyState() == pionwebrtc.DataChannelStateOpen {
+                c.completeConnectionSetup()
+            }
+        })
+    }
+})
+
+// Set up data channels for offering peer
 controlChannel, err := peerConn.CreateDataChannel("control", nil)
 if err != nil {
 return fmt.Errorf("failed to create control channel: %v", err)
