@@ -562,6 +562,7 @@ type UserInterface interface {
 	ShowError(msg string)
 	LogDebug(msg string)
 	ShowChat(from string, msg string)
+	AppendChat(msg string)
 	ShowConnectionRequest(token string)
 	ShowConnectionAccepted(msg string)
 	ShowConnectionRejected(token string)
