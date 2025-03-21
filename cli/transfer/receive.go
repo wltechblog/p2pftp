@@ -19,6 +19,17 @@ type Receiver struct {
 	logger           Logger
 	progressCallback ProgressCallback
 	chunkSize        int
+	downloadDir      string
+}
+
+// MessageHandler is an interface for handling control messages
+type MessageHandler interface {
+	HandleControlMessage(msg []byte) error
+}
+
+// ChunkHandler is an interface for handling data chunks
+type ChunkHandler interface {
+	HandleDataChunk(data []byte) error
 }
 
 // NewReceiver creates a new file receiver
@@ -29,6 +40,12 @@ func NewReceiver(
 	progressCallback ProgressCallback,
 	chunkSize int,
 ) *Receiver {
+	// Default to current directory for downloads
+	downloadDir, err := os.Getwd()
+	if err != nil {
+		downloadDir = "."
+	}
+
 	return &Receiver{
 		state:            NewTransferState(),
 		controlChannel:   controlChannel,
@@ -36,40 +53,196 @@ func NewReceiver(
 		logger:           logger,
 		progressCallback: progressCallback,
 		chunkSize:        chunkSize,
+		downloadDir:      downloadDir,
 	}
 }
 
-// HandleFileInfo handles a file info message
-func (r *Receiver) HandleFileInfo(data map[string]interface{}) error {
-	if r.state.inProgress {
-		return fmt.Errorf("download already in progress")
+// SetDownloadDirectory sets the directory where files will be saved
+func (r *Receiver) SetDownloadDirectory(dir string) {
+	r.downloadDir = dir
+}
+
+// HandleControlMessage handles control channel messages
+func (r *Receiver) HandleControlMessage(msg []byte) error {
+	// Parse the message
+	var message map[string]interface{}
+	err := json.Unmarshal(msg, &message)
+	if err != nil {
+		return fmt.Errorf("failed to parse control message: %v", err)
 	}
 
-	infoMap, ok := data["info"].(map[string]interface{})
+	// Get the message type
+	msgType, ok := message["type"].(string)
 	if !ok {
-		return fmt.Errorf("invalid file info format")
+		return fmt.Errorf("invalid message format: missing type")
 	}
 
-	name, _ := infoMap["name"].(string)
-	size, _ := infoMap["size"].(float64)
-	md5, _ := infoMap["md5"].(string)
+	// Handle different message types
+	switch msgType {
+	case "file-info":
+		return r.handleFileInfo(message)
+	case "chunk-info":
+		return r.handleChunkInfo(message)
+	case "file-complete":
+		return r.handleFileComplete()
+	case "message":
+		// Chat messages are handled by the channels component
+		return nil
+	case "capabilities":
+		return r.handleCapabilities(message)
+	case "capabilities-ack":
+		return r.handleCapabilitiesAck(message)
+	default:
+		r.logger.LogDebug(fmt.Sprintf("Unknown message type: %s", msgType))
+		return nil
+	}
+}
 
-	// Create a unique filename to avoid overwriting existing files
-	baseName := filepath.Base(name)
-	ext := filepath.Ext(baseName)
-	nameWithoutExt := baseName[:len(baseName)-len(ext)]
+// HandleDataChunk handles data channel chunks
+func (r *Receiver) HandleDataChunk(data []byte) error {
+	if !r.state.inProgress {
+		return fmt.Errorf("no file transfer in progress")
+	}
 
-	filePath := name
-	counter := 1
-	for {
-		if _, err := os.Stat(filePath); os.IsNotExist(err) {
-			break
+	if len(data) < 8 {
+		return fmt.Errorf("invalid chunk format: too short")
+	}
+
+	// Extract sequence number and length from the framed data
+	sequence := int(data[0])<<24 | int(data[1])<<16 | int(data[2])<<8 | int(data[3])
+	length := int(data[4])<<24 | int(data[5])<<16 | int(data[6])<<8 | int(data[7])
+	
+	// Validate the chunk
+	if len(data) < 8+length {
+		return fmt.Errorf("invalid chunk: expected %d bytes, got %d", 8+length, len(data))
+	}
+
+	// Check if we're expecting this chunk
+	if r.state.expectedChunk == nil {
+		r.logger.LogDebug(fmt.Sprintf("Received unexpected chunk %d", sequence))
+		// Still process the chunk if it's valid, even if unexpected
+		// This helps with out-of-order delivery
+		if sequence >= 0 && sequence < r.state.totalChunks {
+			// Extract the actual data
+			chunkData := data[8 : 8+length]
+			
+			// Write the chunk to the file
+			offset := int64(sequence) * int64(r.chunkSize)
+			_, err := r.state.fileTransfer.file.WriteAt(chunkData, offset)
+			if err != nil {
+				return fmt.Errorf("failed to write chunk: %v", err)
+			}
+			
+			// Mark the chunk as received
+			r.state.receivedChunks[sequence] = true
+			r.state.receivedSize += int64(length)
+			if sequence > r.state.lastReceivedSequence {
+				r.state.lastReceivedSequence = sequence
+			}
+			
+			// Send confirmation
+			err = r.sendChunkConfirmation(sequence)
+			if err != nil {
+				r.logger.LogDebug(fmt.Sprintf("Failed to send chunk confirmation: %v", err))
+			}
+			
+			// Update missing chunks tracking
+			delete(r.state.missingChunks, sequence)
 		}
-		filePath = fmt.Sprintf("%s-%d%s", nameWithoutExt, counter, ext)
-		counter++
+		return nil
 	}
 
-	// Create file
+	// Validate against expected chunk info
+	if sequence != r.state.expectedChunk.Sequence {
+		return fmt.Errorf("chunk sequence mismatch: expected %d, got %d", 
+			r.state.expectedChunk.Sequence, sequence)
+	}
+
+	if length != r.state.expectedChunk.Size {
+		return fmt.Errorf("chunk size mismatch: expected %d, got %d", 
+			r.state.expectedChunk.Size, length)
+	}
+
+	// Extract the actual data
+	chunkData := data[8 : 8+length]
+
+	// Write the chunk to the file
+	offset := int64(sequence) * int64(r.chunkSize)
+	_, err := r.state.fileTransfer.file.WriteAt(chunkData, offset)
+	if err != nil {
+		return fmt.Errorf("failed to write chunk: %v", err)
+	}
+
+	// Mark the chunk as received
+	r.state.receivedChunks[sequence] = true
+	r.state.receivedSize += int64(length)
+	r.state.lastReceivedSequence = sequence
+
+	// Send confirmation
+	err = r.sendChunkConfirmation(sequence)
+	if err != nil {
+		r.logger.LogDebug(fmt.Sprintf("Failed to send chunk confirmation: %v", err))
+	}
+
+	// Update progress
+	now := time.Now()
+	timeDiff := now.Sub(r.state.lastUpdate).Seconds()
+	if timeDiff > 0.1 { // Update every 100ms
+		percentage := int((float64(r.state.receivedSize) / float64(r.state.fileTransfer.FileInfo.Size)) * 100)
+		speed := float64(r.state.receivedSize-r.state.lastUpdateSize) / timeDiff
+		
+		r.progressCallback(fmt.Sprintf("⬇ %s [%d%%] (%.1f MB/s)",
+			r.state.fileTransfer.FileInfo.Name,
+			percentage,
+			speed/1024/1024),
+			"receive")
+			
+		r.state.lastUpdate = now
+		r.state.lastUpdateSize = r.state.receivedSize
+		
+		// Check for missing chunks and request them if needed
+		r.checkForMissingChunks()
+	}
+
+	// Clear the expected chunk
+	r.state.expectedChunk = nil
+
+	// Check if we've received all chunks
+	if r.state.receivedSize == r.state.fileTransfer.FileInfo.Size {
+		r.logger.LogDebug("All chunks received, waiting for file-complete message")
+	}
+
+	return nil
+}
+
+// handleFileInfo handles a file-info message
+func (r *Receiver) handleFileInfo(message map[string]interface{}) error {
+	// Check if we're already receiving a file
+	if r.state.inProgress {
+		return fmt.Errorf("already receiving a file")
+	}
+
+	// Extract file info
+	infoMap, ok := message["info"].(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("invalid file-info message: missing info")
+	}
+
+	name, ok := infoMap["name"].(string)
+	if !ok {
+		return fmt.Errorf("invalid file-info message: missing name")
+	}
+
+	sizeFloat, ok := infoMap["size"].(float64)
+	if !ok {
+		return fmt.Errorf("invalid file-info message: missing size")
+	}
+	size := int64(sizeFloat)
+
+	md5Hash, _ := infoMap["md5"].(string)
+
+	// Create the file
+	filePath := filepath.Join(r.downloadDir, name)
 	file, err := os.Create(filePath)
 	if err != nil {
 		return fmt.Errorf("failed to create file: %v", err)
@@ -77,8 +250,8 @@ func (r *Receiver) HandleFileInfo(data map[string]interface{}) error {
 
 	// Calculate total chunks
 	totalChunks := int(math.Ceil(float64(size) / float64(r.chunkSize)))
-
-	// Initialize transfer state
+	
+	// Initialize the transfer state
 	r.state = &TransferState{
 		inProgress: true,
 		startTime:  time.Now(),
@@ -86,280 +259,227 @@ func (r *Receiver) HandleFileInfo(data map[string]interface{}) error {
 		fileTransfer: &FileTransfer{
 			FileInfo: &FileInfo{
 				Name: name,
-				Size: int64(size),
-				MD5:  md5,
+				Size: size,
+				MD5:  md5Hash,
 			},
 			file:     file,
 			filePath: filePath,
 		},
-		chunks:              make([][]byte, totalChunks),
-		totalChunks:         totalChunks,
-		lastReceivedSequence: -1,
-		receivedChunks:      make(map[int]bool),
-		missingChunks:       make(map[int]bool),
+		receivedChunks: make(map[int]bool),
+		missingChunks:  make(map[int]bool),
+		totalChunks:    totalChunks,
 	}
 
-	// Start a timer to check for missing chunks
-	go func() {
-		ticker := time.NewTicker(1 * time.Second)
-		defer ticker.Stop()
+	// Show initial status
+	r.progressCallback(fmt.Sprintf("⬇ %s [0%%] (0/s)", name), "receive")
 
-		for r.state.inProgress {
-			<-ticker.C
-			r.checkForMissingChunks()
-		}
-	}()
-
-	r.logger.LogDebug(fmt.Sprintf("Receiving file: %s (%d bytes, %d chunks)", name, int64(size), totalChunks))
 	return nil
 }
 
-// HandleFileInfoUpdate handles a file info update message
-func (r *Receiver) HandleFileInfoUpdate(data map[string]interface{}) error {
+// handleChunkInfo handles a chunk-info message
+func (r *Receiver) handleChunkInfo(message map[string]interface{}) error {
 	if !r.state.inProgress {
-		return fmt.Errorf("no download in progress")
+		return fmt.Errorf("no file transfer in progress")
 	}
 
-	infoMap, ok := data["info"].(map[string]interface{})
+	// Extract chunk info
+	sequenceFloat, ok := message["sequence"].(float64)
 	if !ok {
-		return fmt.Errorf("invalid file info update format")
+		return fmt.Errorf("invalid chunk-info message: missing sequence")
 	}
+	sequence := int(sequenceFloat)
 
-	// Update MD5 hash if provided
-	if md5, ok := infoMap["md5"].(string); ok && md5 != "" {
-		r.state.fileTransfer.MD5 = md5
-		r.logger.LogDebug(fmt.Sprintf("Updated file MD5 hash: %s", md5))
+	totalChunksFloat, ok := message["totalChunks"].(float64)
+	if !ok {
+		return fmt.Errorf("invalid chunk-info message: missing totalChunks")
 	}
+	totalChunks := int(totalChunksFloat)
 
-	return nil
-}
-
-// HandleBinaryChunkData handles binary chunk data
-func (r *Receiver) HandleBinaryChunkData(sequence int, total int, size int, data []byte) error {
-	if !r.state.inProgress {
-		return fmt.Errorf("received chunk but no download in progress")
+	sizeFloat, ok := message["size"].(float64)
+	if !ok {
+		return fmt.Errorf("invalid chunk-info message: missing size")
 	}
+	size := int(sizeFloat)
 
-	// Store the chunk in memory
-	if sequence >= len(r.state.chunks) {
-		return fmt.Errorf("received chunk with sequence %d beyond expected total %d", 
-			sequence, len(r.state.chunks))
-	}
-
-	// Store the chunk data
-	r.state.chunks[sequence] = data
-	r.state.receivedChunks[sequence] = true
-
-	// Remove from missing chunks if it was there
-	delete(r.state.missingChunks, sequence)
-
-	// Send confirmation
-	confirm := ChunkConfirm{
-		Type:     "chunk-confirm",
-		Sequence: sequence,
-	}
-
-	confirmJSON, err := json.Marshal(confirm)
-	if err != nil {
-		return fmt.Errorf("failed to marshal chunk confirmation: %v", err)
-	}
-
-	// Check if control channel is still valid
-	if r.controlChannel.ReadyState() != webrtc.DataChannelStateOpen {
-		return fmt.Errorf("control channel is not in open state (current state: %s)",
-			r.controlChannel.ReadyState().String())
-	}
-
-	err = r.controlChannel.SendText(string(confirmJSON))
-	if err != nil {
-		r.logger.LogDebug(fmt.Sprintf("Error sending chunk confirmation: %v", err))
-		return fmt.Errorf("failed to send chunk confirmation: %v", err)
-	}
-
-	// Update in-order sequence tracking
-	if sequence == r.state.lastReceivedSequence+1 {
-		r.state.lastReceivedSequence = sequence
-
-		// Check for any consecutive chunks we've already received
-		nextSeq := sequence + 1
-		for {
-			if _, ok := r.state.receivedChunks[nextSeq]; ok {
-				r.state.lastReceivedSequence = nextSeq
-				nextSeq++
-			} else {
-				break
-			}
-		}
-	}
-
-	// Update progress
-	r.state.receivedSize += int64(size)
-	now := time.Now()
-	if time.Since(r.state.lastUpdate) > 100*time.Millisecond {
-		timeDiff := now.Sub(r.state.lastUpdate).Seconds()
-		if timeDiff > 0 {
-			speed := float64(r.state.receivedSize-r.state.lastUpdateSize) / timeDiff
-			percentage := int((float64(r.state.receivedSize) / float64(r.state.fileTransfer.Size)) * 100)
-			r.progressCallback(fmt.Sprintf("⬇ %s [%d%%] (%.1f MB/s)",
-				r.state.fileTransfer.Name,
-				percentage,
-				speed/1024/1024),
-				"receive")
-			r.state.lastUpdate = now
-			r.state.lastUpdateSize = r.state.receivedSize
-		}
-	}
-
-	// Check if we've received all chunks
-	if r.state.lastReceivedSequence == total-1 {
-		// Check if channels are still valid before completing
-		if r.controlChannel.ReadyState() != webrtc.DataChannelStateOpen || 
-		   r.dataChannel.ReadyState() != webrtc.DataChannelStateOpen {
-			r.logger.LogDebug(fmt.Sprintf("Channels not in open state, but all chunks received - completing anyway (control: %s, data: %s)",
-				r.controlChannel.ReadyState().String(), r.dataChannel.ReadyState().String()))
-		}
-		
-		r.handleFileComplete()
+	// Store the expected chunk info
+	r.state.expectedChunk = &ChunkInfo{
+		Sequence:    sequence,
+		TotalChunks: totalChunks,
+		Size:        size,
 	}
 
 	return nil
 }
 
-// checkForMissingChunks checks for missing chunks and requests them
-func (r *Receiver) checkForMissingChunks() {
-	if !r.state.inProgress {
-		return
-	}
-	
-	// Check if channels are still valid
-	if r.controlChannel.ReadyState() != webrtc.DataChannelStateOpen || 
-	   r.dataChannel.ReadyState() != webrtc.DataChannelStateOpen {
-		r.logger.LogDebug(fmt.Sprintf("Cannot check for missing chunks: channels not in open state (control: %s, data: %s)",
-			r.controlChannel.ReadyState().String(), r.dataChannel.ReadyState().String()))
-		return
-	}
-
-	// Check for missing chunks
-	for i := 0; i <= r.state.lastReceivedSequence; i++ {
-		if _, ok := r.state.receivedChunks[i]; !ok {
-			r.state.missingChunks[i] = true
-		}
-	}
-
-	// Request missing chunks
-	for seq := range r.state.missingChunks {
-		request := struct {
-			Type     string `json:"type"`
-			Sequence int    `json:"sequence"`
-		}{
-			Type:     "chunk-request",
-			Sequence: seq,
-		}
-
-		requestJSON, err := json.Marshal(request)
-		if err != nil {
-			r.logger.ShowError(fmt.Sprintf("Failed to marshal chunk request: %v", err))
-			continue
-		}
-
-		// Check if control channel is still valid
-		if r.controlChannel.ReadyState() != webrtc.DataChannelStateOpen {
-			r.logger.ShowError(fmt.Sprintf("Control channel is not in open state (current state: %s)",
-				r.controlChannel.ReadyState().String()))
-			continue
-		}
-
-		err = r.controlChannel.SendText(string(requestJSON))
-		if err != nil {
-			r.logger.LogDebug(fmt.Sprintf("Error sending chunk request: %v", err))
-			r.logger.ShowError(fmt.Sprintf("Failed to send chunk request: %v", err))
-			continue
-		}
-
-		r.logger.LogDebug(fmt.Sprintf("Requested missing chunk %d", seq))
-	}
-}
-
-// handleFileComplete handles file completion
+// handleFileComplete handles a file-complete message
 func (r *Receiver) handleFileComplete() error {
 	if !r.state.inProgress {
-		return fmt.Errorf("no download in progress")
-	}
-	
-	// Check if file transfer is still valid
-	if r.state.fileTransfer == nil || r.state.fileTransfer.file == nil {
-		r.logger.LogDebug("Cannot complete file transfer: file handle is not valid")
-		r.state = NewTransferState()
-		return fmt.Errorf("file handle is not valid")
+		return fmt.Errorf("no file transfer in progress")
 	}
 
-	// Reopen the file for writing from the beginning
-	file, err := os.Create(r.state.fileTransfer.filePath)
-	if err != nil {
-		r.logger.ShowError(fmt.Sprintf("Failed to reopen file for writing: %v", err))
-		r.state = NewTransferState()
-		return fmt.Errorf("failed to reopen file for writing: %v", err)
-	}
-	defer file.Close()
+	// Close the file
+	r.state.fileTransfer.file.Close()
 
-	// Calculate the total expected file size
-	expectedSize := r.state.fileTransfer.Size
-
-	// Write all chunks to the file in order
-	var totalWritten int64
-	for i := 0; i < r.state.totalChunks; i++ {
-		if i >= len(r.state.chunks) || r.state.chunks[i] == nil {
-			r.logger.ShowError(fmt.Sprintf("Missing chunk %d when finalizing file", i))
-			r.state = NewTransferState()
-			return fmt.Errorf("missing chunk %d when finalizing file", i)
-		}
-
-		n, err := file.Write(r.state.chunks[i])
+	// Verify the file integrity if we have an MD5 hash
+	if r.state.fileTransfer.FileInfo.MD5 != "" {
+		calculatedMD5, err := CalculateMD5(r.state.fileTransfer.filePath)
 		if err != nil {
-			r.logger.ShowError(fmt.Sprintf("Failed to write chunk %d: %v", i, err))
-			r.state = NewTransferState()
-			return fmt.Errorf("failed to write chunk %d: %v", i, err)
+			r.logger.LogDebug(fmt.Sprintf("Failed to calculate MD5: %v", err))
+		} else if calculatedMD5 != r.state.fileTransfer.FileInfo.MD5 {
+			r.logger.ShowError(fmt.Sprintf("MD5 mismatch: expected %s, got %s", 
+				r.state.fileTransfer.FileInfo.MD5, calculatedMD5))
+		} else {
+			r.logger.LogDebug("MD5 verification successful")
 		}
-
-		totalWritten += int64(n)
 	}
 
-	// Verify the file size
-	if totalWritten != expectedSize {
-		r.logger.ShowError(fmt.Sprintf("File size mismatch: expected %d bytes, got %d bytes", 
-			expectedSize, totalWritten))
-	}
-
-	// Calculate MD5 hash of the received file
-	receivedHash, err := CalculateMD5(r.state.fileTransfer.filePath)
-	if err != nil {
-		r.logger.ShowError(fmt.Sprintf("Failed to calculate received file hash: %v", err))
-	} else if r.state.fileTransfer.MD5 != "" && 
-		receivedHash != r.state.fileTransfer.MD5 {
-		r.logger.ShowError(fmt.Sprintf("File hash mismatch: expected %s, got %s", 
-			r.state.fileTransfer.MD5, receivedHash))
-	}
+	// Calculate transfer statistics
+	duration := time.Since(r.state.startTime).Seconds()
+	avgSpeed := float64(r.state.receivedSize) / duration
 
 	// Show completion message
-	avgSpeed := float64(r.state.fileTransfer.Size) / time.Since(r.state.startTime).Seconds()
 	r.progressCallback(fmt.Sprintf("⬇ %s - Complete (avg: %.1f MB/s)",
-		r.state.fileTransfer.Name,
+		r.state.fileTransfer.FileInfo.Name,
 		avgSpeed/1024/1024),
 		"receive")
 
-	// Reset transfer state
+	// Reset the transfer state
 	r.state = NewTransferState()
 
 	return nil
 }
 
-// HandleFileComplete handles a file complete message
-func (r *Receiver) HandleFileComplete() error {
-	return r.handleFileComplete()
+// handleCapabilities handles a capabilities message
+func (r *Receiver) handleCapabilities(message map[string]interface{}) error {
+	// Extract max chunk size
+	maxChunkSizeFloat, ok := message["maxChunkSize"].(float64)
+	if !ok {
+		return fmt.Errorf("invalid capabilities message: missing maxChunkSize")
+	}
+	maxChunkSize := int(maxChunkSizeFloat)
+
+	// Negotiate chunk size (use the smaller of our max and peer's max)
+	negotiatedSize := int(math.Min(float64(r.chunkSize), float64(maxChunkSize)))
+
+	// Send capabilities acknowledgment
+	capabilitiesAck := struct {
+		Type               string `json:"type"`
+		NegotiatedChunkSize int    `json:"negotiatedChunkSize"`
+	}{
+		Type:               "capabilities-ack",
+		NegotiatedChunkSize: negotiatedSize,
+	}
+
+	capabilitiesAckJSON, err := json.Marshal(capabilitiesAck)
+	if err != nil {
+		return fmt.Errorf("failed to marshal capabilities-ack: %v", err)
+	}
+
+	err = r.controlChannel.SendText(string(capabilitiesAckJSON))
+	if err != nil {
+		return fmt.Errorf("failed to send capabilities-ack: %v", err)
+	}
+
+	// Update our chunk size to the negotiated value
+	r.chunkSize = negotiatedSize
+
+	return nil
 }
 
-// HandleChunkConfirm handles a chunk confirmation
-func (r *Receiver) HandleChunkConfirm(sequence int) error {
-	// Receiver doesn't need to handle chunk confirmations
+// handleCapabilitiesAck handles a capabilities-ack message
+func (r *Receiver) handleCapabilitiesAck(message map[string]interface{}) error {
+	// Extract negotiated chunk size
+	negotiatedSizeFloat, ok := message["negotiatedChunkSize"].(float64)
+	if !ok {
+		return fmt.Errorf("invalid capabilities-ack message: missing negotiatedChunkSize")
+	}
+	negotiatedSize := int(negotiatedSizeFloat)
+
+	// Update our chunk size to the negotiated value
+	r.chunkSize = negotiatedSize
+
+	return nil
+}
+
+// sendChunkConfirmation sends a chunk confirmation message
+func (r *Receiver) sendChunkConfirmation(sequence int) error {
+	// Create the confirmation message
+	confirmation := struct {
+		Type     string `json:"type"`
+		Sequence int    `json:"sequence"`
+	}{
+		Type:     "chunk-confirm",
+		Sequence: sequence,
+	}
+
+	// Marshal the confirmation
+	confirmationJSON, err := json.Marshal(confirmation)
+	if err != nil {
+		return fmt.Errorf("failed to marshal chunk confirmation: %v", err)
+	}
+
+	// Send the confirmation
+	err = r.controlChannel.SendText(string(confirmationJSON))
+	if err != nil {
+		return fmt.Errorf("failed to send chunk confirmation: %v", err)
+	}
+
+	return nil
+}
+
+// checkForMissingChunks checks for missing chunks and requests them if needed
+func (r *Receiver) checkForMissingChunks() error {
+	// Only check if we have total chunks information
+	if r.state.totalChunks == 0 {
+		return nil
+	}
+	
+	// Check for gaps in the received chunks
+	var missingSequences []int
+	
+	// First, identify any chunks that should have been received but weren't
+	for i := 0; i < r.state.lastReceivedSequence; i++ {
+		if _, ok := r.state.receivedChunks[i]; !ok {
+			// This chunk is missing
+			r.state.missingChunks[i] = true
+		}
+	}
+	
+	// Collect missing chunks (limit to 50 at a time to avoid large messages)
+	count := 0
+	for seq := range r.state.missingChunks {
+		if count >= 50 {
+			break
+		}
+		missingSequences = append(missingSequences, seq)
+		count++
+	}
+	
+	// If we have missing chunks, request them
+	if len(missingSequences) > 0 {
+		r.logger.LogDebug(fmt.Sprintf("Requesting %d missing chunks", len(missingSequences)))
+		
+		// Create the request message
+		request := struct {
+			Type      string `json:"type"`
+			Sequences []int  `json:"sequences"`
+		}{
+			Type:      "request-chunks",
+			Sequences: missingSequences,
+		}
+		
+		// Marshal the request
+		requestJSON, err := json.Marshal(request)
+		if err != nil {
+			return fmt.Errorf("failed to marshal chunk request: %v", err)
+		}
+		
+		// Send the request
+		err = r.controlChannel.SendText(string(requestJSON))
+		if err != nil {
+			return fmt.Errorf("failed to send chunk request: %v", err)
+		}
+	}
+	
 	return nil
 }

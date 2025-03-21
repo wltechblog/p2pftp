@@ -278,3 +278,115 @@ func (s *Sender) HandleChunkConfirm(sequence int) {
 		s.state.confirmHandler(sequence)
 	}
 }
+
+// HandleControlMessage handles control channel messages
+func (s *Sender) HandleControlMessage(msg []byte) error {
+	// Parse the message
+	var message map[string]interface{}
+	err := json.Unmarshal(msg, &message)
+	if err != nil {
+		return fmt.Errorf("failed to parse control message: %v", err)
+	}
+
+	// Get the message type
+	msgType, ok := message["type"].(string)
+	if !ok {
+		return fmt.Errorf("invalid message format: missing type")
+	}
+
+	// Handle different message types
+	switch msgType {
+	case "chunk-confirm":
+		// Extract sequence number
+		sequenceFloat, ok := message["sequence"].(float64)
+		if !ok {
+			return fmt.Errorf("invalid chunk-confirm message: missing sequence")
+		}
+		sequence := int(sequenceFloat)
+		
+		// Handle the confirmation
+		s.HandleChunkConfirm(sequence)
+		
+	case "request-chunks":
+		// Extract sequences
+		sequencesInterface, ok := message["sequences"].([]interface{})
+		if !ok {
+			return fmt.Errorf("invalid request-chunks message: missing sequences")
+		}
+		
+		// Convert to []int
+		sequences := make([]int, len(sequencesInterface))
+		for i, seq := range sequencesInterface {
+			seqFloat, ok := seq.(float64)
+			if !ok {
+				return fmt.Errorf("invalid sequence format in request-chunks message")
+			}
+			sequences[i] = int(seqFloat)
+		}
+		
+		// Handle the request
+		return s.HandleRequestChunks(sequences)
+		
+	case "capabilities-ack":
+		// Extract negotiated chunk size
+		negotiatedSizeFloat, ok := message["negotiatedChunkSize"].(float64)
+		if !ok {
+			return fmt.Errorf("invalid capabilities-ack message: missing negotiatedChunkSize")
+		}
+		negotiatedSize := int(negotiatedSizeFloat)
+		
+		// Update our chunk size to the negotiated value
+		s.chunkSize = negotiatedSize
+		
+	default:
+		s.logger.LogDebug(fmt.Sprintf("Unknown message type: %s", msgType))
+	}
+
+	return nil
+}
+
+// HandleRequestChunks handles a request for missing chunks
+func (s *Sender) HandleRequestChunks(sequences []int) error {
+	if !s.state.inProgress {
+		return fmt.Errorf("no file transfer in progress")
+	}
+	
+	s.logger.LogDebug(fmt.Sprintf("Received request for %d missing chunks", len(sequences)))
+	
+	// Add the requested chunks to the retransmission queue
+	for _, sequence := range sequences {
+		// Validate the sequence number
+		if sequence < 0 || sequence >= s.state.totalChunks {
+			s.logger.LogDebug(fmt.Sprintf("Ignoring invalid chunk sequence: %d", sequence))
+			continue
+		}
+		
+		// Check if this chunk has already been acknowledged
+		if sequence <= s.state.lastAckedSequence {
+			s.logger.LogDebug(fmt.Sprintf("Ignoring already acknowledged chunk: %d", sequence))
+			continue
+		}
+		
+		// Add to retransmission queue if not already there
+		alreadyQueued := false
+		for _, seq := range s.state.retransmissionQueue {
+			if seq == sequence {
+				alreadyQueued = true
+				break
+			}
+		}
+		
+		if !alreadyQueued {
+			s.state.retransmissionQueue = append(s.state.retransmissionQueue, sequence)
+			s.logger.LogDebug(fmt.Sprintf("Queuing chunk %d for retransmission (requested by receiver)", sequence))
+		}
+	}
+	
+	// Try to send the requested chunks immediately
+	if s.controlChannel.ReadyState() == webrtc.DataChannelStateOpen &&
+	   s.dataChannel.ReadyState() == webrtc.DataChannelStateOpen {
+		return s.trySendNextChunks()
+	}
+	
+	return nil
+}
