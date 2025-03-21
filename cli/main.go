@@ -37,9 +37,9 @@ type ClientWebRTCConnection struct {
 	client *Client
 }
 
-// OnChannelsReady is called when both channels are ready
+// Override the OnChannelsReady method from the base Connection
 func (c *ClientWebRTCConnection) OnChannelsReady() {
-	c.client.ui.LogDebug("OnChannelsReady called")
+	c.client.ui.LogDebug("ClientWebRTCConnection.OnChannelsReady called - this is the overridden method")
 	
 	// Make sure the channels are initialized
 	if c.Connection.GetControlChannel() == nil || c.Connection.GetDataChannel() == nil {
@@ -127,6 +127,8 @@ func (c *ClientWebRTCConnection) OnChannelsReady() {
 		c.client.ui.LogDebug("WebRTC channels are properly initialized")
 	}
 }
+
+
 
 // Using UserInterface and Message types from the main package
 

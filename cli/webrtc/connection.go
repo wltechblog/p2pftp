@@ -256,6 +256,7 @@ func (c *Connection) completeConnectionSetup() {
 	}
 	
 	// Notify the client that the channels are ready
+	c.logger.LogDebug("Calling OnChannelsReady from completeConnectionSetup")
 	c.OnChannelsReady()
 
 	// Send capabilities message with our maximum supported chunk size
