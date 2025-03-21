@@ -392,8 +392,8 @@ c.ui,
 func(status string, direction string) {
 c.ui.UpdateTransferProgress(status, direction)
 },
-262136, // fixedChunkSize - 8 bytes for frame header
-262144, // maxWebRTCMessageSize
+fixedChunkSize,
+maxWebRTCMessageSize,
 )
 				
 				c.receiver = transfer.NewReceiver(
@@ -403,7 +403,7 @@ c.ui.UpdateTransferProgress(status, direction)
 					func(status string, direction string) {
 						c.ui.UpdateTransferProgress(status, direction)
 					},
-262136, // fixedChunkSize - 8 bytes for frame header
+fixedChunkSize,
 )
 				
 				// Re-create the WebRTC channels with the actual message and data handlers
@@ -416,22 +416,32 @@ c.ui.UpdateTransferProgress(status, direction)
 					c.logMessage("Receiver is properly initialized before creating channels")
 				}
 				
-				c.webrtcChannels = ourwebrtc.NewChannels(
-					c.webrtcConn.Connection,
-					c.ui,
-					c.receiver, // Message handler
-					c.receiver, // Data handler
-				)
+c.logMessage("Creating WebRTC channels with handlers")
+c.logMessage(fmt.Sprintf("Control channel state: %s", controlState.String()))
+c.logMessage(fmt.Sprintf("Data channel state: %s", dataState.String()))
+
+c.webrtcChannels = ourwebrtc.NewChannels(
+    c.webrtcConn.Connection,
+    c.ui,
+    c.receiver, // Message handler
+    c.receiver, // Data handler
+)
+
+if c.receiver == nil {
+    c.logMessage("ERROR: Receiver is nil when creating channels")
+    return
+}
+
+c.logMessage("WebRTC channels created successfully")
 				
-				c.logMessage("WebRTC channels created with receiver as message handler")
-				
-				// Set up WebRTC channels
-				c.logMessage("Setting up channel handlers")
-				c.webrtcChannels.SetupChannelHandlers()
+// Set up WebRTC channels and log state
+c.logMessage("Setting up channel handlers")
+c.webrtcChannels.SetupChannelHandlers()
+c.logMessage("Channel handlers setup completed")
 				
 				// Send capabilities
 				c.logMessage("Sending capabilities")
-				err := c.webrtcChannels.SendCapabilities(262144) // fixedChunkSize from config.go
+				err := c.webrtcChannels.SendCapabilities(maxWebRTCMessageSize)
 				if err != nil {
 					c.logMessage("Error sending capabilities: %v", err)
 				} else {
@@ -460,8 +470,8 @@ c.ui.UpdateTransferProgress(status, direction)
 					c.logMessage("WebRTC channels are properly initialized")
 				}
 			},
-			262144, // fixedChunkSize from config.go
-			262144, // maxWebRTCMessageSize from config.go
+fixedChunkSize,
+maxWebRTCMessageSize,
 		),
 		client: c,
 	}

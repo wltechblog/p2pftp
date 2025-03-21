@@ -40,61 +40,6 @@ func NewChannels(
     }
 }
 
-// handleControlMessage processes a control channel message
-func (c *Channels) handleControlMessage(msgData []byte) {
-    c.logger.LogDebug("====== WEBRTC MESSAGE RECEIVED START ======")
-    c.logger.LogDebug(fmt.Sprintf("Raw message data: %s", string(msgData)))
-    
-    // Try to parse the message to see if it's valid JSON
-    var parsed map[string]interface{}
-    if err := json.Unmarshal(msgData, &parsed); err != nil {
-        c.logger.LogDebug(fmt.Sprintf("ERROR: Failed to parse JSON: %v", err))
-        c.logger.LogDebug(fmt.Sprintf("Raw message that failed to parse: %s", string(msgData)))
-        return
-    }
-    
-    c.logger.LogDebug(fmt.Sprintf("Successfully parsed JSON message: %+v", parsed))
-    
-    // Handle the message type
-    msgType, ok := parsed["type"].(string)
-    if ok {
-        c.logger.LogDebug(fmt.Sprintf("Message type: %s", msgType))
-        if msgType == "message" {
-            if content, ok := parsed["content"].(string); ok {
-                c.logger.AppendChat(content)
-            }
-        }
-    }
-    
-    // Forward to message handler
-    if c.msgHandler != nil {
-        c.logger.LogDebug("Calling HandleControlMessage")
-        if err := c.msgHandler.HandleControlMessage(msgData); err != nil {
-            c.logger.LogDebug(fmt.Sprintf("Error handling control message: %v", err))
-        } else {
-            c.logger.LogDebug("HandleControlMessage completed successfully")
-        }
-    } else {
-        c.logger.LogDebug("ERROR: msgHandler is nil, cannot handle control message")
-    }
-}
-
-// handleDataChunk processes a data channel chunk
-func (c *Channels) handleDataChunk(msgData []byte) {
-    c.logger.LogDebug(fmt.Sprintf("Processing data chunk: %d bytes", len(msgData)))
-    
-    if c.dataHandler != nil {
-        c.logger.LogDebug("Calling HandleDataChunk")
-        if err := c.dataHandler.HandleDataChunk(msgData); err != nil {
-            c.logger.LogDebug(fmt.Sprintf("Error handling data chunk: %v", err))
-        } else {
-            c.logger.LogDebug("HandleDataChunk completed successfully")
-        }
-    } else {
-        c.logger.LogDebug("ERROR: dataHandler is nil, cannot handle data chunk")
-    }
-}
-
 // SetupChannelHandlers sets up handlers for the data channels
 func (c *Channels) SetupChannelHandlers() {
     c.logger.LogDebug("Setting up channel handlers")
@@ -104,8 +49,12 @@ func (c *Channels) SetupChannelHandlers() {
         c.logger.LogDebug(fmt.Sprintf("Control channel state: %s", c.connection.GetControlChannel().ReadyState().String()))
 
         c.connection.GetControlChannel().OnMessage(func(msg pionwebrtc.DataChannelMessage) {
-            // Process the message in a single goroutine to maintain order
-            go c.handleControlMessage(msg.Data)
+    // Forward control messages directly to the handler
+    if c.msgHandler != nil {
+        if err := c.msgHandler.HandleControlMessage(msg.Data); err != nil {
+            c.logger.LogDebug(fmt.Sprintf("Error handling control message: %v", err))
+        }
+    }
         })
 
         // Add buffer threshold callback
@@ -122,12 +71,16 @@ func (c *Channels) SetupChannelHandlers() {
         c.logger.LogDebug(fmt.Sprintf("Data channel state: %s", c.connection.GetDataChannel().ReadyState().String()))
 
         c.connection.GetDataChannel().OnMessage(func(msg pionwebrtc.DataChannelMessage) {
-            // Process the chunk in a single goroutine to maintain order
-            go c.handleDataChunk(msg.Data)
+    // Forward data chunks directly to the handler
+    if c.dataHandler != nil {
+        if err := c.dataHandler.HandleDataChunk(msg.Data); err != nil {
+            c.logger.LogDebug(fmt.Sprintf("Error handling data chunk: %v", err))
+        }
+    }
         })
 
         // Add buffer threshold callback
-        c.connection.GetDataChannel().SetBufferedAmountLowThreshold(262136) // 256KB - 8 bytes for header
+        c.connection.GetDataChannel().SetBufferedAmountLowThreshold(65528) // 64KB - 8 bytes for header
         c.connection.GetDataChannel().OnBufferedAmountLow(func() {
             c.logger.LogDebug("Data channel buffer amount low event triggered")
         })
