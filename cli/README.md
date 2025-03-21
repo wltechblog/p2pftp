@@ -28,11 +28,13 @@ go build -o p2pftp-cli
 Run the CLI with:
 
 ```bash
-./p2pftp-cli -addr localhost:8089
+./p2pftp-cli -addr example.com:443
 ```
 
 Where:
 - `-addr`: The address of the P2PFTP server (default: localhost:8089)
+
+Note: The CLI always uses secure WebSocket connections (WSS) as the server is expected to be behind an SSL proxy.
 
 ## Commands
 

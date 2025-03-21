@@ -3,7 +3,7 @@
 A service providing secure and reliable P2P file transfers and chat
 
 ## Features
-- Web or CLI interfaces! 
+- Web or CLI interfaces! (See the [CLI README](cli/README.md) for CLI-specific instructions)
 - Peer-to-peer file transfer over WebRTC data channels
 - Secure token-based authentication
 - Text chat between peers
@@ -11,6 +11,7 @@ A service providing secure and reliable P2P file transfers and chat
 - Real-time transfer progress indication
 - Direct end-to-end encrypted, peer-to-peer communication (no server involvement once connected)
 - Works through typical NAT situations
+- Robust error handling with automatic retransmission of missing chunks
 
 ## What it isn't
 
@@ -55,6 +56,8 @@ go install github.com/wltechblog/p2pftp@latest
    ```
 
 2. Use a https proxy such as Caddy, nginx, etc to provide a secure connection. Just forward all requests for the url hostname to localhost:8089 or whatever you specify in your command line.
+
+   **Note**: The CLI client always uses secure WebSocket connections (WSS) as it expects the server to be behind an SSL proxy.
 
 
 3. Open your browser to your URL, share your token with the person you want to connect with, or use the "Copy Link" to give them a URL that directly connects to you.

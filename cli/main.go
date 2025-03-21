@@ -573,10 +573,11 @@ type UserInterface interface {
 func main() {
     // Parse command line arguments
     addr := flag.String("addr", "localhost:8089", "server address")
+    flag.Bool("secure", true, "use secure WebSocket connection (always true, kept for compatibility)")
     flag.Parse()
 
-    // Create WebSocket URL
-    u := url.URL{Scheme: "ws", Host: *addr, Path: "/ws"}
+    // Create WebSocket URL - always use WSS as the server is behind an SSL proxy
+    u := url.URL{Scheme: "wss", Host: *addr, Path: "/ws"}
     log.Printf("Connecting to %s...", u.String())
 
     // Connect to the server
