@@ -67,9 +67,14 @@ func (c *Channels) SetupChannelHandlers() {
 						c.logger.LogDebug(fmt.Sprintf("Message is not valid JSON: %v", err))
 					} else {
 						c.logger.LogDebug(fmt.Sprintf("Message parsed as JSON: %+v", parsed))
-						if msgType, ok := parsed["type"].(string); ok {
-							c.logger.LogDebug(fmt.Sprintf("Message type: %s", msgType))
-						}
+if msgType, ok := parsed["type"].(string); ok {
+c.logger.LogDebug(fmt.Sprintf("Message type: %s", msgType))
+if msgType == "message" {
+    if content, ok := parsed["content"].(string); ok {
+        c.logger.AppendChat(content)
+    }
+}
+}
 					}
 					
 				if c.msgHandler != nil {
