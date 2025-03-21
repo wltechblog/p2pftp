@@ -61,6 +61,7 @@ type FileInfo struct {
 type Logger interface {
 	LogDebug(msg string)
 	ShowError(msg string)
+	AppendChat(msg string)
 }
 
 // ConnectionCallback is called when the connection state changes

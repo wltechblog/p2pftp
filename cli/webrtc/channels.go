@@ -51,11 +51,29 @@ func (c *Channels) SetupChannelHandlers() {
 		c.connection.GetControlChannel().OnMessage(func(msg pionwebrtc.DataChannelMessage) {
 			c.logger.LogDebug(fmt.Sprintf("Received control message: %s", string(msg.Data)))
 			
+			// Try to parse the message to see if it's a chat message
+			var message map[string]interface{}
+			err := json.Unmarshal(msg.Data, &message)
+			if err == nil {
+				msgType, ok := message["type"].(string)
+				if ok && msgType == "message" {
+					content, ok := message["content"].(string)
+					if ok {
+						c.logger.LogDebug(fmt.Sprintf("Received chat message with content: %s", content))
+					}
+				}
+			}
+			
 			if c.msgHandler != nil {
+				c.logger.LogDebug("Calling msgHandler.HandleControlMessage")
 				err := c.msgHandler.HandleControlMessage(msg.Data)
 				if err != nil {
 					c.logger.LogDebug(fmt.Sprintf("Error handling control message: %v", err))
+				} else {
+					c.logger.LogDebug("Message handled successfully")
 				}
+			} else {
+				c.logger.LogDebug("msgHandler is nil, cannot handle message")
 			}
 		})
 		
