@@ -60,7 +60,40 @@ func (c *ClientWebRTCConnection) OnChannelsReady() {
 		return
 	}
 	
+	// Re-create the sender and receiver with the actual channels
+	c.client.ui.LogDebug("Re-creating sender and receiver with actual channels")
+	c.client.sender = transfer.NewSender(
+		c.Connection.GetControlChannel(),
+		c.Connection.GetDataChannel(),
+		c.client.ui,
+		func(status string, direction string) {
+			c.client.ui.UpdateTransferProgress(status, direction)
+		},
+		262144, // fixedChunkSize from config.go
+		262144, // maxWebRTCMessageSize from config.go
+	)
+	
+	c.client.receiver = transfer.NewReceiver(
+		c.Connection.GetControlChannel(),
+		c.Connection.GetDataChannel(),
+		c.client.ui,
+		func(status string, direction string) {
+			c.client.ui.UpdateTransferProgress(status, direction)
+		},
+		262144, // fixedChunkSize from config.go
+	)
+	
+	// Re-create the WebRTC channels with the actual message and data handlers
+	c.client.ui.LogDebug("Re-creating WebRTC channels with actual handlers")
+	c.client.webrtcChannels = ourwebrtc.NewChannels(
+		c.Connection,
+		c.client.ui,
+		c.client.receiver, // Message handler
+		c.client.receiver, // Data handler
+	)
+	
 	// Set up WebRTC channels
+	c.client.ui.LogDebug("Setting up channel handlers")
 	c.client.webrtcChannels.SetupChannelHandlers()
 	
 	// Send capabilities
@@ -248,20 +281,101 @@ func (c *Client) Reject(peerToken string) error {
 
 // SendChat sends a chat message
 func (c *Client) SendChat(text string) error {
+	c.logMessage("SendChat called with text: %s", text)
+	
 	if c.webrtcChannels == nil {
+		c.logMessage("Error: webrtcChannels is nil")
 		return fmt.Errorf("not connected to peer")
 	}
 	
-	return c.webrtcChannels.SendChatMessage(text)
+	// Check if the connection is fully established
+	if c.webrtcConn == nil || c.webrtcConn.Connection == nil {
+		c.logMessage("Error: webrtcConn is nil or not initialized")
+		return fmt.Errorf("connection not fully established, please wait or reconnect")
+	}
+	
+	// Check if the control channel is initialized and open
+	controlChannel := c.webrtcConn.Connection.GetControlChannel()
+	if controlChannel == nil {
+		c.logMessage("Error: control channel is nil")
+		return fmt.Errorf("control channel not initialized, please wait or reconnect")
+	}
+	
+	c.logMessage("Control channel state: %s", controlChannel.ReadyState().String())
+	
+	if controlChannel.ReadyState() != pionwebrtc.DataChannelStateOpen {
+		c.logMessage("Error: control channel is not open (state: %s)", controlChannel.ReadyState().String())
+		return fmt.Errorf("control channel is not ready (state: %s), please wait or reconnect",
+			controlChannel.ReadyState().String())
+	}
+	
+	// Now try to send the message
+	c.logMessage("Sending chat message via webrtcChannels")
+	err := c.webrtcChannels.SendChatMessage(text)
+	if err != nil {
+		c.logMessage("Error sending chat message: %v", err)
+		return err
+	}
+	
+	c.logMessage("Chat message sent successfully")
+	return nil
 }
 
 // SendFile sends a file to the peer
 func (c *Client) SendFile(path string) error {
+	c.logMessage("SendFile called with path: %s", path)
+	
 	if c.sender == nil {
+		c.logMessage("Error: sender is nil")
 		return fmt.Errorf("not connected to peer")
 	}
 	
-	return c.sender.SendFile(path)
+	// Check if the connection is fully established
+	if c.webrtcConn == nil || c.webrtcConn.Connection == nil {
+		c.logMessage("Error: webrtcConn is nil or not initialized")
+		return fmt.Errorf("connection not fully established, please wait or reconnect")
+	}
+	
+	// Check if the control channel is initialized and open
+	controlChannel := c.webrtcConn.Connection.GetControlChannel()
+	if controlChannel == nil {
+		c.logMessage("Error: control channel is nil")
+		return fmt.Errorf("control channel not initialized, please wait or reconnect")
+	}
+	
+	c.logMessage("Control channel state: %s", controlChannel.ReadyState().String())
+	
+	if controlChannel.ReadyState() != pionwebrtc.DataChannelStateOpen {
+		c.logMessage("Error: control channel is not open (state: %s)", controlChannel.ReadyState().String())
+		return fmt.Errorf("control channel is not ready (state: %s), please wait or reconnect",
+			controlChannel.ReadyState().String())
+	}
+	
+	// Check if the data channel is initialized and open
+	dataChannel := c.webrtcConn.Connection.GetDataChannel()
+	if dataChannel == nil {
+		c.logMessage("Error: data channel is nil")
+		return fmt.Errorf("data channel not initialized, please wait or reconnect")
+	}
+	
+	c.logMessage("Data channel state: %s", dataChannel.ReadyState().String())
+	
+	if dataChannel.ReadyState() != pionwebrtc.DataChannelStateOpen {
+		c.logMessage("Error: data channel is not open (state: %s)", dataChannel.ReadyState().String())
+		return fmt.Errorf("data channel is not ready (state: %s), please wait or reconnect",
+			dataChannel.ReadyState().String())
+	}
+	
+	// Now try to send the file
+	c.logMessage("Sending file via sender")
+	err := c.sender.SendFile(path)
+	if err != nil {
+		c.logMessage("Error sending file: %v", err)
+		return err
+	}
+	
+	c.logMessage("File sent successfully")
+	return nil
 }
 
 // Disconnect disconnects from the peer
