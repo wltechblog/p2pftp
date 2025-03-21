@@ -67,11 +67,15 @@ type Logger interface {
 // ConnectionCallback is called when the connection state changes
 type ConnectionCallback func()
 
+// ChannelsReadyCallback is called when the channels are ready
+type ChannelsReadyCallback func()
+
 // Connection manages a WebRTC connection
 type Connection struct {
 	state            *ConnectionState
 	logger           Logger
 	connectionSetup  ConnectionCallback
+	channelsReady    ChannelsReadyCallback
 	maxChunkSize     int
 	maxMessageSize   int
 }
@@ -80,6 +84,7 @@ type Connection struct {
 func NewConnection(
 	logger Logger,
 	connectionSetup ConnectionCallback,
+	channelsReady ChannelsReadyCallback,
 	maxChunkSize int,
 	maxMessageSize int,
 ) *Connection {
@@ -91,6 +96,7 @@ func NewConnection(
 		},
 		logger:           logger,
 		connectionSetup:  connectionSetup,
+		channelsReady:    channelsReady,
 		maxChunkSize:     maxChunkSize,
 		maxMessageSize:   maxMessageSize,
 	}
@@ -255,9 +261,13 @@ func (c *Connection) completeConnectionSetup() {
 		c.connectionSetup()
 	}
 	
-	// Notify the client that the channels are ready
-	c.logger.LogDebug("Calling OnChannelsReady from completeConnectionSetup")
-	c.OnChannelsReady()
+	// Call the channels ready callback
+	if c.channelsReady != nil {
+		c.logger.LogDebug("Calling channelsReady callback from completeConnectionSetup")
+		c.channelsReady()
+	} else {
+		c.logger.LogDebug("No channelsReady callback registered")
+	}
 
 	// Send capabilities message with our maximum supported chunk size
 	capabilities := struct {
@@ -333,11 +343,7 @@ func (c *Connection) GetDataChannel() *webrtc.DataChannel {
 	return c.state.DataChannel
 }
 
-// OnChannelsReady is called when both channels are ready
-func (c *Connection) OnChannelsReady() {
-	// This is a hook for clients to implement
-	c.logger.LogDebug("Connection.OnChannelsReady called - this is a base method that should be overridden")
-}
+
 
 // SetPeerToken sets the peer token in the connection state
 func (c *Connection) SetPeerToken(token string) {

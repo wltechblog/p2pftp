@@ -37,96 +37,7 @@ type ClientWebRTCConnection struct {
 	client *Client
 }
 
-// Override the OnChannelsReady method from the base Connection
-func (c *ClientWebRTCConnection) OnChannelsReady() {
-	c.client.ui.LogDebug("ClientWebRTCConnection.OnChannelsReady called - this is the overridden method")
-	
-	// Make sure the channels are initialized
-	if c.Connection.GetControlChannel() == nil || c.Connection.GetDataChannel() == nil {
-		c.client.ui.LogDebug("Cannot set up channel handlers: channels not initialized")
-		return
-	}
-	
-	// Log channel states
-	controlState := c.Connection.GetControlChannel().ReadyState()
-	dataState := c.Connection.GetDataChannel().ReadyState()
-	c.client.ui.LogDebug(fmt.Sprintf("Control channel state: %s", controlState.String()))
-	c.client.ui.LogDebug(fmt.Sprintf("Data channel state: %s", dataState.String()))
-	
-	// Make sure the channels are in the open state
-	if controlState != pionwebrtc.DataChannelStateOpen ||
-	   dataState != pionwebrtc.DataChannelStateOpen {
-		c.client.ui.LogDebug("Cannot set up channel handlers: channels not in open state")
-		return
-	}
-	
-	// Re-create the sender and receiver with the actual channels
-	c.client.ui.LogDebug("Re-creating sender and receiver with actual channels")
-	c.client.sender = transfer.NewSender(
-		c.Connection.GetControlChannel(),
-		c.Connection.GetDataChannel(),
-		c.client.ui,
-		func(status string, direction string) {
-			c.client.ui.UpdateTransferProgress(status, direction)
-		},
-		262144, // fixedChunkSize from config.go
-		262144, // maxWebRTCMessageSize from config.go
-	)
-	
-	c.client.receiver = transfer.NewReceiver(
-		c.Connection.GetControlChannel(),
-		c.Connection.GetDataChannel(),
-		c.client.ui,
-		func(status string, direction string) {
-			c.client.ui.UpdateTransferProgress(status, direction)
-		},
-		262144, // fixedChunkSize from config.go
-	)
-	
-	// Re-create the WebRTC channels with the actual message and data handlers
-	c.client.ui.LogDebug("Re-creating WebRTC channels with actual handlers")
-	c.client.webrtcChannels = ourwebrtc.NewChannels(
-		c.Connection,
-		c.client.ui,
-		c.client.receiver, // Message handler
-		c.client.receiver, // Data handler
-	)
-	
-	// Set up WebRTC channels
-	c.client.ui.LogDebug("Setting up channel handlers")
-	c.client.webrtcChannels.SetupChannelHandlers()
-	
-	// Send capabilities
-	c.client.ui.LogDebug("Sending capabilities")
-	err := c.client.webrtcChannels.SendCapabilities(262144) // fixedChunkSize from config.go
-	if err != nil {
-		c.client.ui.LogDebug(fmt.Sprintf("Error sending capabilities: %v", err))
-	} else {
-		c.client.ui.LogDebug("Capabilities sent successfully")
-	}
-	
-	// Log that channels are ready
-	c.client.ui.LogDebug("Channels are ready, handlers set up")
-	
-	// Verify that the components are properly initialized
-	if c.client.sender == nil {
-		c.client.ui.LogDebug("ERROR: sender is nil after setup")
-	} else {
-		c.client.ui.LogDebug("Sender is properly initialized")
-	}
-	
-	if c.client.receiver == nil {
-		c.client.ui.LogDebug("ERROR: receiver is nil after setup")
-	} else {
-		c.client.ui.LogDebug("Receiver is properly initialized")
-	}
-	
-	if c.client.webrtcChannels == nil {
-		c.client.ui.LogDebug("ERROR: webrtcChannels is nil after setup")
-	} else {
-		c.client.ui.LogDebug("WebRTC channels are properly initialized")
-	}
-}
+
 
 
 
@@ -449,6 +360,95 @@ func (c *Client) initWebRTC(peerToken string, isInitiator bool) {
 			func() {
 				c.logMessage("Connection setup callback called")
 				c.ui.ShowConnectionAccepted("")
+			},
+			func() {
+				c.logMessage("Channels ready callback called")
+				
+				// Make sure the channels are initialized
+				if c.webrtcConn.Connection.GetControlChannel() == nil || c.webrtcConn.Connection.GetDataChannel() == nil {
+					c.logMessage("Cannot set up channel handlers: channels not initialized")
+					return
+				}
+				
+				// Log channel states
+				controlState := c.webrtcConn.Connection.GetControlChannel().ReadyState()
+				dataState := c.webrtcConn.Connection.GetDataChannel().ReadyState()
+				c.logMessage("Control channel state: %s", controlState.String())
+				c.logMessage("Data channel state: %s", dataState.String())
+				
+				// Make sure the channels are in the open state
+				if controlState != pionwebrtc.DataChannelStateOpen ||
+				   dataState != pionwebrtc.DataChannelStateOpen {
+					c.logMessage("Cannot set up channel handlers: channels not in open state")
+					return
+				}
+				
+				// Re-create the sender and receiver with the actual channels
+				c.logMessage("Re-creating sender and receiver with actual channels")
+				c.sender = transfer.NewSender(
+					c.webrtcConn.Connection.GetControlChannel(),
+					c.webrtcConn.Connection.GetDataChannel(),
+					c.ui,
+					func(status string, direction string) {
+						c.ui.UpdateTransferProgress(status, direction)
+					},
+					262144, // fixedChunkSize from config.go
+					262144, // maxWebRTCMessageSize from config.go
+				)
+				
+				c.receiver = transfer.NewReceiver(
+					c.webrtcConn.Connection.GetControlChannel(),
+					c.webrtcConn.Connection.GetDataChannel(),
+					c.ui,
+					func(status string, direction string) {
+						c.ui.UpdateTransferProgress(status, direction)
+					},
+					262144, // fixedChunkSize from config.go
+				)
+				
+				// Re-create the WebRTC channels with the actual message and data handlers
+				c.logMessage("Re-creating WebRTC channels with actual handlers")
+				c.webrtcChannels = ourwebrtc.NewChannels(
+					c.webrtcConn.Connection,
+					c.ui,
+					c.receiver, // Message handler
+					c.receiver, // Data handler
+				)
+				
+				// Set up WebRTC channels
+				c.logMessage("Setting up channel handlers")
+				c.webrtcChannels.SetupChannelHandlers()
+				
+				// Send capabilities
+				c.logMessage("Sending capabilities")
+				err := c.webrtcChannels.SendCapabilities(262144) // fixedChunkSize from config.go
+				if err != nil {
+					c.logMessage("Error sending capabilities: %v", err)
+				} else {
+					c.logMessage("Capabilities sent successfully")
+				}
+				
+				// Log that channels are ready
+				c.logMessage("Channels are ready, handlers set up")
+				
+				// Verify that the components are properly initialized
+				if c.sender == nil {
+					c.logMessage("ERROR: sender is nil after setup")
+				} else {
+					c.logMessage("Sender is properly initialized")
+				}
+				
+				if c.receiver == nil {
+					c.logMessage("ERROR: receiver is nil after setup")
+				} else {
+					c.logMessage("Receiver is properly initialized")
+				}
+				
+				if c.webrtcChannels == nil {
+					c.logMessage("ERROR: webrtcChannels is nil after setup")
+				} else {
+					c.logMessage("WebRTC channels are properly initialized")
+				}
 			},
 			262144, // fixedChunkSize from config.go
 			262144, // maxWebRTCMessageSize from config.go
