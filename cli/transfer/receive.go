@@ -41,13 +41,13 @@ type Receiver struct {
 
 // HandleControlMessage handles control channel messages
 func (r *Receiver) HandleControlMessage(msg []byte) error {
-    // Log the raw message
-    r.logger.LogDebug(fmt.Sprintf("HandleControlMessage received raw message: %s", string(msg)))
+    // Log the raw message with source indication
+    r.logger.LogDebug(fmt.Sprintf("Control message received: %s", string(msg)))
 
     // Parse the message
     var message map[string]interface{}
     if err := json.Unmarshal(msg, &message); err != nil {
-        r.logger.LogDebug(fmt.Sprintf("Failed to parse control message: %v", err))
+        r.logger.LogDebug(fmt.Sprintf("[Control] Failed to parse message: %v", err))
         return fmt.Errorf("failed to parse control message: %v", err)
     }
 
@@ -58,7 +58,7 @@ func (r *Receiver) HandleControlMessage(msg []byte) error {
         return fmt.Errorf("invalid message format: missing type")
     }
 
-    r.logger.LogDebug(fmt.Sprintf("Message type: %s", msgType))
+    r.logger.LogDebug(fmt.Sprintf("[Control] Message type: %s", msgType))
 
     // Handle different message types
     switch msgType {
@@ -78,11 +78,10 @@ func (r *Receiver) HandleControlMessage(msg []byte) error {
         // Handle chat message
         content, ok := message["content"].(string)
         if !ok {
-            r.logger.LogDebug("Invalid message format: missing content")
+            r.logger.LogDebug("[Control] Invalid chat message: missing content")
             return fmt.Errorf("invalid message format: missing content")
         }
-        r.logger.LogDebug(fmt.Sprintf("Chat message: %s", content))
-        r.logger.LogDebug("Displaying chat message")
+        r.logger.LogDebug(fmt.Sprintf("[Chat] Received: %s", content))
         r.logger.ShowChat("peer", content)
         
     case "capabilities":

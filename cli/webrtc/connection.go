@@ -79,25 +79,30 @@ func (c *Connection) GetDataChannel() *pionwebrtc.DataChannel {
     return c.state.DataChannel
 }
 
-// SetupDataChannel configures message handling for a data channel
+// setupDataChannel configures logging handlers for a data channel
 func (c *Connection) setupDataChannel(channel *pionwebrtc.DataChannel, isControl bool) {
-    // Set the message handler based on channel type
+    // Log message receipt
     channel.OnMessage(func(msg pionwebrtc.DataChannelMessage) {
-        if isControl && c.handleControl != nil {
-            c.handleControl(msg.Data)
-        } else if !isControl && c.handleData != nil {
-            c.handleData(msg.Data)
+        msgType := "binary"
+        if msg.IsString {
+            msgType = "string"
         }
+        c.logger.LogDebug(fmt.Sprintf("[%s] Message received on %s channel: %d bytes", 
+            msgType,
+            channel.Label(),
+            len(msg.Data)))
     })
 
-    // Set error handler
+    // Enhanced error logging
     channel.OnError(func(err error) {
-        c.logger.LogDebug(fmt.Sprintf("Channel error: %v", err))
+        c.logger.LogDebug(fmt.Sprintf("[%s] Channel error: %v", channel.Label(), err))
+        c.logger.ShowError(fmt.Sprintf("%s channel error: %v", channel.Label(), err))
     })
 
-    // Set close handler
+    // Enhanced close logging
     channel.OnClose(func() {
-        c.logger.LogDebug(fmt.Sprintf("Channel closed: %s", channel.Label()))
+        c.logger.LogDebug(fmt.Sprintf("[%s] Channel closed", channel.Label()))
+        c.logger.ShowError(fmt.Sprintf("%s channel closed unexpectedly", channel.Label()))
     })
 }
 
@@ -138,36 +143,113 @@ func (c *Connection) SetupPeerConnection() error {
     dataID := uint16(2)
 
     protocol := "json"
+    // Set up data channel configurations with retransmission settings
+    maxRetransmits := uint16(0) // No additional retransmits for control channel
+    
     controlConfig := &pionwebrtc.DataChannelInit{
-        ID:         &controlID,
-        Ordered:    &ordered,
-        Negotiated: &negotiated,
-        Protocol:   &protocol,
+        ID:              &controlID,
+        Ordered:         &ordered,
+        Negotiated:      &negotiated,
+        Protocol:        &protocol,
+        MaxRetransmits:  &maxRetransmits,
     }
 
     dataConfig := &pionwebrtc.DataChannelInit{
-        ID:         &dataID,
-        Ordered:    &ordered,
-        Negotiated: &negotiated,
+        ID:              &dataID,
+        Ordered:         &ordered,
+        Negotiated:      &negotiated,
     }
 
-    // Create the data channels immediately since they are negotiated
+    // Create and configure the control channel
     controlChannel, err := peerConn.CreateDataChannel("p2pftp-control", controlConfig)
     if err != nil {
         return fmt.Errorf("failed to create control channel: %v", err)
     }
+    controlChannel.SetBufferedAmountLowThreshold(4096) // 4KB for control messages
 
+    // Create and configure the data channel
     dataChannel, err := peerConn.CreateDataChannel("p2pftp-data", dataConfig)
     if err != nil {
         return fmt.Errorf("failed to create data channel: %v", err)
     }
+    dataChannel.SetBufferedAmountLowThreshold(65536) // 64KB for data channel
 
     c.state.ControlChannel = controlChannel
     c.state.DataChannel = dataChannel
 
-    // Set up message handlers for both channels
-    c.setupDataChannel(controlChannel, true)
-    c.setupDataChannel(dataChannel, false)
+    // Set up message handlers for control and data channels
+    controlChannel.OnMessage(func(msg pionwebrtc.DataChannelMessage) {
+        msgSize := len(msg.Data)
+        c.logger.LogDebug(fmt.Sprintf("[Control] Message [%s]: %d bytes", 
+            map[bool]string{true: "string", false: "binary"}[msg.IsString],
+            msgSize))
+
+        if !msg.IsString {
+            c.logger.LogDebug("[Control] WARNING: Unexpected binary data")
+            return
+        }
+        if c.handleControl != nil {
+            c.handleControl([]byte(msg.Data))
+        }
+    })
+
+    // Log and handle data channel messages
+    dataChannel.OnMessage(func(msg pionwebrtc.DataChannelMessage) {
+        msgSize := len(msg.Data)
+        c.logger.LogDebug(fmt.Sprintf("[Data] Message [%s]: %d bytes", 
+            map[bool]string{true: "string", false: "binary"}[msg.IsString],
+            msgSize))
+
+        if msg.IsString {
+            // Parse the message to check if it's a chat message
+            var message struct {
+                Type    string `json:"type"`
+                Content string `json:"content"`
+            }
+            if err := json.Unmarshal(msg.Data, &message); err == nil && message.Type == "message" {
+                // Handle chat message
+                if c.handleControl != nil {
+                    c.handleControl(msg.Data)
+                }
+            } else {
+                c.logger.LogDebug("[Data] WARNING: Unexpected string message")
+            }
+        } else if msgSize >= 8 && c.handleData != nil {
+            // Handle binary data for file transfers
+            c.handleData(msg.Data)
+        } else {
+            c.logger.LogDebug("[Data] WARNING: Invalid binary message size")
+        }
+    })
+
+    // Set up error and close handlers
+    controlChannel.OnError(func(err error) {
+        c.logger.LogDebug(fmt.Sprintf("Control channel error: %v", err))
+        c.logger.ShowError(fmt.Sprintf("Control channel error: %v", err))
+    })
+
+    dataChannel.OnError(func(err error) {
+        c.logger.LogDebug(fmt.Sprintf("Data channel error: %v", err))
+        c.logger.ShowError(fmt.Sprintf("Data channel error: %v", err))
+    })
+
+    controlChannel.OnClose(func() {
+        c.logger.LogDebug("Control channel closed")
+        c.logger.ShowError("Control channel closed unexpectedly")
+    })
+
+    dataChannel.OnClose(func() {
+        c.logger.LogDebug("Data channel closed")
+        c.logger.ShowError("Data channel closed unexpectedly")
+    })
+
+    // Configure buffer monitoring for flow control
+    dataChannel.OnBufferedAmountLow(func() {
+        c.logger.LogDebug(fmt.Sprintf("Data channel buffer below threshold (%d bytes)", dataChannel.BufferedAmount()))
+    })
+    controlChannel.OnBufferedAmountLow(func() {
+        c.logger.LogDebug(fmt.Sprintf("Control channel buffer below threshold (%d bytes)", controlChannel.BufferedAmount()))
+    })
 
     // Set up channel open handlers (once for each channel)
     controlChannel.OnOpen(func() {

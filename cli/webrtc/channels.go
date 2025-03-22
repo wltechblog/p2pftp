@@ -44,67 +44,84 @@ func NewChannels(
 func (c *Channels) SetupChannelHandlers() {
     c.logger.LogDebug("Setting up channel handlers")
 
-    // Set up control channel handler
+    // Set up control channel handler (for metadata, capabilities, etc.)
     if c.connection.GetControlChannel() != nil {
-        c.logger.LogDebug(fmt.Sprintf("Control channel state: %s", c.connection.GetControlChannel().ReadyState().String()))
+        ch := c.connection.GetControlChannel()
+        c.logger.LogDebug(fmt.Sprintf("[Control] Channel state: %s", ch.ReadyState().String()))
 
-        c.connection.GetControlChannel().OnMessage(func(msg pionwebrtc.DataChannelMessage) {
-    // Forward control messages directly to the handler
-    if c.msgHandler != nil {
-        if err := c.msgHandler.HandleControlMessage(msg.Data); err != nil {
-            c.logger.LogDebug(fmt.Sprintf("Error handling control message: %v", err))
-        }
-    }
+        ch.OnMessage(func(msg pionwebrtc.DataChannelMessage) {
+            if !msg.IsString {
+                c.logger.LogDebug("[Control] WARNING: Received unexpected binary data")
+                return
+            }
+            if c.msgHandler != nil {
+                if err := c.msgHandler.HandleControlMessage(msg.Data); err != nil {
+                    c.logger.LogDebug(fmt.Sprintf("[Control] Error handling message: %v", err))
+                }
+            }
         })
 
-        // Add buffer threshold callback
-        c.connection.GetControlChannel().SetBufferedAmountLowThreshold(65536) // 64KB
-        c.connection.GetControlChannel().OnBufferedAmountLow(func() {
-            c.logger.LogDebug("Control channel buffer amount low event triggered")
+        ch.SetBufferedAmountLowThreshold(4096) // 4KB for control messages
+        ch.OnBufferedAmountLow(func() {
+            c.logger.LogDebug(fmt.Sprintf("[Control] Buffer below threshold (%d bytes)", ch.BufferedAmount()))
         })
     } else {
-        c.logger.LogDebug("Control channel is nil, cannot set up handler")
+        c.logger.LogDebug("[Control] Channel is nil, cannot set up handler")
     }
 
-    // Set up data channel handler
+    // Set up data channel handler (for file chunks and chat messages)
     if c.connection.GetDataChannel() != nil {
-        c.logger.LogDebug(fmt.Sprintf("Data channel state: %s", c.connection.GetDataChannel().ReadyState().String()))
+        ch := c.connection.GetDataChannel()
+        c.logger.LogDebug(fmt.Sprintf("[Data] Channel state: %s", ch.ReadyState().String()))
 
-        c.connection.GetDataChannel().OnMessage(func(msg pionwebrtc.DataChannelMessage) {
-    // Forward data chunks directly to the handler
-    if c.dataHandler != nil {
-        if err := c.dataHandler.HandleDataChunk(msg.Data); err != nil {
-            c.logger.LogDebug(fmt.Sprintf("Error handling data chunk: %v", err))
-        }
-    }
+        ch.OnMessage(func(msg pionwebrtc.DataChannelMessage) {
+            if msg.IsString {
+                // Handle string messages (like chat) via control message handler
+                if c.msgHandler != nil {
+                    if err := c.msgHandler.HandleControlMessage(msg.Data); err != nil {
+                        c.logger.LogDebug(fmt.Sprintf("[Data] Error handling string message: %v", err))
+                    }
+                }
+            } else {
+                // Handle binary data (file chunks) via data handler
+                if c.dataHandler != nil {
+                    if err := c.dataHandler.HandleDataChunk(msg.Data); err != nil {
+                        c.logger.LogDebug(fmt.Sprintf("[Data] Error handling binary chunk: %v", err))
+                    }
+                }
+            }
         })
 
-        // Add buffer threshold callback
-        c.connection.GetDataChannel().SetBufferedAmountLowThreshold(65528) // 64KB - 8 bytes for header
-        c.connection.GetDataChannel().OnBufferedAmountLow(func() {
-            c.logger.LogDebug("Data channel buffer amount low event triggered")
+        ch.SetBufferedAmountLowThreshold(65528) // 64KB - 8 bytes for header
+        ch.OnBufferedAmountLow(func() {
+            c.logger.LogDebug(fmt.Sprintf("[Data] Buffer below threshold (%d bytes)", ch.BufferedAmount()))
         })
     } else {
-        c.logger.LogDebug("Data channel is nil, cannot set up handler")
+        c.logger.LogDebug("[Data] Channel is nil, cannot set up handler")
     }
 
     c.logger.LogDebug("Channel handlers setup complete")
 }
 
-// SendChatMessage sends a chat message on the control channel
+// SendChatMessage sends a chat message on the data channel
 func (c *Channels) SendChatMessage(text string) error {
-    c.logger.LogDebug("SendChatMessage called with text: " + text)
+    c.logger.LogDebug("[Chat] Sending message: " + text)
 
-    if c.connection.GetControlChannel() == nil {
-        c.logger.LogDebug("ERROR: Control channel is nil")
-        return fmt.Errorf("control channel not initialized")
+    ch := c.connection.GetDataChannel()
+    if ch == nil {
+        c.logger.LogDebug("[Chat] ERROR: Data channel is nil")
+        return fmt.Errorf("[Chat] Data channel not initialized")
     }
 
-    // Log the control channel state
-    c.logger.LogDebug(fmt.Sprintf("Control channel state: %s", c.connection.GetControlChannel().ReadyState().String()))
-    c.logger.LogDebug(fmt.Sprintf("Control channel buffered amount: %d", c.connection.GetControlChannel().BufferedAmount()))
+    // Check channel state
+    if ch.ReadyState() != pionwebrtc.DataChannelStateOpen {
+        c.logger.LogDebug("[Chat] ERROR: Data channel not open for sending")
+        return fmt.Errorf("[Chat] Data channel not in open state")
+    }
 
-    // Create the message
+    c.logger.LogDebug(fmt.Sprintf("[Chat] Data channel state: %s", ch.ReadyState().String()))
+
+    // Create message
     message := struct {
         Type    string `json:"type"`
         Content string `json:"content"`
@@ -116,21 +133,21 @@ func (c *Channels) SendChatMessage(text string) error {
     // Marshal the message
     messageJSON, err := json.Marshal(message)
     if err != nil {
-        c.logger.LogDebug(fmt.Sprintf("ERROR: Failed to marshal message: %v", err))
+        c.logger.LogDebug(fmt.Sprintf("[Chat] ERROR: Failed to marshal message: %v", err))
         return fmt.Errorf("failed to marshal message: %v", err)
     }
 
     // Log the message being sent
-    c.logger.LogDebug(fmt.Sprintf("WEBRTC CHANNEL SENDING MESSAGE: %s", string(messageJSON)))
+    c.logger.LogDebug(fmt.Sprintf("[Chat] Sending: %s", string(messageJSON)))
 
     // Send the message
-    err = c.connection.GetControlChannel().SendText(string(messageJSON))
+    err = ch.SendText(string(messageJSON))
     if err != nil {
-        c.logger.LogDebug(fmt.Sprintf("ERROR: Failed to send message: %v", err))
-        return fmt.Errorf("failed to send message: %v", err)
+        c.logger.LogDebug(fmt.Sprintf("[Chat] ERROR: Failed to send message: %v", err))
+        return fmt.Errorf("[Chat] Failed to send message: %v", err)
     }
 
-    c.logger.LogDebug("Chat message sent successfully via WebRTC data channel")
+    c.logger.LogDebug("[Chat] Message sent successfully")
     return nil
 }
 
@@ -140,7 +157,12 @@ func (c *Channels) SendCapabilities(maxChunkSize int) error {
         return fmt.Errorf("control channel not initialized")
     }
 
-    // Create the message
+    // Ensure the control channel is ready
+    if c.connection.GetControlChannel().ReadyState() != pionwebrtc.DataChannelStateOpen {
+        c.logger.LogDebug("[Control] Channel not open for sending capabilities")
+        return fmt.Errorf("[Control] Channel not in open state")
+    }
+
     message := struct {
         Type         string `json:"type"`
         MaxChunkSize int    `json:"maxChunkSize"`
@@ -149,17 +171,19 @@ func (c *Channels) SendCapabilities(maxChunkSize int) error {
         MaxChunkSize: maxChunkSize - 8, // Account for 8-byte header
     }
 
-    // Marshal the message
     messageJSON, err := json.Marshal(message)
     if err != nil {
-        return fmt.Errorf("failed to marshal capabilities: %v", err)
+        c.logger.LogDebug(fmt.Sprintf("[Control] ERROR: Failed to marshal capabilities: %v", err))
+        return fmt.Errorf("[Control] Failed to marshal capabilities: %v", err)
     }
 
-    // Send the message
-    err = c.connection.GetControlChannel().SendText(string(messageJSON))
-    if err != nil {
-        return fmt.Errorf("failed to send capabilities: %v", err)
+    c.logger.LogDebug(fmt.Sprintf("[Control] Sending capabilities: %s", string(messageJSON)))
+    if err := c.connection.GetControlChannel().SendText(string(messageJSON)); err != nil {
+        c.logger.LogDebug(fmt.Sprintf("[Control] ERROR: Failed to send capabilities: %v", err))
+        return fmt.Errorf("[Control] Failed to send capabilities: %v", err)
     }
+
+    c.logger.LogDebug("[Control] Capabilities sent successfully")
 
     return nil
 }
