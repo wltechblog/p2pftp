@@ -21,16 +21,6 @@ type Sender struct {
 	maxMessageSize   int
 }
 
-// Logger interface for logging
-type Logger interface {
-	LogDebug(msg string)
-	ShowError(msg string)
-	AppendChat(msg string)
-}
-
-// ProgressCallback is called to update progress
-type ProgressCallback func(status string, direction string)
-
 // NewSender creates a new file sender
 func NewSender(
 	controlChannel *webrtc.DataChannel,
