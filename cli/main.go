@@ -382,49 +382,60 @@ func (c *Client) initWebRTC(peerToken string, isInitiator bool) {
 					return
 				}
 				
-				// Re-create the sender and receiver with the actual channels
-				c.logMessage("Re-creating sender and receiver with actual channels")
-// Create sender with adjusted chunk size to account for frame header
+// First create receiver (needed for message handlers)
+c.logMessage("Creating receiver for message handling")
+c.receiver = transfer.NewReceiver(
+    c.webrtcConn.Connection.GetControlChannel(),
+    c.webrtcConn.Connection.GetDataChannel(),
+    c.ui,
+    func(status string, direction string) {
+        c.ui.UpdateTransferProgress(status, direction)
+    },
+    fixedChunkSize,
+)
+
+// Create sender
+c.logMessage("Creating sender")
 c.sender = transfer.NewSender(
-c.webrtcConn.Connection.GetControlChannel(),
-c.webrtcConn.Connection.GetDataChannel(),
-c.ui,
-func(status string, direction string) {
-c.ui.UpdateTransferProgress(status, direction)
-},
-fixedChunkSize,
-maxWebRTCMessageSize,
+    c.webrtcConn.Connection.GetControlChannel(),
+    c.webrtcConn.Connection.GetDataChannel(),
+    c.ui,
+    func(status string, direction string) {
+        c.ui.UpdateTransferProgress(status, direction)
+    },
+    fixedChunkSize,
+    maxWebRTCMessageSize,
 )
-				
-				c.receiver = transfer.NewReceiver(
-					c.webrtcConn.Connection.GetControlChannel(),
-					c.webrtcConn.Connection.GetDataChannel(),
-					c.ui,
-					func(status string, direction string) {
-						c.ui.UpdateTransferProgress(status, direction)
-					},
-fixedChunkSize,
+
+// Set up message handlers before creating channels
+c.logMessage("Setting up message handlers")
+c.webrtcConn.Connection.SetMessageHandlers(
+    // Control channel handler
+    func(msg []byte) {
+        c.logMessage(fmt.Sprintf("Handling control message: %d bytes", len(msg)))
+        if err := c.receiver.HandleControlMessage(msg); err != nil {
+            c.logMessage(fmt.Sprintf("Error handling control message: %v", err))
+        }
+    },
+    // Data channel handler
+    func(msg []byte) {
+        c.logMessage(fmt.Sprintf("Handling data chunk: %d bytes", len(msg)))
+        if err := c.receiver.HandleDataChunk(msg); err != nil {
+            c.logMessage(fmt.Sprintf("Error handling data chunk: %v", err))
+        }
+    },
 )
-				
-				// Re-create the WebRTC channels with the actual message and data handlers
-				c.logMessage("Re-creating WebRTC channels with actual handlers")
-				
-				// Verify that the receiver is properly initialized
-				if c.receiver == nil {
-					c.logMessage("ERROR: receiver is nil before creating channels")
-				} else {
-					c.logMessage("Receiver is properly initialized before creating channels")
-				}
-				
+
 c.logMessage("Creating WebRTC channels with handlers")
 c.logMessage(fmt.Sprintf("Control channel state: %s", controlState.String()))
 c.logMessage(fmt.Sprintf("Data channel state: %s", dataState.String()))
 
+// Create WebRTC channels after handlers are set
 c.webrtcChannels = ourwebrtc.NewChannels(
     c.webrtcConn.Connection,
     c.ui,
-    c.receiver, // Message handler
-    c.receiver, // Data handler
+    nil, // Don't pass handlers here since we set them directly above
+    nil,
 )
 
 if c.receiver == nil {
