@@ -1,252 +1,194 @@
 package ui
 
 import (
+	"bufio"
 	"fmt"
+	"os"
 	"strings"
+	"sync"
 	"time"
-
-	"github.com/gdamore/tcell/v2"
-	"github.com/rivo/tview"
 )
 
 // Client interface for client operations
 type Client interface {
-	Connect(peerToken string) error
-	Accept(peerToken string) error
-	Reject(peerToken string) error
-	SendChat(text string) error
-	SendFile(path string) error
-	Disconnect() error
+    Connect(peerToken string) error
+    Accept(peerToken string) error
+    Reject(peerToken string) error
+    SendChat(text string) error
+    SendFile(path string) error
+    Disconnect() error
 }
 
 // UI represents the user interface
 type UI struct {
-	app           *tview.Application
-	client        Client
-	chatView      *tview.TextView
-	debugView     *tview.TextView
-	fileView      *tview.TextView
-	inputField    *tview.InputField
-	flex          *tview.Flex
-	token         string
-	lastRequest   string
-	transfers     []transfer
-	opChan        chan func()
-}
-
-// transfer represents a file transfer
-type transfer struct {
-	status    string
-	timestamp time.Time
+    client    Client
+    token     string
+    running   bool
+    mutex     sync.Mutex
+    input     *bufio.Reader
+    done      chan struct{}
 }
 
 // NewUI creates a new UI
 func NewUI(client Client) *UI {
-	ui := &UI{
-		app:       tview.NewApplication(),
-		client:    client,
-		transfers: make([]transfer, 0),
-		opChan:    make(chan func(), 100),
-	}
-
-	// Create UI components
-	ui.createComponents()
-
-	// Start operation handler
-	go ui.handleOperations()
-
-	return ui
+    return &UI{
+        client:  client,
+        input:   bufio.NewReader(os.Stdin),
+        running: true,
+        done:    make(chan struct{}),
+    }
 }
 
-// createComponents creates the UI components
-func (ui *UI) createComponents() {
-	// Create chat view
-	ui.chatView = tview.NewTextView().
-		SetDynamicColors(true).
-		SetChangedFunc(func() {
-			ui.app.Draw()
-		})
-	ui.chatView.SetBorder(true).SetTitle("Chat")
-
-	// Create debug view
-	ui.debugView = tview.NewTextView().
-		SetDynamicColors(true).
-		SetChangedFunc(func() {
-			ui.app.Draw()
-		})
-	ui.debugView.SetBorder(true).SetTitle("Debug")
-
-	// Create file view
-	ui.fileView = tview.NewTextView().
-		SetDynamicColors(true).
-		SetChangedFunc(func() {
-			ui.app.Draw()
-		})
-	ui.fileView.SetBorder(true).SetTitle("Transfers")
-
-	// Create input field
-	ui.inputField = tview.NewInputField().
-		SetLabel("> ").
-		SetFieldWidth(0).
-		SetDoneFunc(func(key tcell.Key) {
-			if key == tcell.KeyEnter {
-				ui.handleInput(ui.inputField.GetText())
-				ui.inputField.SetText("")
-			}
-		})
-
-	// Create layout
-	ui.flex = tview.NewFlex().
-		SetDirection(tview.FlexRow).
-		AddItem(tview.NewFlex().
-			AddItem(ui.chatView, 0, 2, false).
-			AddItem(tview.NewFlex().
-				SetDirection(tview.FlexRow).
-				AddItem(ui.fileView, 0, 1, false).
-				AddItem(ui.debugView, 0, 1, false),
-				0, 1, false),
-			0, 1, false).
-		AddItem(ui.inputField, 1, 0, true)
-
-	// Set up key bindings
-	ui.app.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
-		// Global key bindings
-		switch event.Key() {
-		case tcell.KeyCtrlC:
-			ui.app.Stop()
-			return nil
-		case tcell.KeyTab:
-			// Cycle focus between input field and chat view
-			if ui.app.GetFocus() == ui.inputField {
-				ui.app.SetFocus(ui.chatView)
-			} else {
-				ui.app.SetFocus(ui.inputField)
-			}
-			return nil
-		}
-		return event
-	})
+// Stop stops the UI
+func (ui *UI) Stop() {
+    ui.running = false
+    close(ui.done)
 }
 
 // Run starts the UI
 func (ui *UI) Run() error {
-	ui.app.SetRoot(ui.flex, true)
-	
-	// Display help message after a short delay to ensure UI is ready
-	go func() {
-		time.Sleep(100 * time.Millisecond)
-		ui.showHelp()
-	}()
-	
-	return ui.app.Run()
+    fmt.Println("\nP2PFTP Console Client")
+    fmt.Println("Commands: /connect <token>, /accept <token>, /reject <token>, /send <file>, /quit")
+    fmt.Println("Type a message and press Enter to chat")
+    
+    // Start input loop
+    for ui.running {
+        fmt.Print("> ")
+        line, err := ui.input.ReadString('\n')
+        if err != nil {
+            return err
+        }
+        
+        line = strings.TrimSpace(line)
+        if line == "" {
+            continue
+        }
+        
+        if strings.HasPrefix(line, "/") {
+            ui.handleCommand(line)
+        } else {
+            if err := ui.client.SendChat(line); err != nil {
+                ui.ShowError(fmt.Sprintf("Failed to send chat: %v", err))
+            }
+        }
+    }
+    
+    return nil
 }
 
-// handleOperations processes UI operations in the main thread
-func (ui *UI) handleOperations() {
-	for op := range ui.opChan {
-		ui.app.QueueUpdateDraw(op)
-	}
+// handleCommand handles command input
+func (ui *UI) handleCommand(cmd string) {
+    parts := strings.Fields(cmd)
+    if len(parts) == 0 {
+        return
+    }
+    
+    switch parts[0] {
+    case "/connect":
+        if len(parts) != 2 {
+            fmt.Println("Usage: /connect <token>")
+            return
+        }
+        if err := ui.client.Connect(parts[1]); err != nil {
+            ui.ShowError(fmt.Sprintf("Connect failed: %v", err))
+        }
+        
+    case "/accept":
+        if len(parts) != 2 {
+            fmt.Println("Usage: /accept <token>")
+            return
+        }
+        if err := ui.client.Accept(parts[1]); err != nil {
+            ui.ShowError(fmt.Sprintf("Accept failed: %v", err))
+        }
+        
+    case "/reject":
+        if len(parts) != 2 {
+            fmt.Println("Usage: /reject <token>")
+            return
+        }
+        if err := ui.client.Reject(parts[1]); err != nil {
+            ui.ShowError(fmt.Sprintf("Reject failed: %v", err))
+        }
+        
+    case "/send":
+        if len(parts) != 2 {
+            fmt.Println("Usage: /send <file>")
+            return
+        }
+        if err := ui.client.SendFile(parts[1]); err != nil {
+            ui.ShowError(fmt.Sprintf("Send failed: %v", err))
+        }
+        
+    case "/quit":
+        ui.Stop()
+        ui.client.Disconnect()
+        
+    default:
+        fmt.Printf("Unknown command: %s\n", parts[0])
+    }
 }
 
 // ShowError displays an error message
 func (ui *UI) ShowError(msg string) {
-	ui.opChan <- func() {
-		timestamp := time.Now().Format("15:04:05")
-		fmt.Fprintf(ui.debugView, "[gray]%s [red]Error:[white] %s\n", timestamp, msg)
-		ui.debugView.ScrollToEnd()
-	}
+    timestamp := time.Now().Format("15:04:05")
+    fmt.Printf("\r[%s] [ERROR] %s\n> ", timestamp, msg)
 }
 
 // LogDebug logs a debug message
 func (ui *UI) LogDebug(msg string) {
-	ui.opChan <- func() {
-		timestamp := time.Now().Format("15:04:05")
-		fmt.Fprintf(ui.debugView, "[gray]%s[white] %s\n", timestamp, msg)
-		ui.debugView.ScrollToEnd()
-	}
+    timestamp := time.Now().Format("15:04:05")
+    fmt.Printf("\r[%s] %s\n> ", timestamp, msg)
+}
+
+// AppendChat appends a chat message
+func (ui *UI) AppendChat(msg string) {
+    fmt.Printf("\r%s\n> ", msg)
 }
 
 // ShowChat displays a chat message
 func (ui *UI) ShowChat(from string, msg string) {
-    // Queue everything in a single operation to avoid deadlocks
-    ui.opChan <- func() {
-        // Log the call
-        timestamp := time.Now().Format("15:04:05")
-        fmt.Fprintf(ui.debugView, "[gray]%s[white] ShowChat called with from=%s, msg=%s\n", 
-            timestamp, from, msg)
-        ui.debugView.ScrollToEnd()
-
-        // Format and append the chat message
-        if from == ui.token {
-            formattedMsg := fmt.Sprintf("[yellow]You[white] %s", msg)
-            fmt.Fprintf(ui.chatView, "[gray]%s[white] %s\n", timestamp, formattedMsg)
-        } else {
-            formattedMsg := fmt.Sprintf("[yellow]Peer[white] %s", msg)
-            fmt.Fprintf(ui.chatView, "[gray]%s[white] %s\n", timestamp, formattedMsg)
-        }
-        ui.chatView.ScrollToEnd()
+    timestamp := time.Now().Format("15:04:05")
+    if from == ui.token {
+        fmt.Printf("\r[%s] You: %s\n> ", timestamp, msg)
+    } else {
+        fmt.Printf("\r[%s] Peer: %s\n> ", timestamp, msg)
     }
 }
 
-// AppendChat appends a message to the chat view
-func (ui *UI) AppendChat(msg string) {
-    // Queue both the chat message and debug messages in a single operation
-    // to ensure proper ordering and avoid deadlock
-    ui.opChan <- func() {
-        // Log first
-        debugTimestamp := time.Now().Format("15:04:05")
-        fmt.Fprintf(ui.debugView, "[gray]%s[white] AppendChat: %s\n", debugTimestamp, msg)
-        ui.debugView.ScrollToEnd()
-        
-        // Then append chat message
-        chatTimestamp := time.Now().Format("15:04:05")
-        fmt.Fprintf(ui.chatView, "[gray]%s[white] %s\n", chatTimestamp, msg)
-        ui.chatView.ScrollToEnd()
-    }
+// ShowConnectionRequest shows a connection request
+func (ui *UI) ShowConnectionRequest(token string) {
+    timestamp := time.Now().Format("15:04:05")
+    fmt.Printf("\r[%s] Connection request from %s (use /accept %s or /reject %s)\n> ", 
+        timestamp, token, token, token)
 }
 
-// UpdateTransferProgress updates the transfer progress
+// ShowConnectionAccepted shows connection accepted
+func (ui *UI) ShowConnectionAccepted(msg string) {
+    timestamp := time.Now().Format("15:04:05")
+    if msg == "" {
+        msg = "Connected to Peer"
+    }
+    fmt.Printf("\r[%s] ✓ %s\n> ", timestamp, msg)
+}
+
+// ShowConnectionRejected shows connection rejected
+func (ui *UI) ShowConnectionRejected(token string) {
+    timestamp := time.Now().Format("15:04:05")
+    fmt.Printf("\r[%s] ✗ Connection rejected by %s\n> ", timestamp, token)
+}
+
+// SetToken sets the user's token
+func (ui *UI) SetToken(token string) {
+    ui.mutex.Lock()
+    ui.token = token
+    ui.mutex.Unlock()
+    timestamp := time.Now().Format("15:04:05")
+    fmt.Printf("[%s] Your token: %s\n> ", timestamp, token)
+}
+
+// UpdateTransferProgress updates transfer progress
 func (ui *UI) UpdateTransferProgress(status string, direction string) {
-	ui.opChan <- func() {
-		// Add completed/failed transfers to history
-		if strings.Contains(status, "Complete") || strings.Contains(status, "FAILED") {
-			ui.transfers = append(ui.transfers, transfer{
-				status:    status,
-				timestamp: time.Now(),
-			})
-		}
-		
-		// Show transfer history, limited to last few entries
-		maxHistory := 5
-		start := 0
-		if len(ui.transfers) > maxHistory {
-			start = len(ui.transfers) - maxHistory
-		}
-		
-		// Rebuild entire status display
-		ui.fileView.Clear()
-		
-		// Show history first
-		for i := start; i < len(ui.transfers); i++ {
-			t := ui.transfers[i]
-			fmt.Fprintf(ui.fileView, "[gray]%s[white] %s\n", 
-				t.timestamp.Format("15:04:05"),
-				t.status)
-		}
-		
-		// Add space between history and active transfers
-		if len(ui.transfers) > 0 && (strings.HasPrefix(status, "⬆") || strings.HasPrefix(status, "⬇")) {
-			fmt.Fprintf(ui.fileView, "\n")
-		}
-
-		// Show active transfers
-		if status != "" && !strings.Contains(status, "Complete") && !strings.Contains(status, "FAILED") {
-			// Split transfers into send and receive sections
-			if direction == "receive" {
-				fmt.Fprintf(ui.fileView, "\n%s", status)
-			} else {
-				fmt.Fprintf(ui.fileView, "%s", status)
-			}
-		}
-	}
+    timestamp := time.Now().Format("15:04:05")
+    fmt.Printf("\r[%s] %s\n> ", timestamp, status)
 }
