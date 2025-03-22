@@ -1,6 +1,7 @@
 package transfer
 
 import (
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -371,15 +372,61 @@ func (r *Receiver) handleChunkAck(message map[string]interface{}) error {
     return nil
 }
 
+// checkForMissingChunks checks for missing chunks in the sequence and requests retransmission
+func (r *Receiver) checkForMissingChunks() {
+    if !r.state.inProgress {
+        return
+    }
+
+    // Check for missing chunks up to the highest received sequence
+    highestSequence := -1
+    for seq := range r.state.receivedChunks {
+        if seq > highestSequence {
+            highestSequence = seq
+        }
+    }
+
+    // Build list of missing chunks
+    missingSequences := make([]int, 0)
+    for i := 0; i <= highestSequence && i < r.state.totalChunks; i++ {
+        if !r.state.receivedChunks[i] {
+            missingSequences = append(missingSequences, i)
+            r.state.missingChunks[i] = true
+        }
+    }
+
+    // Request retransmission if we found missing chunks
+    if len(missingSequences) > 0 {
+        r.logger.LogDebug(fmt.Sprintf("Found %d missing chunks", len(missingSequences)))
+
+        request := map[string]interface{}{
+            "type": "request-chunks",
+            "sequences": missingSequences,
+        }
+
+        requestJSON, err := json.Marshal(request)
+        if err != nil {
+            r.logger.LogDebug(fmt.Sprintf("Failed to marshal chunk request: %v", err))
+            return
+        }
+
+        err = r.controlChannel.SendText(string(requestJSON))
+        if err != nil {
+            r.logger.LogDebug(fmt.Sprintf("Failed to send chunk request: %v", err))
+            return
+        }
+
+        r.logger.LogDebug(fmt.Sprintf("Requested retransmission of chunks: %v", missingSequences))
+    }
+}
+
 // HandleDataChunk handles receiving data chunks
 func (r *Receiver) HandleDataChunk(data []byte) error {
     r.logger.LogDebug(fmt.Sprintf("Received data chunk: %d bytes", len(data)))
 
-    // Extract sequence number from framed data
-    sequence := int(data[0])<<24 | int(data[1])<<16 | int(data[2])<<8 | int(data[3])
-
-    // Extract chunk size from framed data
-    chunkSize := int(data[4])<<24 | int(data[5])<<16 | int(data[6])<<8 | int(data[7])
+    // Extract sequence number and size from framed data using proper big-endian parsing
+    sequence := int(binary.BigEndian.Uint32(data[0:4]))
+    chunkSize := int(binary.BigEndian.Uint32(data[4:8]))
 
     // Extract actual chunk data
     chunkData := data[8:]
@@ -410,12 +457,15 @@ func (r *Receiver) HandleDataChunk(data []byte) error {
     r.state.chunks[sequence] = make([]byte, len(chunkData))
     copy(r.state.chunks[sequence], chunkData)
 
-    // Mark chunk as received
+    // Mark chunk as received and check for missing chunks
     r.state.receivedChunks[sequence] = true
-    r.state.lastReceivedSequence = sequence
-
-    // Update received size
     r.state.receivedSize += int64(len(chunkData))
+    
+    // Periodically check for missing chunks
+    if time.Since(r.state.lastMissingCheck) >= time.Second {
+        r.checkForMissingChunks()
+        r.state.lastMissingCheck = time.Now()
+    }
 
     // Calculate and show progress
     if time.Since(r.state.lastUpdate) >= time.Second {

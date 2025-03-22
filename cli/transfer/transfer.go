@@ -35,6 +35,7 @@ type TransferState struct {
 inProgress           bool
 startTime            time.Time
 lastUpdate          time.Time
+lastMissingCheck    time.Time
 fileTransfer         *FileTransfer
 chunks               [][]byte
 totalChunks          int
@@ -101,14 +102,17 @@ func CalculateMD5(filePath string) (string, error) {
 
 // NewTransferState creates a new transfer state
 func NewTransferState() *TransferState {
-	return &TransferState{
-		inProgress:           false,
-		receivedChunks:       make(map[int]bool),
-		missingChunks:        make(map[int]bool),
-		unacknowledgedChunks: make(map[int]bool),
-		retransmissionQueue:  make([]int, 0),
-		chunkTimestamps:      make(map[int]time.Time),
-	}
+return &TransferState{
+inProgress:           false,
+receivedChunks:       make(map[int]bool),
+missingChunks:        make(map[int]bool),
+unacknowledgedChunks: make(map[int]bool),
+retransmissionQueue:  make([]int, 0),
+chunkTimestamps:      make(map[int]time.Time),
+startTime:           time.Now(),
+lastUpdate:          time.Now(),
+lastMissingCheck:    time.Now(),
+}
 }
 
 // NewFileTransfer creates a new file transfer
