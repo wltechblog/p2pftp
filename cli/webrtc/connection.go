@@ -131,43 +131,27 @@ func (c *Connection) SetupPeerConnection() error {
 
     c.state.PeerConn = peerConn
 
-    // Set up data channels with ordered delivery
+    // Set up data channels with ordered delivery, negotiated IDs and correct labels
+    ordered := true
+    negotiated := true
+    controlID := uint16(1)
+    dataID := uint16(2)
+
+    protocol := "json"
     controlConfig := &pionwebrtc.DataChannelInit{
-        Ordered: &[]bool{true}[0],
-        ID:      &[]uint16{1}[0],
+        ID:         &controlID,
+        Ordered:    &ordered,
+        Negotiated: &negotiated,
+        Protocol:   &protocol,
     }
 
     dataConfig := &pionwebrtc.DataChannelInit{
-        Ordered: &[]bool{true}[0],
-        ID:      &[]uint16{2}[0],
+        ID:         &dataID,
+        Ordered:    &ordered,
+        Negotiated: &negotiated,
     }
 
-    // Set up OnDataChannel handler for answering peer
-    peerConn.OnDataChannel(func(channel *pionwebrtc.DataChannel) {
-        c.logger.LogDebug(fmt.Sprintf("Received data channel: %s", channel.Label()))
-        
-        if channel.Label() == "p2pftp-control" {
-            c.state.ControlChannel = channel
-            c.setupDataChannel(channel, true)
-            channel.OnOpen(func() {
-                c.logger.LogDebug("Control channel opened (answering peer)")
-                if c.state.DataChannel != nil && c.state.DataChannel.ReadyState() == pionwebrtc.DataChannelStateOpen {
-                    c.completeConnectionSetup()
-                }
-            })
-        } else if channel.Label() == "p2pftp-data" {
-            c.state.DataChannel = channel
-            c.setupDataChannel(channel, false)
-            channel.OnOpen(func() {
-                c.logger.LogDebug("Data channel opened (answering peer)")
-                if c.state.ControlChannel != nil && c.state.ControlChannel.ReadyState() == pionwebrtc.DataChannelStateOpen {
-                    c.completeConnectionSetup()
-                }
-            })
-        }
-    })
-
-    // Set up data channels for offering peer
+    // Create the data channels immediately since they are negotiated
     controlChannel, err := peerConn.CreateDataChannel("p2pftp-control", controlConfig)
     if err != nil {
         return fmt.Errorf("failed to create control channel: %v", err)
@@ -185,7 +169,7 @@ func (c *Connection) SetupPeerConnection() error {
     c.setupDataChannel(controlChannel, true)
     c.setupDataChannel(dataChannel, false)
 
-    // Set up channel open handlers
+    // Set up channel open handlers (once for each channel)
     controlChannel.OnOpen(func() {
         c.logger.LogDebug("Control channel opened")
         if c.state.DataChannel.ReadyState() == pionwebrtc.DataChannelStateOpen {
