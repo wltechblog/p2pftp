@@ -20,17 +20,23 @@ func boolPtr(v bool) *bool {
 
 // Peer represents a WebRTC peer connection
 type Peer struct {
-	conn           *webrtc.PeerConnection
-	signaler       *Signaler
-	controlChannel *webrtc.DataChannel
-	dataChannel    *webrtc.DataChannel
-	controlHandler func([]byte)
-	messageHandler func(string)
-	statusHandler  func(string)
-	debugLog       *log.Logger
-	negotiated     bool
-	maxChunkSize   int32
-	mu            sync.Mutex
+conn           *webrtc.PeerConnection
+signaler       *Signaler
+controlChannel *webrtc.DataChannel
+dataChannel    *webrtc.DataChannel
+controlHandler func([]byte)
+messageHandler func(string)
+statusHandler  func(string)
+tokenHandler   func(string)
+debugLog       *log.Logger
+negotiated     bool
+maxChunkSize   int32
+mu            sync.Mutex
+}
+
+// SetTokenHandler sets a handler for when the server assigns a token
+func (p *Peer) SetTokenHandler(handler func(string)) {
+p.tokenHandler = handler
 }
 
 // NewPeer creates a new WebRTC peer
@@ -155,14 +161,15 @@ func (p *Peer) sendCapabilities() {
 func (p *Peer) Connect(wsURL, token string) error {
 	p.debugLog.Printf("Connecting to signaling server: %s", wsURL)
 
-	signaler, err := NewSignaler(wsURL, token, p.debugLog)
-	if err != nil {
-		return fmt.Errorf("failed to create signaler: %v", err)
-	}
-	p.signaler = signaler
+signaler, err := NewSignaler(wsURL, token, p.debugLog)
+if err != nil {
+return fmt.Errorf("failed to create signaler: %v", err)
+}
+p.signaler = signaler
+p.signaler.SetPeer(p)
 
-	// Create data channels before creating offer
-	p.createDataChannels()
+// Create data channels before creating offer
+p.createDataChannels()
 
 	// Create offer
 	offer, err := p.conn.CreateOffer(nil)
@@ -189,13 +196,14 @@ func (p *Peer) Connect(wsURL, token string) error {
 func (p *Peer) Accept(wsURL, token string) error {
 	p.debugLog.Printf("Accepting connection from peer: %s", token)
 
-	signaler, err := NewSignaler(wsURL, token, p.debugLog)
-	if err != nil {
-		return fmt.Errorf("failed to create signaler: %v", err)
-	}
-	p.signaler = signaler
+signaler, err := NewSignaler(wsURL, token, p.debugLog)
+if err != nil {
+return fmt.Errorf("failed to create signaler: %v", err)
+}
+p.signaler = signaler
+p.signaler.SetPeer(p)
 
-	return nil
+return nil
 }
 
 func (p *Peer) createDataChannels() {
