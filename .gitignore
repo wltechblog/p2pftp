@@ -20,4 +20,5 @@ vendor/
 Thumbs.db
 cli/cli
 p2pftp
-
+client/client
+client/p2pftp-cli

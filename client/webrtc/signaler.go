@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net/http"
 	"sync"
 
 	"github.com/gorilla/websocket"
@@ -34,21 +35,30 @@ mu           sync.Mutex
 
 // NewSignaler creates a new WebSocket signaler
 func NewSignaler(wsURL, token string, debug *log.Logger) (*Signaler, error) {
-conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
-if err != nil {
-return nil, fmt.Errorf("failed to connect to signaling server: %v", err)
-}
+	debug.Printf("Connecting to signaling server: %s", wsURL)
 
-s := &Signaler{
-conn:     conn,
-token:    token,
-debugLog: debug,
-}
+	headers := make(http.Header)
+	headers.Add("Origin", wsURL)
 
-// Start message handler
-go s.handleMessages()
+	conn, resp, err := websocket.DefaultDialer.Dial(wsURL, headers)
+	if err != nil {
+		if resp != nil {
+			debug.Printf("Server response: %v", resp.Status)
+		}
+		return nil, fmt.Errorf("failed to connect to signaling server: %v", err)
+	}
+	debug.Printf("Connected to signaling server")
 
-return s, nil
+	s := &Signaler{
+		conn:     conn,
+		token:    token,
+		debugLog: debug,
+	}
+
+	// Start message handler
+	go s.handleMessages()
+
+	return s, nil
 }
 
 // SetPeer sets the peer for this signaler
