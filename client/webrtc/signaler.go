@@ -38,7 +38,7 @@ func NewSignaler(wsURL, token string, debug *log.Logger) (*Signaler, error) {
  debug.Printf("Connecting to signaling server: %s", wsURL)
 
  headers := make(http.Header)
- headers.Add("Origin", wsURL)
+ //headers.Add("Origin", wsURL) // Removing origin header
 
  conn, resp, err := websocket.DefaultDialer.Dial(wsURL, headers)
  if err != nil {
