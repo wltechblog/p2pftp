@@ -12,7 +12,7 @@ P2PFTP uses a combination of WebSocket signaling and WebRTC data channels to est
 
 ## 1. Signaling Protocol
 
-The signaling protocol uses WebSockets to exchange connection information between peers.
+The signaling protocol uses WebSockets to exchange connection information between peers. The signaling server is always behind a HTTPS proxy, so we always use wss and never ws.
 
 ### Connection Establishment
 
