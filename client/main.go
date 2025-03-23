@@ -71,15 +71,16 @@ func getWebSocketURL(httpURL string) string {
 }
 
 type Client struct {
-	app        *tview.Application
-	chatView   *tview.TextView
-	inputField *tview.InputField
-	debugView  *tview.TextView
-	peer       *webrtc.Peer
-	transfer   *transfer.Transfer
-	wsURL      string
-	serverURL  string
-	token      string
+app        *tview.Application
+chatView   *tview.TextView
+inputField *tview.InputField
+debugView  *tview.TextView
+peer       *webrtc.Peer
+transfer   *transfer.Transfer
+wsURL      string
+serverURL  string
+token      string
+debugLog   *log.Logger
 }
 
 func NewClient() *Client {
@@ -102,12 +103,13 @@ func NewClient() *Client {
 		SetLabel("> ").
 		SetFieldWidth(0)
 
-	return &Client{
-		app:        app,
-		chatView:   chatView,
-		inputField: inputField,
-		debugView:  debugView,
-	}
+return &Client{
+app:        app,
+chatView:   chatView,
+inputField: inputField,
+debugView:  debugView,
+debugLog:   debugLog,
+}
 }
 
 func (c *Client) setupUI() {
@@ -115,9 +117,10 @@ func (c *Client) setupUI() {
 
 	flex.AddItem(c.chatView, 0, 3, false)
 
-	if *debug {
-		flex.AddItem(c.debugView, 0, 1, false)
-	}
+if *debug {
+ c.debugLog.SetPrefix("DEBUG: ")
+ c.debugLog.SetFlags(log.LstdFlags)
+}
 
 	flex.AddItem(c.inputField, 1, 0, true)
 
@@ -132,18 +135,18 @@ func (c *Client) setupUI() {
 	c.app.SetRoot(flex, true)
 	c.app.SetFocus(c.inputField)
 
-	peer, err := webrtc.NewPeer(debugLog)
-	if err != nil {
-		c.logChat("[red]Failed to create peer: %v[-]", err)
-		return
-	}
-	peer.SetTokenHandler(func(token string) {
-		c.token = token
-		c.logChat("[green]Your token: %s[-]", token)
-		link := fmt.Sprintf("%s/?token=%s", c.serverURL, c.token)
-		c.logChat("[green]Your connection link: %s[-]", link)
-	})
-	c.peer = peer
+peer, err := webrtc.NewPeer(c.debugLog)
+if err != nil {
+c.logChat("[red]Failed to create peer: %v[-]", err)
+return
+}
+peer.SetTokenHandler(func(token string) {
+c.token = token
+c.logChat("[green]Your token: %s[-]", token)
+link := fmt.Sprintf("%s/?token=%s", c.serverURL, c.token)
+c.logChat("[green]Your connection link: %s[-]", link)
+})
+c.peer = peer
 
 	if err := peer.Connect(c.wsURL, ""); err != nil {
 		c.logChat("[red]Failed to connect to server: %v[-]", err)
