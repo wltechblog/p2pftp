@@ -72,10 +72,3 @@ func (u *UI) SetToken(token string) {
 func (u *UI) UpdateTransferProgress(status string, direction string) {
     fmt.Printf("\r%s", status)
 }
-
-func (u *UI) Run() error {
-    fmt.Println("P2P File Transfer CLI")
-    fmt.Println("Type /help for list of commands")
-    // ... rest of UI implementation
-    return nil
-}

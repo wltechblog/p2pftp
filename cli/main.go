@@ -293,10 +293,15 @@ func main() {
     go client.handleMessages()
 
     // Run UI (blocks until exit)
-        // Enable debug mode for UI if flag is set
-        userInterface.SetDebug(*debug)
-        
-        if err := userInterface.Run(); err != nil {
-            fmt.Printf("Error running UI: %v\n", err)
-        }
+    // Enable debug logging for UI if flag is set
+    userInterface.SetDebug(*debug)
+    
+    // Show greeting in debug mode
+    if *debug {
+        fmt.Printf("Debug logging enabled\n")
+    }
+    
+    if err := userInterface.Run(); err != nil {
+        fmt.Printf("Error running UI: %v\n", err)
+    }
 }
