@@ -61,7 +61,7 @@ func (c *Channels) SetupChannelHandlers() {
             }
         })
 
-        ch.SetBufferedAmountLowThreshold(4096) // 4KB for control messages
+        ch.SetBufferedAmountLowThreshold(controlBufferSize)
         ch.OnBufferedAmountLow(func() {
             c.logger.LogDebug(fmt.Sprintf("[Control] Buffer below threshold (%d bytes)", ch.BufferedAmount()))
         })
@@ -74,25 +74,37 @@ func (c *Channels) SetupChannelHandlers() {
         ch := c.connection.GetDataChannel()
         c.logger.LogDebug(fmt.Sprintf("[Data] Channel state: %s", ch.ReadyState().String()))
 
+        // Use default chunk size for initial buffering
+        ch.SetBufferedAmountLowThreshold(defaultChunkSize)
+        
         ch.OnMessage(func(msg pionwebrtc.DataChannelMessage) {
+            msgSize := len(msg.Data)
+            if msgSize > maxMessageSize {
+                c.logger.LogDebug(fmt.Sprintf("[Data] ERROR: Message too large: %d bytes", msgSize))
+                return
+            }
+
             if msg.IsString {
-                // Handle string messages (like chat) via control message handler
+                // Parse and handle string messages (like chat) via control message handler
                 if c.msgHandler != nil {
+                    // Log message content for debugging
+                    c.logger.LogDebug(fmt.Sprintf("[Data] Received string message: %s", string(msg.Data)))
                     if err := c.msgHandler.HandleControlMessage(msg.Data); err != nil {
                         c.logger.LogDebug(fmt.Sprintf("[Data] Error handling string message: %v", err))
                     }
                 }
             } else {
                 // Handle binary data (file chunks) via data handler
-                if c.dataHandler != nil {
+                if c.dataHandler != nil && msgSize >= 8 {
                     if err := c.dataHandler.HandleDataChunk(msg.Data); err != nil {
                         c.logger.LogDebug(fmt.Sprintf("[Data] Error handling binary chunk: %v", err))
                     }
+                } else {
+                    c.logger.LogDebug(fmt.Sprintf("[Data] Invalid binary message size: %d bytes", msgSize))
                 }
             }
         })
 
-        ch.SetBufferedAmountLowThreshold(65528) // 64KB - 8 bytes for header
         ch.OnBufferedAmountLow(func() {
             c.logger.LogDebug(fmt.Sprintf("[Data] Buffer below threshold (%d bytes)", ch.BufferedAmount()))
         })
@@ -134,7 +146,13 @@ func (c *Channels) SendChatMessage(text string) error {
     messageJSON, err := json.Marshal(message)
     if err != nil {
         c.logger.LogDebug(fmt.Sprintf("[Chat] ERROR: Failed to marshal message: %v", err))
-        return fmt.Errorf("failed to marshal message: %v", err)
+        return fmt.Errorf("[Chat] Failed to marshal message: %v", err)
+    }
+
+    // Check message size
+    if len(messageJSON) > maxMessageSize {
+        c.logger.LogDebug(fmt.Sprintf("[Chat] ERROR: Message too large: %d bytes", len(messageJSON)))
+        return fmt.Errorf("[Chat] Message exceeds maximum size")
     }
 
     // Log the message being sent
@@ -163,12 +181,17 @@ func (c *Channels) SendCapabilities(maxChunkSize int) error {
         return fmt.Errorf("[Control] Channel not in open state")
     }
 
+    // Ensure max chunk size is within limits
+    if maxChunkSize > maxMessageSize {
+        maxChunkSize = maxMessageSize - 8 // Account for header
+    }
+
     message := struct {
         Type         string `json:"type"`
         MaxChunkSize int    `json:"maxChunkSize"`
     }{
         Type:         "capabilities",
-        MaxChunkSize: maxChunkSize - 8, // Account for 8-byte header
+        MaxChunkSize: maxChunkSize,
     }
 
     messageJSON, err := json.Marshal(message)
@@ -184,6 +207,5 @@ func (c *Channels) SendCapabilities(maxChunkSize int) error {
     }
 
     c.logger.LogDebug("[Control] Capabilities sent successfully")
-
     return nil
 }

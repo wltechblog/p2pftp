@@ -9,9 +9,9 @@ import (
 
 // Logger interface for logging and UI updates
 type Logger interface {
-LogDebug(msg string)
-ShowError(msg string)
-AppendChat(msg string)
+    LogDebug(msg string)
+    ShowError(msg string)
+    AppendChat(msg string)
 }
 
 // ConnectionState contains the current state of a WebRTC connection
@@ -165,17 +165,33 @@ func (c *Connection) SetupPeerConnection() error {
     if err != nil {
         return fmt.Errorf("failed to create control channel: %v", err)
     }
-    controlChannel.SetBufferedAmountLowThreshold(4096) // 4KB for control messages
+    // Configure control channel buffer
+    controlChannel.SetBufferedAmountLowThreshold(uint64(controlBufferSize))
+    c.logger.LogDebug(fmt.Sprintf("Control channel created with buffer threshold: %d bytes", controlBufferSize))
 
     // Create and configure the data channel
     dataChannel, err := peerConn.CreateDataChannel("p2pftp-data", dataConfig)
     if err != nil {
         return fmt.Errorf("failed to create data channel: %v", err)
     }
-    dataChannel.SetBufferedAmountLowThreshold(65536) // 64KB for data channel
+    
+    // Use default chunk size from config for initial buffering
+    dataChannel.SetBufferedAmountLowThreshold(uint64(defaultChunkSize))
+    c.logger.LogDebug(fmt.Sprintf("Data channel created with initial buffer threshold: %d bytes", defaultChunkSize))
 
     c.state.ControlChannel = controlChannel
     c.state.DataChannel = dataChannel
+
+    // Log initial channel states and buffer configurations
+    c.logger.LogDebug("Initial channel configuration:")
+    c.logger.LogDebug(fmt.Sprintf("- Control channel: state=%s, buffer=%d, threshold=%d", 
+        controlChannel.ReadyState().String(),
+        controlChannel.BufferedAmount(),
+        controlChannel.BufferedAmountLowThreshold()))
+    c.logger.LogDebug(fmt.Sprintf("- Data channel: state=%s, buffer=%d, threshold=%d", 
+        dataChannel.ReadyState().String(),
+        dataChannel.BufferedAmount(),
+        dataChannel.BufferedAmountLowThreshold()))
 
     // Set up message handlers for control and data channels
     controlChannel.OnMessage(func(msg pionwebrtc.DataChannelMessage) {
@@ -222,33 +238,48 @@ func (c *Connection) SetupPeerConnection() error {
         }
     })
 
-    // Set up error and close handlers
+    // Set up error and close handlers with detailed state information
     controlChannel.OnError(func(err error) {
-        c.logger.LogDebug(fmt.Sprintf("Control channel error: %v", err))
+        c.logger.LogDebug(fmt.Sprintf("[Control] Channel error: %v (buffer=%d, threshold=%d)", 
+            err, controlChannel.BufferedAmount(), controlChannel.BufferedAmountLowThreshold()))
         c.logger.ShowError(fmt.Sprintf("Control channel error: %v", err))
     })
 
     dataChannel.OnError(func(err error) {
-        c.logger.LogDebug(fmt.Sprintf("Data channel error: %v", err))
+        c.logger.LogDebug(fmt.Sprintf("[Data] Channel error: %v (buffer=%d, threshold=%d)", 
+            err, dataChannel.BufferedAmount(), dataChannel.BufferedAmountLowThreshold()))
         c.logger.ShowError(fmt.Sprintf("Data channel error: %v", err))
     })
 
     controlChannel.OnClose(func() {
-        c.logger.LogDebug("Control channel closed")
+        c.logger.LogDebug(fmt.Sprintf("[Control] Channel closed (final buffer=%d)", controlChannel.BufferedAmount()))
         c.logger.ShowError("Control channel closed unexpectedly")
     })
 
     dataChannel.OnClose(func() {
-        c.logger.LogDebug("Data channel closed")
+        c.logger.LogDebug(fmt.Sprintf("[Data] Channel closed (final buffer=%d)", dataChannel.BufferedAmount()))
         c.logger.ShowError("Data channel closed unexpectedly")
     })
 
     // Configure buffer monitoring for flow control
     dataChannel.OnBufferedAmountLow(func() {
-        c.logger.LogDebug(fmt.Sprintf("Data channel buffer below threshold (%d bytes)", dataChannel.BufferedAmount()))
+        c.logger.LogDebug(fmt.Sprintf("[Data] Buffer amount: %d bytes (below threshold: %d)", 
+            dataChannel.BufferedAmount(),
+            dataChannel.BufferedAmountLowThreshold()))
     })
     controlChannel.OnBufferedAmountLow(func() {
-        c.logger.LogDebug(fmt.Sprintf("Control channel buffer below threshold (%d bytes)", controlChannel.BufferedAmount()))
+        c.logger.LogDebug(fmt.Sprintf("[Control] Buffer amount: %d bytes (below threshold: %d)", 
+            controlChannel.BufferedAmount(),
+            controlChannel.BufferedAmountLowThreshold()))
+        
+        // When buffer is low, check if we need to update the threshold based on negotiated chunk size
+        if c.maxChunkSize > defaultChunkSize {
+            newThreshold := uint64(c.maxChunkSize)
+            if newThreshold > dataChannel.BufferedAmountLowThreshold() {
+                c.logger.LogDebug(fmt.Sprintf("[Data] Updating buffer threshold to %d bytes", newThreshold))
+                dataChannel.SetBufferedAmountLowThreshold(newThreshold)
+            }
+        }
     })
 
     // Set up channel open handlers (once for each channel)
@@ -345,7 +376,7 @@ func (c *Connection) completeConnectionSetup() {
         MaxChunkSize int    `json:"maxChunkSize"`
     }{
         Type:         "capabilities",
-        MaxChunkSize: c.maxChunkSize,
+        MaxChunkSize: min(c.maxChunkSize, maxMessageSize-8), // Ensure we don't exceed WebRTC message size limit
     }
 
     capabilitiesJSON, err := json.Marshal(capabilities)

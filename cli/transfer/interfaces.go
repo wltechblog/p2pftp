@@ -1,25 +1,13 @@
-// Package transfer handles file transfers and associated operations
 package transfer
 
-// Logger provides logging functionality for all transfer operations
+// Logger interface for logging and UI updates
 type Logger interface {
-    // LogDebug logs a debug message
-    LogDebug(msg string)
-    // ShowError displays an error message
-    ShowError(msg string)
-    // ShowChat displays a chat message with sender information
-    ShowChat(from string, msg string)
+    LogDebug(msg string)   // For debug messages (only shown with -debug flag)
+    ShowError(msg string)  // For error messages (always shown)
+    ShowInfo(msg string)   // For important info (always shown)
+    AppendChat(msg string) // Show chat message in UI
+    ShowChat(from, msg string) // Show chat message with sender info
 }
 
-// ProgressCallback is called to update transfer progress
-type ProgressCallback func(status string, direction string)
-
-// MessageHandler defines the interface for handling WebRTC control messages
-type MessageHandler interface {
-    HandleControlMessage(msg []byte) error
-}
-
-// DataHandler defines the interface for handling WebRTC data chunks
-type DataHandler interface {
-    HandleDataChunk(data []byte) error
-}
+// ProgressCallback is a function that updates the transfer progress
+type ProgressCallback = func(status string, direction string)
