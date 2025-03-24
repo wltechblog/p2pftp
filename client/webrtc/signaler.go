@@ -17,11 +17,11 @@ import (
 
 // SignalingMessage represents a message exchanged with the signaling server
 type SignalingMessage struct {
- Type      string          `json:"type"`
- Token     string          `json:"token,omitempty"`
- PeerToken string          `json:"peerToken,omitempty"`
- SDP       json.RawMessage `json:"sdp,omitempty"`
- ICE       json.RawMessage `json:"ice,omitempty"`
+ Type      string `json:"type"`
+ Token     string `json:"token,omitempty"`
+ PeerToken string `json:"peerToken,omitempty"`
+ SDP       string `json:"sdp,omitempty"`
+ ICE       string `json:"ice,omitempty"`
 }
 
 // TokenHandler is called when a token is assigned by the server
@@ -154,7 +154,7 @@ func (s *Signaler) handleMessages() {
   case "offer":
    s.debugLog.Printf("Received offer from: %s", msg.Token)
    var offer webrtc.SessionDescription
-   if err := json.Unmarshal(msg.SDP, &offer); err != nil {
+   if err := json.Unmarshal([]byte(msg.SDP), &offer); err != nil {
     s.debugLog.Printf("Error parsing offer: %v", err)
     return
    }
@@ -173,7 +173,7 @@ func (s *Signaler) handleMessages() {
   case "answer":
    s.debugLog.Printf("Received answer from: %s", msg.Token)
    var answer webrtc.SessionDescription
-   if err := json.Unmarshal(msg.SDP, &answer); err != nil {
+   if err := json.Unmarshal([]byte(msg.SDP), &answer); err != nil {
     s.debugLog.Printf("Error parsing answer: %v", err)
     return
    }
@@ -182,7 +182,7 @@ func (s *Signaler) handleMessages() {
   case "ice":
    s.debugLog.Printf("Received ICE candidate from: %s", msg.Token)
    var candidate webrtc.ICECandidateInit
-   if err := json.Unmarshal(msg.ICE, &candidate); err != nil {
+   if err := json.Unmarshal([]byte(msg.ICE), &candidate); err != nil {
     s.debugLog.Printf("Error parsing ICE candidate: %v", err)
     return
    }
@@ -204,7 +204,7 @@ func (s *Signaler) SendOffer(offer webrtc.SessionDescription) error {
  msg := SignalingMessage{
   Type:      "offer",
   PeerToken: s.peerToken,
-  SDP:       sdp,
+  SDP:       string(sdp),
  }
 
  err = s.conn.WriteJSON(msg)
@@ -228,7 +228,7 @@ func (s *Signaler) SendAnswer(answer webrtc.SessionDescription) error {
  msg := SignalingMessage{
   Type:      "answer",
   PeerToken: s.peerToken,
-  SDP:       sdp,
+  SDP:       string(sdp),
  }
 
  err = s.conn.WriteJSON(msg)
@@ -252,7 +252,7 @@ func (s *Signaler) SendICE(candidate webrtc.ICECandidateInit) error {
  msg := SignalingMessage{
   Type:      "ice",
   PeerToken: s.peerToken,
-  ICE:       ice,
+  ICE:       string(ice),
  }
 
  err = s.conn.WriteJSON(msg)
