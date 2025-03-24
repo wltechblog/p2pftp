@@ -179,11 +179,11 @@ func (p *Peer) sendCapabilities() {
  }
 }
 
-// Connect initiates a connection to a peer
-func (p *Peer) Connect(wsURL, token string) error {
- p.debugLog.Printf("Connecting to signaling server: %s", wsURL)
+// Register connects to the signaling server and gets assigned a token
+func (p *Peer) Register(wsURL string) error {
+ p.debugLog.Printf("Registering with signaling server: %s", wsURL)
 
- signaler, err := NewSignaler(wsURL, token, p.debugLog)
+ signaler, err := NewSignaler(wsURL, "", p.debugLog)
  if err != nil {
   return fmt.Errorf("failed to create signaler: %v", err)
  }
@@ -193,6 +193,24 @@ func (p *Peer) Connect(wsURL, token string) error {
  // Wait for token assignment
  if err := p.signaler.WaitForToken(10 * time.Second); err != nil {
   return fmt.Errorf("token assignment failed: %v", err)
+ }
+
+ return nil
+}
+
+// Connect initiates a connection to a peer
+func (p *Peer) Connect(wsURL, token string) error {
+ if token == "" {
+  return fmt.Errorf("peer token is required")
+ }
+
+ p.debugLog.Printf("Connecting to peer: %s", token)
+
+ if p.signaler == nil {
+  // Register with server first if not already connected
+  if err := p.Register(wsURL); err != nil {
+   return fmt.Errorf("failed to register with server: %v", err)
+  }
  }
 
  // Create data channels before creating offer
@@ -221,18 +239,17 @@ func (p *Peer) Connect(wsURL, token string) error {
 
 // Accept accepts a connection from a peer
 func (p *Peer) Accept(wsURL, token string) error {
+ if token == "" {
+  return fmt.Errorf("peer token is required")
+ }
+
  p.debugLog.Printf("Accepting connection from peer: %s", token)
 
- signaler, err := NewSignaler(wsURL, token, p.debugLog)
- if err != nil {
-  return fmt.Errorf("failed to create signaler: %v", err)
- }
- p.signaler = signaler
- p.signaler.SetPeer(p)
-
- // Wait for token assignment
- if err := p.signaler.WaitForToken(10 * time.Second); err != nil {
-  return fmt.Errorf("token assignment failed: %v", err)
+ if p.signaler == nil {
+  // Register with server first if not already connected
+  if err := p.Register(wsURL); err != nil {
+   return fmt.Errorf("failed to register with server: %v", err)
+  }
  }
 
  return nil

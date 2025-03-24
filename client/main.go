@@ -227,8 +227,8 @@ c.logChat("[red]Server error: %s[-]", errMsg)
 
 c.peer = peer
 
-	if err := peer.Connect(c.wsURL, ""); err != nil {
-		c.logChat("[red]Failed to connect to server: %v[-]", err)
+	if err := peer.Register(c.wsURL); err != nil {
+		c.logChat("[red]Failed to register with server: %v[-]", err)
 		return
 	}
 }
