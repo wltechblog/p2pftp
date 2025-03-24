@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net/url"
 	"os"
@@ -17,10 +18,30 @@ import (
 
 var (
 	debug      = flag.Bool("debug", false, "Enable debug logging")
+	logFile    = flag.String("logfile", "p2pftp-debug.log", "Path to debug log file")
 	serverURL  = flag.String("server", "p2p.teamworkapps.com", "Signaling server hostname (port 443 will be used)")
 	connectURL = flag.String("url", "", "Full connection URL (e.g., https://p2p.teamworkapps.com/?token=abcd1234)")
 	debugLog   *log.Logger
 )
+
+// setupLogger creates a logger that writes to both stderr and a log file
+func setupLogger() (*log.Logger, error) {
+	if !*debug {
+		return log.New(io.Discard, "", 0), nil
+	}
+
+	// Create log file
+	f, err := os.OpenFile(*logFile, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+	if err != nil {
+		return nil, fmt.Errorf("error opening log file: %v", err)
+	}
+
+	// Create multi-writer to write to both stderr and file
+	multiWriter := io.MultiWriter(os.Stderr, f)
+	
+	// Create logger with timestamp and file info
+	return log.New(multiWriter, "DEBUG: ", log.Ltime|log.Lshortfile), nil
+}
 
 // parseConnectionURL extracts the server URL and token from a connection URL
 func parseConnectionURL(urlStr string) (string, string, error) {
@@ -364,8 +385,12 @@ func (c *Client) logDebug(format string, args ...interface{}) {
 func main() {
 	flag.Parse()
 
-	if *debug {
-		debugLog = log.New(os.Stderr, "DEBUG: ", log.Ltime|log.Lshortfile)
+	// Setup logger
+	var err error
+	debugLog, err = setupLogger()
+	if err != nil {
+		fmt.Printf("Error setting up logger: %v\n", err)
+		os.Exit(1)
 	}
 
 	var serverURLStr string

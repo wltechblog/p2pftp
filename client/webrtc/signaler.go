@@ -4,8 +4,10 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -53,14 +55,43 @@ func NewSignaler(wsURL, token string, debug *log.Logger) (*Signaler, error) {
  }
  
  debug.Printf("Attempting WebSocket connection with TLS verification disabled")
+ debug.Printf("Connection details - URL: %s, Headers: %v", wsURL, headers)
+ 
+ // Dump request details for debugging
+ dialer.EnableCompression = true
+ 
+ // Add more detailed error handling
  conn, resp, err := dialer.Dial(wsURL, headers)
  if err != nil {
+  debug.Printf("WebSocket connection failed with error: %v", err)
+  
   if resp != nil {
    debug.Printf("Server response - Status: %v", resp.Status)
-   debug.Printf("Headers: %v", resp.Header)
-   // Note: We can't read the body as it may have been closed already
-   // But we can log what headers we got back
+   debug.Printf("Response Headers: %v", resp.Header)
+   
+   // Try to read response body if available
+   if resp.Body != nil {
+    bodyBytes := make([]byte, 1024)
+    n, readErr := resp.Body.Read(bodyBytes)
+    if readErr != nil && readErr != io.EOF {
+     debug.Printf("Error reading response body: %v", readErr)
+    } else if n > 0 {
+     debug.Printf("Response body (partial): %s", bodyBytes[:n])
+    }
+   }
+   
+   // Check for specific error conditions
+   if strings.Contains(err.Error(), "bad handshake") {
+    debug.Printf("Bad handshake detected. Possible causes:")
+    debug.Printf("1. Server doesn't recognize the Origin header")
+    debug.Printf("2. Server expects different protocol version")
+    debug.Printf("3. Server requires authentication")
+    debug.Printf("4. TLS certificate issues")
+   }
+  } else {
+   debug.Printf("No response received from server. Possible network connectivity issue.")
   }
+  
   return nil, fmt.Errorf("failed to connect to signaling server: %v", err)
  }
  debug.Printf("Connected to signaling server")
