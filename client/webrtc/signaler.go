@@ -27,6 +27,9 @@ type SignalingMessage struct {
 // TokenHandler is called when a token is assigned by the server
 type TokenHandler func(string)
 
+// ErrorHandler is called when an error is received from the server
+type ErrorHandler func(string)
+
 // Signaler handles WebSocket signaling
 type Signaler struct {
  conn         *websocket.Conn
@@ -35,9 +38,10 @@ type Signaler struct {
  debugLog     *log.Logger
  peer         *Peer
  mu           sync.Mutex
+ tokenChan    chan struct{}
 }
 
-// NewSignaler creates a new WebSocket signaler
+// NewSignaler creates a new WebSocket signaler with retry logic
 func NewSignaler(wsURL, token string, debug *log.Logger) (*Signaler, error) {
  debug.Printf("Attempting connection to: %s", wsURL)
  debug.Printf("Constructed WebSocket URL: %s (token: %s)", wsURL, token)
@@ -60,8 +64,46 @@ func NewSignaler(wsURL, token string, debug *log.Logger) (*Signaler, error) {
  // Dump request details for debugging
  dialer.EnableCompression = true
  
- // Add more detailed error handling
- conn, resp, err := dialer.Dial(wsURL, headers)
+ // Implement retry logic with exponential backoff
+ maxRetries := 5
+ var conn *websocket.Conn
+ var resp *http.Response
+ var err error
+ 
+ for attempt := 0; attempt < maxRetries; attempt++ {
+  if attempt > 0 {
+   backoff := time.Duration(1<<uint(attempt)) * time.Second
+   debug.Printf("Retry attempt %d/%d after %v", attempt+1, maxRetries, backoff)
+   time.Sleep(backoff)
+  }
+  
+  conn, resp, err = dialer.Dial(wsURL, headers)
+  if err == nil {
+   break // Successfully connected
+  }
+  
+  debug.Printf("Connection attempt %d failed: %v", attempt+1, err)
+  
+  if resp != nil {
+   debug.Printf("Server response - Status: %v", resp.Status)
+   debug.Printf("Response Headers: %v", resp.Header)
+   
+   if resp.Body != nil {
+    bodyBytes := make([]byte, 1024)
+    n, readErr := resp.Body.Read(bodyBytes)
+    if readErr != nil && readErr != io.EOF {
+     debug.Printf("Error reading response body: %v", readErr)
+    } else if n > 0 {
+     debug.Printf("Response body (partial): %s", bodyBytes[:n])
+    }
+    resp.Body.Close()
+   }
+  }
+  
+  if attempt == maxRetries-1 {
+   return nil, fmt.Errorf("failed to connect after %d attempts: %v", maxRetries, err)
+  }
+ }
  if err != nil {
   debug.Printf("WebSocket connection failed with error: %v", err)
   
@@ -97,9 +139,10 @@ func NewSignaler(wsURL, token string, debug *log.Logger) (*Signaler, error) {
  debug.Printf("Connected to signaling server")
 
  s := &Signaler{
-  conn:     conn,
-  token:    token,
-  debugLog: debug,
+  conn:      conn,
+  token:     token,
+  debugLog:  debug,
+  tokenChan: make(chan struct{}),
  }
 
  // Start message handler
@@ -135,7 +178,14 @@ func (s *Signaler) handleMessages() {
    if s.peer != nil && s.peer.tokenHandler != nil {
     s.peer.tokenHandler(msg.Token)
    }
+   close(s.tokenChan)
    s.mu.Unlock()
+
+  case "error":
+   s.debugLog.Printf("Server error: %s", msg.SDP)
+   if s.peer != nil && s.peer.errorHandler != nil {
+    s.peer.errorHandler(msg.SDP)
+   }
 
   case "request":
    s.peerToken = msg.Token
@@ -261,6 +311,16 @@ func (s *Signaler) SendICE(candidate webrtc.ICECandidateInit) error {
  }
 
  return nil
+}
+
+// WaitForToken waits for the server to assign a token with timeout
+func (s *Signaler) WaitForToken(timeout time.Duration) error {
+ select {
+ case <-s.tokenChan:
+  return nil
+ case <-time.After(timeout):
+  return fmt.Errorf("timeout waiting for token assignment")
+ }
 }
 
 // Close closes the WebSocket connection

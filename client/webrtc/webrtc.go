@@ -6,6 +6,7 @@ import (
 	"io/ioutil"
 	"log"
 	"sync"
+	"time"
 
 	"github.com/pion/webrtc/v3"
 )
@@ -30,6 +31,7 @@ type Peer struct {
  statusHandler  func(string)
  debugLog       *log.Logger
  tokenHandler   func(string)
+ errorHandler   func(string)
  negotiated     bool
  maxChunkSize   int32
  mu            sync.Mutex
@@ -38,6 +40,11 @@ type Peer struct {
 // SetTokenHandler sets a handler for when the server assigns a token
 func (p *Peer) SetTokenHandler(handler func(string)) {
  p.tokenHandler = handler
+}
+
+// SetErrorHandler sets a handler for when the server returns an error
+func (p *Peer) SetErrorHandler(handler func(string)) {
+ p.errorHandler = handler
 }
 
 // NewPeer creates a new WebRTC peer
@@ -70,6 +77,7 @@ func NewPeer(debug *log.Logger) (*Peer, error) {
   messageHandler: nil,
   statusHandler:  nil,
   tokenHandler:   nil,
+  errorHandler:   nil,
   debugLog:     debug,
   negotiated:   false,
   maxChunkSize: 16384,
@@ -182,6 +190,11 @@ func (p *Peer) Connect(wsURL, token string) error {
  p.signaler = signaler
  p.signaler.SetPeer(p)
 
+ // Wait for token assignment
+ if err := p.signaler.WaitForToken(10 * time.Second); err != nil {
+  return fmt.Errorf("token assignment failed: %v", err)
+ }
+
  // Create data channels before creating offer
  p.createDataChannels()
 
@@ -216,6 +229,11 @@ func (p *Peer) Accept(wsURL, token string) error {
  }
  p.signaler = signaler
  p.signaler.SetPeer(p)
+
+ // Wait for token assignment
+ if err := p.signaler.WaitForToken(10 * time.Second); err != nil {
+  return fmt.Errorf("token assignment failed: %v", err)
+ }
 
  return nil
 }

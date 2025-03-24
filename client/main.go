@@ -220,6 +220,11 @@ c.logChat("[green]Your token: %s[-]", token)
 link := fmt.Sprintf("%s/?token=%s", c.serverURL, c.token)
 c.logChat("[green]Your connection link: %s[-]", link)
 })
+
+peer.SetErrorHandler(func(errMsg string) {
+c.logChat("[red]Server error: %s[-]", errMsg)
+})
+
 c.peer = peer
 
 	if err := peer.Connect(c.wsURL, ""); err != nil {
@@ -266,6 +271,10 @@ func (c *Client) handleInput(text string) {
 				c.logChat("[yellow]%s[-]", status)
 			})
 
+			peer.SetErrorHandler(func(errMsg string) {
+				c.logChat("[red]Server error: %s[-]", errMsg)
+			})
+
 			peer.SetControlHandler(func(data []byte) {
 				c.logDebug("Received control message: %s", string(data))
 			})
@@ -296,6 +305,10 @@ func (c *Client) handleInput(text string) {
 
 			peer.SetStatusHandler(func(status string) {
 				c.logChat("[yellow]%s[-]", status)
+			})
+
+			peer.SetErrorHandler(func(errMsg string) {
+				c.logChat("[red]Server error: %s[-]", errMsg)
 			})
 
 			peer.SetControlHandler(func(data []byte) {
