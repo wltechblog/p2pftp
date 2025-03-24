@@ -55,19 +55,27 @@ func parseConnectionURL(urlStr string) (string, string, error) {
 
 // getWebSocketURL converts HTTP/HTTPS URL to WS/WSS URL
 func getWebSocketURL(httpURL string) string {
-	if !strings.Contains(httpURL, "://") {
-		httpURL = "wss://" + httpURL // Directly use WebSocket protocol
-	} else {
-		httpURL = strings.Replace(httpURL, "http:", "ws:", 1)
-		httpURL = strings.Replace(httpURL, "https:", "wss:", 1)
-	}
+ // Enforce WSS protocol
+ if !strings.Contains(httpURL, "://") {
+  httpURL = "wss://" + httpURL // Directly use WebSocket protocol
+ } else {
+  httpURL = strings.Replace(httpURL, "http:", "ws:", 1)
+  httpURL = strings.Replace(httpURL, "https:", "wss:", 1)
+ }
 
-	// Ensure the path ends with "/signal"
-	if !strings.HasSuffix(httpURL, "/signal") {
-		httpURL += "/signal"
-	}
+ // Enforce port 443 and /signal path
+ u, err := url.Parse(httpURL)
+ if err != nil {
+  log.Printf("Error parsing URL: %v", err)
+  return ""
+ }
+ u.Scheme = "wss" // Ensure WSS
+ u.Path = "/signal"
+ if u.Port() != "443" {
+  u.Host = u.Hostname() + ":443" // Enforce port 443
+ }
 
-	return httpURL
+ return u.String()
 }
 
 type Client struct {
