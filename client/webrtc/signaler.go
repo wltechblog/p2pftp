@@ -253,7 +253,8 @@ func (s *Signaler) SendOffer(offer webrtc.SessionDescription) error {
 
  msg := SignalingMessage{
   Type:      "offer",
-  PeerToken: s.peerToken,
+  Token:     s.token,      // Our token
+  PeerToken: s.peerToken,  // Target peer's token
   SDP:       string(sdp),
  }
 
@@ -277,7 +278,8 @@ func (s *Signaler) SendAnswer(answer webrtc.SessionDescription) error {
 
  msg := SignalingMessage{
   Type:      "answer",
-  PeerToken: s.peerToken,
+  Token:     s.token,      // Our token
+  PeerToken: s.peerToken,  // Target peer's token
   SDP:       string(sdp),
  }
 
@@ -301,7 +303,8 @@ func (s *Signaler) SendICE(candidate webrtc.ICECandidateInit) error {
 
  msg := SignalingMessage{
   Type:      "ice",
-  PeerToken: s.peerToken,
+  Token:     s.token,      // Our token
+  PeerToken: s.peerToken,  // Target peer's token
   ICE:       string(ice),
  }
 
