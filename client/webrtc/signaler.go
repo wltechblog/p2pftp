@@ -1,11 +1,13 @@
 package webrtc
 
 import (
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/pion/webrtc/v3"
@@ -40,9 +42,18 @@ func NewSignaler(wsURL, token string, debug *log.Logger) (*Signaler, error) {
 
  headers := make(http.Header)
  headers.Add("Origin", "http://p2pftp-client")
- //headers.Add("User-Agent", "P2PFTP-CLI/1.0")
-
- conn, resp, err := websocket.DefaultDialer.Dial(wsURL, headers)
+ headers.Add("User-Agent", "P2PFTP-CLI/1.0")
+ 
+ // Create a custom dialer that skips TLS verification for debugging
+ dialer := &websocket.Dialer{
+  TLSClientConfig: &tls.Config{
+   InsecureSkipVerify: true, // Skip certificate validation for testing
+  },
+  HandshakeTimeout: 45 * time.Second,
+ }
+ 
+ debug.Printf("Attempting WebSocket connection with TLS verification disabled")
+ conn, resp, err := dialer.Dial(wsURL, headers)
  if err != nil {
   if resp != nil {
    debug.Printf("Server response - Status: %v", resp.Status)
