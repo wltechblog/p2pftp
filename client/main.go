@@ -135,6 +135,10 @@ func getWebSocketURL(httpURL string) string {
   return ""
  }
  
+ // Always use /ws path as defined in the server
+ u.Path = "/ws"
+ logDebug("Set WebSocket path: %s", u.Path)
+ 
  result := u.String()
  logDebug("Final WebSocket URL: %s", result)
  return result
