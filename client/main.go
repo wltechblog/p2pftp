@@ -128,17 +128,11 @@ func getWebSocketURL(httpURL string) string {
   logDebug("Converted to WSS with port 443: %s", httpURL)
  }
 
- // Parse and ensure path
+ // Parse URL
  u, err := url.Parse(httpURL)
  if err != nil {
   logDebug("Error parsing URL: %v", err)
   return ""
- }
- 
- // Only set path if it's empty or root
- if u.Path == "" || u.Path == "/" {
-  u.Path = "/signal"
-  logDebug("Set default path: %s", u.Path)
  }
  
  result := u.String()

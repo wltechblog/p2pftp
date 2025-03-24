@@ -18,22 +18,22 @@ func TestGetWebSocketURL(t *testing.T) {
 		{
 			name:     "Hostname only",
 			input:    "example.com",
-			expected: "wss://example.com:443/signal",
+			expected: "wss://example.com:443",
 		},
 		{
 			name:     "Hostname with port",
 			input:    "example.com:8080",
-			expected: "wss://example.com:443/signal",
+			expected: "wss://example.com:443",
 		},
 		{
 			name:     "HTTP URL",
 			input:    "http://example.com",
-			expected: "wss://example.com:443/signal",
+			expected: "wss://example.com:443",
 		},
 		{
 			name:     "HTTPS URL",
 			input:    "https://example.com",
-			expected: "wss://example.com:443/signal",
+			expected: "wss://example.com:443",
 		},
 		{
 			name:     "URL with path",
