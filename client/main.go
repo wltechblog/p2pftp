@@ -17,7 +17,7 @@ import (
 
 var (
 	debug      = flag.Bool("debug", false, "Enable debug logging")
-	serverURL  = flag.String("server", "p2p.teamworkapps.com:8080", "Signaling server (hostname:port without protocol)")
+	serverURL  = flag.String("server", "p2p.teamworkapps.com", "Signaling server hostname (port 443 will be used)")
 	connectURL = flag.String("url", "", "Full connection URL (e.g., https://p2p.teamworkapps.com/?token=abcd1234)")
 	debugLog   *log.Logger
 )
@@ -28,9 +28,31 @@ func parseConnectionURL(urlStr string) (string, string, error) {
 		return "", "", nil
 	}
 
-	// Add https:// prefix if missing and not just a hostname
+	// Safe debug logging
+	logDebug := func(format string, args ...interface{}) {
+		if debugLog != nil {
+			debugLog.Printf(format, args...)
+		}
+	}
+
+	logDebug("Parsing connection URL: %s", urlStr)
+
+	// Handle hostname only (no path or protocol)
+	if !strings.Contains(urlStr, "://") && !strings.Contains(urlStr, "/") {
+		// Extract hostname without port
+		hostname := urlStr
+		if strings.Contains(urlStr, ":") {
+			hostname = strings.Split(urlStr, ":")[0]
+		}
+		result := "https://" + hostname
+		logDebug("Hostname only URL, converted to: %s", result)
+		return result, "", nil
+	}
+
+	// Add https:// prefix if missing but has path
 	if !strings.Contains(urlStr, "://") && strings.Contains(urlStr, "/") {
 		urlStr = "https://" + urlStr
+		logDebug("Added https:// prefix: %s", urlStr)
 	}
 
 	parsed, err := url.Parse(urlStr)
@@ -38,44 +60,69 @@ func parseConnectionURL(urlStr string) (string, string, error) {
 		return "", "", fmt.Errorf("invalid URL: %v", err)
 	}
 
-	// If it's just a hostname, return it with no token
-	if !strings.Contains(urlStr, "/") {
-		return "https://" + urlStr, "", nil
-	}
-
+	// Extract token if present
 	token := parsed.Query().Get("token")
-	if token == "" {
-		return parsed.String(), "", nil
-	}
-
+	
 	// Remove query parameters to get base server URL
 	parsed.RawQuery = ""
-	return parsed.String(), token, nil
+	result := parsed.String()
+	
+	logDebug("Parsed URL: %s, Token: %s", result, token)
+	return result, token, nil
 }
 
-// getWebSocketURL converts HTTP/HTTPS URL to WS/WSS URL
+// getWebSocketURL converts HTTP/HTTPS URL to WSS URL
 func getWebSocketURL(httpURL string) string {
- // Enforce WSS protocol
- if !strings.Contains(httpURL, "://") {
-  httpURL = "wss://" + httpURL // Directly use WebSocket protocol
- } else {
-  httpURL = strings.Replace(httpURL, "http:", "ws:", 1)
-  httpURL = strings.Replace(httpURL, "https:", "wss:", 1)
+ // Safe debug logging
+ logDebug := func(format string, args ...interface{}) {
+  if debugLog != nil {
+   debugLog.Printf(format, args...)
+  }
  }
 
- // Enforce port 443 and /signal path
+ logDebug("Converting URL to WebSocket: %s", httpURL)
+ 
+ // Handle URLs without protocol
+ if !strings.Contains(httpURL, "://") {
+  // Extract hostname (remove port if present)
+  hostname := httpURL
+  if strings.Contains(httpURL, ":") {
+   hostname = strings.Split(httpURL, ":")[0]
+  }
+  // Always use wss:// and port 443
+  httpURL = "wss://" + hostname + ":443"
+  logDebug("Added protocol and port 443: %s", httpURL)
+ } else {
+  // Convert HTTP/HTTPS to WSS (always secure)
+  httpURL = strings.Replace(httpURL, "http:", "wss:", 1)
+  httpURL = strings.Replace(httpURL, "https:", "wss:", 1)
+  httpURL = strings.Replace(httpURL, "ws:", "wss:", 1) // Ensure WSS even if WS was specified
+  
+  // Parse and ensure port 443
+  u, err := url.Parse(httpURL)
+  if err == nil {
+   u.Host = u.Hostname() + ":443" // Always use port 443
+   httpURL = u.String()
+  }
+  logDebug("Converted to WSS with port 443: %s", httpURL)
+ }
+
+ // Parse and ensure path
  u, err := url.Parse(httpURL)
  if err != nil {
-  log.Printf("Error parsing URL: %v", err)
+  logDebug("Error parsing URL: %v", err)
   return ""
  }
- u.Scheme = "wss" // Ensure WSS
- u.Path = "/signal"
- if u.Port() != "443" {
-  u.Host = u.Hostname() + ":443" // Enforce port 443
+ 
+ // Only set path if it's empty or root
+ if u.Path == "" || u.Path == "/" {
+  u.Path = "/signal"
+  logDebug("Set default path: %s", u.Path)
  }
-
- return u.String()
+ 
+ result := u.String()
+ logDebug("Final WebSocket URL: %s", result)
+ return result
 }
 
 type Client struct {

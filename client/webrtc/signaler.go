@@ -35,15 +35,20 @@ type Signaler struct {
 
 // NewSignaler creates a new WebSocket signaler
 func NewSignaler(wsURL, token string, debug *log.Logger) (*Signaler, error) {
- debug.Printf("Connecting to signaling server: %s", wsURL)
+ debug.Printf("Attempting connection to: %s", wsURL)
+ debug.Printf("Constructed WebSocket URL: %s (token: %s)", wsURL, token)
 
  headers := make(http.Header)
- //headers.Add("Origin", wsURL) // Removing origin header
+ headers.Add("Origin", "http://p2pftp-client")
+ //headers.Add("User-Agent", "P2PFTP-CLI/1.0")
 
  conn, resp, err := websocket.DefaultDialer.Dial(wsURL, headers)
  if err != nil {
   if resp != nil {
-   debug.Printf("Server response: %v", resp.Status)
+   debug.Printf("Server response - Status: %v", resp.Status)
+   debug.Printf("Headers: %v", resp.Header)
+   // Note: We can't read the body as it may have been closed already
+   // But we can log what headers we got back
   }
   return nil, fmt.Errorf("failed to connect to signaling server: %v", err)
  }
