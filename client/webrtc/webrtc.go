@@ -468,16 +468,27 @@ func (p *Peer) createDataChannels() {
 
 // SendMessage sends a chat message through the control channel
 func (p *Peer) SendMessage(msg string) error {
+	p.debugLog.Printf("SendMessage called with message: %s", msg)
+
+	// Check connection state with detailed logging
 	if !p.IsConnected() {
-		return fmt.Errorf("peer connection not established")
+		peerState := p.conn.ConnectionState()
+		iceState := p.conn.ICEConnectionState()
+		p.debugLog.Printf("Cannot send message - connection not established. Peer state: %s, ICE state: %s",
+			peerState.String(), iceState.String())
+		return fmt.Errorf("peer connection not established (peer state: %s, ICE state: %s)",
+			peerState.String(), iceState.String())
 	}
 
 	if p.controlChannel == nil {
+		p.debugLog.Printf("Cannot send message - control channel not established")
 		return fmt.Errorf("control channel not established")
 	}
 
 	// Check if the data channel is open
 	if p.controlChannel.ReadyState() != webrtc.DataChannelStateOpen {
+		p.debugLog.Printf("Cannot send message - control channel not open (state: %s)",
+			p.controlChannel.ReadyState().String())
 		return fmt.Errorf("control channel not open (state: %s)", p.controlChannel.ReadyState().String())
 	}
 

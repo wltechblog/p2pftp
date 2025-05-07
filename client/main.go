@@ -214,11 +214,18 @@ func (c *CLI) Start() error {
 
 	peer.SetStatusHandler(func(status string) {
 		fmt.Printf("\nConnection status: %s\n", status)
-		if strings.Contains(status, "connected") {
+
+		// Update connection status based on peer's IsConnected method
+		c.connected = peer.IsConnected()
+
+		// Also check status message for additional connection states
+		if strings.Contains(status, "connected") || strings.Contains(status, "Connection state: connected") {
 			c.connected = true
-		} else if strings.Contains(status, "disconnected") || strings.Contains(status, "failed") {
+		} else if strings.Contains(status, "disconnected") || strings.Contains(status, "failed") || strings.Contains(status, "closed") {
 			c.connected = false
 		}
+
+		fmt.Printf("Connection state: %v\n", c.connected)
 		fmt.Print("> ")
 	})
 
