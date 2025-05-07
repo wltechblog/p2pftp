@@ -529,17 +529,28 @@ func (p *Peer) createDataChannels() {
 func (p *Peer) SendMessage(msg string) error {
 	p.debugLog.Printf("SendMessage called with message: %s", msg)
 
+	// Lock the mutex for the initial checks
+	p.mu.Lock()
+
 	// Basic checks for control channel (for chat messages)
 	if p.controlChannel == nil {
+		p.mu.Unlock()
 		p.debugLog.Printf("Cannot send message - control channel not established")
 		return fmt.Errorf("control channel not established")
 	}
 
 	if p.controlChannel.ReadyState() != webrtc.DataChannelStateOpen {
+		p.mu.Unlock()
 		p.debugLog.Printf("Cannot send message - control channel not open (state: %s)",
 			p.controlChannel.ReadyState().String())
 		return fmt.Errorf("control channel not open (state: %s)", p.controlChannel.ReadyState().String())
 	}
+
+	// Get a reference to the control channel while still holding the lock
+	controlChannel := p.controlChannel
+
+	// Unlock the mutex before the send operation
+	p.mu.Unlock()
 
 	// Create a simple text message
 	message := struct {
@@ -564,12 +575,12 @@ func (p *Peer) SendMessage(msg string) error {
 		p.debugLog.Printf("Sending message as text in background: %s", textData)
 
 		// Try SendText first
-		err := p.controlChannel.SendText(textData)
+		err := controlChannel.SendText(textData)
 		if err != nil {
 			p.debugLog.Printf("SendText failed: %v, trying Send...", err)
 
 			// If SendText fails, try Send
-			err = p.controlChannel.Send(data)
+			err = controlChannel.Send(data)
 			if err != nil {
 				p.debugLog.Printf("Send also failed: %v", err)
 			} else {
@@ -589,17 +600,28 @@ func (p *Peer) SendMessage(msg string) error {
 // SendControl sends a control message through the data channel
 // This is a completely new implementation that uses a non-blocking approach
 func (p *Peer) SendControl(data []byte) error {
+	// Lock the mutex for the initial checks
+	p.mu.Lock()
+
 	// Basic checks
 	if p.controlChannel == nil {
+		p.mu.Unlock()
 		p.debugLog.Printf("Cannot send control message - control channel not established")
 		return fmt.Errorf("control channel not established")
 	}
 
 	if p.controlChannel.ReadyState() != webrtc.DataChannelStateOpen {
+		p.mu.Unlock()
 		p.debugLog.Printf("Cannot send control message - control channel not open (state: %s)",
 			p.controlChannel.ReadyState().String())
 		return fmt.Errorf("control channel not open (state: %s)", p.controlChannel.ReadyState().String())
 	}
+
+	// Get a reference to the control channel while still holding the lock
+	controlChannel := p.controlChannel
+
+	// Unlock the mutex before the send operation
+	p.mu.Unlock()
 
 	p.debugLog.Printf("Sending control message: %d bytes", len(data))
 
@@ -608,12 +630,12 @@ func (p *Peer) SendControl(data []byte) error {
 		p.debugLog.Printf("Sending control message in background")
 
 		// Try Send
-		err := p.controlChannel.Send(data)
+		err := controlChannel.Send(data)
 		if err != nil {
 			p.debugLog.Printf("Send failed: %v, trying SendText...", err)
 
 			// If Send fails, try SendText
-			err = p.controlChannel.SendText(string(data))
+			err = controlChannel.SendText(string(data))
 			if err != nil {
 				p.debugLog.Printf("SendText also failed: %v", err)
 			} else {
@@ -632,17 +654,19 @@ func (p *Peer) SendControl(data []byte) error {
 
 // SendData sends binary data through the data channel
 func (p *Peer) SendData(data []byte) error {
+	// Only lock the mutex for the initial checks, not for the entire send operation
 	p.mu.Lock()
-	defer p.mu.Unlock()
 
 	p.debugLog.Printf("SendData called with %d bytes", len(data))
 
 	if !p.IsConnected() {
+		p.mu.Unlock()
 		p.debugLog.Printf("Cannot send data: peer connection not established")
 		return fmt.Errorf("peer connection not established")
 	}
 
 	if p.dataChannel == nil {
+		p.mu.Unlock()
 		p.debugLog.Printf("Cannot send data: data channel not established (nil)")
 		return fmt.Errorf("data channel not established")
 	}
@@ -652,9 +676,16 @@ func (p *Peer) SendData(data []byte) error {
 	p.debugLog.Printf("Data channel state: %s", state.String())
 
 	if state != webrtc.DataChannelStateOpen {
+		p.mu.Unlock()
 		p.debugLog.Printf("Cannot send data: data channel not open (state: %s)", state.String())
 		return fmt.Errorf("data channel not open (state: %s)", state.String())
 	}
+
+	// Get a reference to the data channel while still holding the lock
+	dataChannel := p.dataChannel
+
+	// Unlock the mutex before the send operation to allow other sends to proceed
+	p.mu.Unlock()
 
 	// Create a channel to signal completion
 	done := make(chan error, 1)
@@ -662,7 +693,7 @@ func (p *Peer) SendData(data []byte) error {
 	// Send the message in a goroutine with timeout
 	go func() {
 		p.debugLog.Printf("Starting to send data message of %d bytes...", len(data))
-		err := p.dataChannel.Send(data)
+		err := dataChannel.Send(data)
 		p.debugLog.Printf("Send call completed with error: %v", err)
 		done <- err
 	}()
