@@ -215,6 +215,16 @@ func (c *CLI) Start() error {
 	})
 
 	peer.SetStatusHandler(func(status string) {
+		// Check for special token storage message
+		if strings.HasPrefix(status, "__STORE_REQUEST_TOKEN__:") {
+			parts := strings.Split(status, ":")
+			if len(parts) == 2 {
+				c.lastRequestToken = parts[1]
+				c.debugLog.Printf("Stored request token: %s", c.lastRequestToken)
+				return // Don't print this special message
+			}
+		}
+
 		fmt.Printf("\nConnection status: %s\n", status)
 
 		// Update connection status based on peer's IsConnected method
@@ -512,11 +522,23 @@ func (c *CLI) handleInput(text string) {
 			}
 
 		case "/accept":
-			if len(parts) != 2 {
-				fmt.Println("Usage: /accept <token>")
+			var token string
+			if len(parts) == 1 {
+				// No token provided, use the last request token
+				if c.lastRequestToken == "" {
+					fmt.Println("No recent connection requests. Use /accept <token>")
+					return
+				}
+				token = c.lastRequestToken
+				fmt.Printf("Using last request token: %s\n", token)
+			} else if len(parts) == 2 {
+				// Token provided as argument
+				token = parts[1]
+			} else {
+				fmt.Println("Usage: /accept [token]")
 				return
 			}
-			token := parts[1]
+
 			c.peerToken = token
 			fmt.Printf("Accepting connection from %s...\n", token)
 
@@ -564,7 +586,7 @@ func (c *CLI) handleInput(text string) {
 		case "/help":
 			fmt.Println("Available commands:")
 			fmt.Println("  /connect <token> - Connect to a peer")
-			fmt.Println("  /accept <token>  - Accept a connection")
+			fmt.Println("  /accept [token]  - Accept a connection (uses last request if no token provided)")
 			fmt.Println("  /send <filepath> - Send a file")
 			fmt.Println("  /link            - Show your connection link")
 			fmt.Println("  /quit, /exit     - Exit the application")

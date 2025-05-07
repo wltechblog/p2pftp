@@ -285,6 +285,9 @@ func (s *Signaler) SendAccept(peerToken string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	// Set the peer token when accepting a connection
+	s.peerToken = peerToken
+
 	msg := SignalingMessage{
 		Type:      "accept",
 		Token:     s.token,
