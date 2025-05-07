@@ -155,31 +155,33 @@ func getWebSocketURL(httpURL string) string {
 
 // CLI represents the command-line interface client
 type CLI struct {
-	peer       *webrtc.Peer
-	wsURL      string
-	serverURL  string
-	token      string
-	peerToken  string
-	debugLog   *log.Logger
-	connected  bool
-	transferMu sync.Mutex
-	fileInfo   *FileInfo
-	fileData   []byte
-	receiving  bool
-	sendChan   chan []byte
-	quit       chan struct{}
+	peer             *webrtc.Peer
+	wsURL            string
+	serverURL        string
+	token            string
+	peerToken        string
+	debugLog         *log.Logger
+	connected        bool
+	transferMu       sync.Mutex
+	fileInfo         *FileInfo
+	fileData         []byte
+	receiving        bool
+	sendChan         chan []byte
+	quit             chan struct{}
+	lastRequestToken string // Stores the most recent connection request token
 }
 
 // NewCLI creates a new CLI client
 func NewCLI(serverURLStr, token string, debug *log.Logger) *CLI {
 	return &CLI{
-		wsURL:     getWebSocketURL(serverURLStr),
-		serverURL: serverURLStr,
-		token:     token,
-		debugLog:  debug,
-		connected: false,
-		quit:      make(chan struct{}),
-		sendChan:  make(chan []byte, 64),
+		wsURL:            getWebSocketURL(serverURLStr),
+		serverURL:        serverURLStr,
+		token:            token,
+		debugLog:         debug,
+		connected:        false,
+		quit:             make(chan struct{}),
+		sendChan:         make(chan []byte, 64),
+		lastRequestToken: "",
 	}
 }
 

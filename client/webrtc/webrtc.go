@@ -716,3 +716,15 @@ func (p *Peer) IsConnected() bool {
 	return (peerState == webrtc.PeerConnectionStateConnected) &&
 		(iceState == webrtc.ICEConnectionStateConnected || iceState == webrtc.ICEConnectionStateCompleted)
 }
+
+// StoreRequestToken stores the most recent connection request token
+func (p *Peer) StoreRequestToken(token string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	// Store the token in the CLI instance
+	if p.statusHandler != nil {
+		// Use a special format that the CLI can parse to extract the token
+		p.statusHandler(fmt.Sprintf("__STORE_REQUEST_TOKEN__:%s", token))
+	}
+}
