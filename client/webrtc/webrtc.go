@@ -687,30 +687,42 @@ func (p *Peer) SendData(data []byte) error {
 	// Unlock the mutex before the send operation to allow other sends to proceed
 	p.mu.Unlock()
 
-	// Create a channel to signal completion
-	done := make(chan error, 1)
-
-	// Send the message in a goroutine with timeout
+	// Use a non-blocking approach - send in background and return immediately
 	go func() {
 		p.debugLog.Printf("Starting to send data message of %d bytes...", len(data))
+
+		// Extract sequence number from the first 4 bytes for better logging
+		sequence := -1
+		if len(data) >= 4 {
+			sequence = int(data[0])<<24 | int(data[1])<<16 | int(data[2])<<8 | int(data[3])
+			p.debugLog.Printf("Sending chunk with sequence number: %d", sequence)
+		}
+
+		// Try to send the data
 		err := dataChannel.Send(data)
-		p.debugLog.Printf("Send call completed with error: %v", err)
-		done <- err
+
+		if err != nil {
+			p.debugLog.Printf("Failed to send data message (sequence: %d): %v", sequence, err)
+
+			// Try again after a short delay
+			time.Sleep(100 * time.Millisecond)
+			p.debugLog.Printf("Retrying send for sequence: %d", sequence)
+
+			err = dataChannel.Send(data)
+			if err != nil {
+				p.debugLog.Printf("Retry also failed for sequence %d: %v", sequence, err)
+			} else {
+				p.debugLog.Printf("Data message sent successfully on retry (sequence: %d)", sequence)
+			}
+		} else {
+			p.debugLog.Printf("Data message sent successfully (sequence: %d)", sequence)
+		}
 	}()
 
-	// Wait for the send operation to complete with a timeout
-	select {
-	case err := <-done:
-		if err != nil {
-			p.debugLog.Printf("Failed to send data message: %v", err)
-			return fmt.Errorf("failed to send data message: %v", err)
-		}
-		p.debugLog.Printf("Data message sent successfully")
-		return nil
-	case <-time.After(5 * time.Second):
-		p.debugLog.Printf("Send operation timed out after 5 seconds")
-		return fmt.Errorf("send operation timed out after 5 seconds")
-	}
+	// Return immediately without waiting for the send to complete
+	// This keeps the UI responsive even if the WebRTC implementation is slow
+	p.debugLog.Printf("Returning from SendData (message sending in background)")
+	return nil
 }
 
 // SetControlHandler sets the handler for control channel messages
