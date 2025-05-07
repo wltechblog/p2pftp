@@ -242,7 +242,12 @@ func (s *Signaler) handleMessages() {
 				s.debugLog.Printf("Error parsing ICE candidate: %v", err)
 				return
 			}
-			s.peer.conn.AddICECandidate(candidate)
+			s.debugLog.Printf("Adding ICE candidate: %s", msg.ICE)
+			if err := s.peer.conn.AddICECandidate(candidate); err != nil {
+				s.debugLog.Printf("Error adding ICE candidate: %v", err)
+			} else {
+				s.debugLog.Printf("ICE candidate added successfully")
+			}
 		}
 	}
 }
@@ -362,6 +367,12 @@ func (s *Signaler) SendICE(candidate webrtc.ICECandidateInit) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	// Check if we have a peer token
+	if s.peerToken == "" {
+		s.debugLog.Printf("Cannot send ICE: peer token is empty")
+		return fmt.Errorf("peer token is empty")
+	}
+
 	ice, err := json.Marshal(candidate)
 	if err != nil {
 		return fmt.Errorf("failed to marshal ICE candidate: %v", err)
@@ -374,11 +385,14 @@ func (s *Signaler) SendICE(candidate webrtc.ICECandidateInit) error {
 		ICE:       string(ice),
 	}
 
+	s.debugLog.Printf("Sending ICE candidate to peer %s: %s", s.peerToken, string(ice))
+
 	err = s.conn.WriteJSON(msg)
 	if err != nil {
 		return fmt.Errorf("failed to send ICE candidate: %v", err)
 	}
 
+	s.debugLog.Printf("ICE candidate sent successfully to peer: %s", s.peerToken)
 	return nil
 }
 
