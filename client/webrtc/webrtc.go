@@ -310,6 +310,55 @@ func (p *Peer) sendCapabilities() {
 		return
 	}
 
+	// Helper function to send with timeout
+	sendWithTimeout := func(isRetry bool) {
+		// Create a channel to signal completion
+		done := make(chan error, 1)
+
+		// Send the message in a goroutine with timeout
+		go func() {
+			if isRetry {
+				p.debugLog.Printf("Starting to send capabilities on retry...")
+			} else {
+				p.debugLog.Printf("Starting to send capabilities...")
+			}
+
+			err := p.controlChannel.Send(data)
+
+			if isRetry {
+				p.debugLog.Printf("Send capabilities on retry completed with error: %v", err)
+			} else {
+				p.debugLog.Printf("Send capabilities completed with error: %v", err)
+			}
+
+			done <- err
+		}()
+
+		// Wait for the send operation to complete with a timeout
+		select {
+		case err := <-done:
+			if err != nil {
+				if isRetry {
+					p.debugLog.Printf("Error sending capabilities on retry: %v", err)
+				} else {
+					p.debugLog.Printf("Error sending capabilities: %v", err)
+				}
+			} else {
+				if isRetry {
+					p.debugLog.Printf("Capabilities sent successfully on retry")
+				} else {
+					p.debugLog.Printf("Capabilities sent successfully")
+				}
+			}
+		case <-time.After(5 * time.Second):
+			if isRetry {
+				p.debugLog.Printf("Send capabilities on retry timed out after 5 seconds")
+			} else {
+				p.debugLog.Printf("Send capabilities timed out after 5 seconds")
+			}
+		}
+	}
+
 	// Check if channel is ready
 	if p.controlChannel.ReadyState() != webrtc.DataChannelStateOpen {
 		p.debugLog.Printf("Cannot send capabilities: control channel not open (state: %s)",
@@ -320,23 +369,14 @@ func (p *Peer) sendCapabilities() {
 			time.Sleep(500 * time.Millisecond)
 			if p.controlChannel != nil && p.controlChannel.ReadyState() == webrtc.DataChannelStateOpen {
 				p.debugLog.Printf("Retrying sending capabilities")
-				err := p.controlChannel.Send(data)
-				if err != nil {
-					p.debugLog.Printf("Error sending capabilities on retry: %v", err)
-				} else {
-					p.debugLog.Printf("Capabilities sent successfully on retry")
-				}
+				sendWithTimeout(true)
 			}
 		}()
 		return
 	}
 
-	err = p.controlChannel.Send(data)
-	if err != nil {
-		p.debugLog.Printf("Error sending capabilities: %v", err)
-	} else {
-		p.debugLog.Printf("Capabilities sent successfully")
-	}
+	// Send capabilities
+	sendWithTimeout(false)
 }
 
 // Register connects to the signaling server and gets assigned a token
@@ -510,13 +550,31 @@ func (p *Peer) SendMessage(msg string) error {
 	// Always send chat messages as text to avoid binary protocol issues
 	textData := string(data)
 	p.debugLog.Printf("Sending as text: %s", textData)
-	err = p.controlChannel.SendText(textData)
-	if err != nil {
-		return fmt.Errorf("failed to send message: %v", err)
-	}
 
-	p.debugLog.Printf("Message sent successfully")
-	return nil
+	// Create a channel to signal completion
+	done := make(chan error, 1)
+
+	// Send the message in a goroutine with timeout
+	go func() {
+		p.debugLog.Printf("Starting to send message...")
+		err := p.controlChannel.SendText(textData)
+		p.debugLog.Printf("SendText call completed with error: %v", err)
+		done <- err
+	}()
+
+	// Wait for the send operation to complete with a timeout
+	select {
+	case err := <-done:
+		if err != nil {
+			p.debugLog.Printf("Failed to send message: %v", err)
+			return fmt.Errorf("failed to send message: %v", err)
+		}
+		p.debugLog.Printf("Message sent successfully")
+		return nil
+	case <-time.After(5 * time.Second):
+		p.debugLog.Printf("Send operation timed out after 5 seconds")
+		return fmt.Errorf("send operation timed out after 5 seconds")
+	}
 }
 
 // SendControl sends a control message through the control channel
@@ -537,7 +595,30 @@ func (p *Peer) SendControl(data []byte) error {
 		return fmt.Errorf("control channel not open (state: %s)", p.controlChannel.ReadyState().String())
 	}
 
-	return p.controlChannel.Send(data)
+	// Create a channel to signal completion
+	done := make(chan error, 1)
+
+	// Send the message in a goroutine with timeout
+	go func() {
+		p.debugLog.Printf("Starting to send control message...")
+		err := p.controlChannel.Send(data)
+		p.debugLog.Printf("Send call completed with error: %v", err)
+		done <- err
+	}()
+
+	// Wait for the send operation to complete with a timeout
+	select {
+	case err := <-done:
+		if err != nil {
+			p.debugLog.Printf("Failed to send control message: %v", err)
+			return fmt.Errorf("failed to send control message: %v", err)
+		}
+		p.debugLog.Printf("Control message sent successfully")
+		return nil
+	case <-time.After(5 * time.Second):
+		p.debugLog.Printf("Send operation timed out after 5 seconds")
+		return fmt.Errorf("send operation timed out after 5 seconds")
+	}
 }
 
 // SendData sends binary data through the data channel
@@ -558,7 +639,30 @@ func (p *Peer) SendData(data []byte) error {
 		return fmt.Errorf("data channel not open (state: %s)", p.dataChannel.ReadyState().String())
 	}
 
-	return p.dataChannel.Send(data)
+	// Create a channel to signal completion
+	done := make(chan error, 1)
+
+	// Send the message in a goroutine with timeout
+	go func() {
+		p.debugLog.Printf("Starting to send data message...")
+		err := p.dataChannel.Send(data)
+		p.debugLog.Printf("Send call completed with error: %v", err)
+		done <- err
+	}()
+
+	// Wait for the send operation to complete with a timeout
+	select {
+	case err := <-done:
+		if err != nil {
+			p.debugLog.Printf("Failed to send data message: %v", err)
+			return fmt.Errorf("failed to send data message: %v", err)
+		}
+		p.debugLog.Printf("Data message sent successfully")
+		return nil
+	case <-time.After(5 * time.Second):
+		p.debugLog.Printf("Send operation timed out after 5 seconds")
+		return fmt.Errorf("send operation timed out after 5 seconds")
+	}
 }
 
 // SetControlHandler sets the handler for control channel messages
