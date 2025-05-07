@@ -360,10 +360,22 @@ func (c *CLI) handleControlMessage(data []byte) {
 
 // handleDataMessage processes data messages (file chunks) from the peer
 func (c *CLI) handleDataMessage(data []byte) {
+	c.debugLog.Printf("handleDataMessage called with %d bytes of data", len(data))
+
+	// Print first few bytes for debugging
+	if len(data) > 0 {
+		maxBytes := 32
+		if len(data) < maxBytes {
+			maxBytes = len(data)
+		}
+		c.debugLog.Printf("First %d bytes: %v", maxBytes, data[:maxBytes])
+	}
+
 	// Ensure we're in receiving mode
 	c.transferMu.Lock()
 	defer c.transferMu.Unlock()
 
+	c.debugLog.Printf("Receiving mode: %v, fileInfo: %v", c.receiving, c.fileInfo != nil)
 	if !c.receiving || c.fileInfo == nil {
 		c.debugLog.Printf("Received data chunk but not in receiving mode")
 		return
@@ -377,9 +389,11 @@ func (c *CLI) handleDataMessage(data []byte) {
 
 	// Extract sequence number (first 4 bytes)
 	sequence := int(data[0])<<24 | int(data[1])<<16 | int(data[2])<<8 | int(data[3])
+	c.debugLog.Printf("Extracted sequence number: %d", sequence)
 
 	// Extract chunk size (next 4 bytes)
 	chunkSize := int(data[4])<<24 | int(data[5])<<16 | int(data[6])<<8 | int(data[7])
+	c.debugLog.Printf("Extracted chunk size: %d", chunkSize)
 
 	// Validate chunk size
 	if chunkSize != len(data)-8 {
@@ -391,10 +405,23 @@ func (c *CLI) handleDataMessage(data []byte) {
 
 	// Append chunk data to our file buffer
 	c.fileData = append(c.fileData, data[8:8+chunkSize]...)
+	c.debugLog.Printf("Appended chunk data, total received: %d/%d bytes", len(c.fileData), c.fileInfo.Size)
 
 	// Update progress
 	progress := float64(len(c.fileData)) / float64(c.fileInfo.Size) * 100
 	fmt.Printf("\rReceiving: %.1f%% (%d/%d bytes)", progress, len(c.fileData), c.fileInfo.Size)
+
+	// Send progress update to peer
+	if sequence%10 == 0 || sequence == 0 {
+		// We'll implement this function later
+		// c.sendProgressUpdate(len(c.fileData), sequence)
+	}
+
+	// Check if file is complete
+	if len(c.fileData) == int(c.fileInfo.Size) {
+		c.debugLog.Printf("File transfer complete, saving file")
+		c.saveReceivedFile()
+	}
 }
 
 // saveReceivedFile saves the received file data to disk

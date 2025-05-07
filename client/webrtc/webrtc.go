@@ -264,9 +264,16 @@ func (p *Peer) setupControlChannel(dc *webrtc.DataChannel) {
 }
 
 func (p *Peer) setupDataChannel(dc *webrtc.DataChannel) {
+	p.debugLog.Printf("Setting up data channel (ID: %d, Label: %s)", dc.ID(), dc.Label())
+
 	dc.OnOpen(func() {
 		p.debugLog.Printf("Data channel opened (ID: %d, Label: %s)", dc.ID(), dc.Label())
 		p.debugLog.Printf("Data channel state: %s", dc.ReadyState().String())
+
+		// Notify status handler about the data channel being open
+		if p.statusHandler != nil {
+			p.statusHandler(fmt.Sprintf("Data channel opened (ID: %d, Label: %s)", dc.ID(), dc.Label()))
+		}
 	})
 
 	dc.OnMessage(func(msg webrtc.DataChannelMessage) {
@@ -277,11 +284,18 @@ func (p *Peer) setupDataChannel(dc *webrtc.DataChannel) {
 			p.debugLog.Printf("Data channel message received (ID: %d): %d bytes", dc.ID(), len(msg.Data))
 			// Print first few bytes for debugging
 			if len(msg.Data) > 0 {
-				maxBytes := 32
+				maxBytes := 16
 				if len(msg.Data) < maxBytes {
 					maxBytes = len(msg.Data)
 				}
 				p.debugLog.Printf("First %d bytes: %v", maxBytes, msg.Data[:maxBytes])
+
+				// If data starts with a sequence number, extract and log it
+				if len(msg.Data) >= 8 {
+					sequence := int(msg.Data[0])<<24 | int(msg.Data[1])<<16 | int(msg.Data[2])<<8 | int(msg.Data[3])
+					chunkSize := int(msg.Data[4])<<24 | int(msg.Data[5])<<16 | int(msg.Data[6])<<8 | int(msg.Data[7])
+					p.debugLog.Printf("Data appears to be chunk %d with size %d", sequence, chunkSize)
+				}
 			}
 		}
 
