@@ -193,11 +193,19 @@ func (p *Peer) setupControlChannel(dc *webrtc.DataChannel) {
 	})
 
 	dc.OnMessage(func(msg webrtc.DataChannelMessage) {
-		// Log message details
+		// Log message details with more information for debugging
 		if msg.IsString {
 			p.debugLog.Printf("Control message received (string): %s", string(msg.Data))
 		} else {
 			p.debugLog.Printf("Control message received (binary): %d bytes", len(msg.Data))
+			// Print first few bytes for debugging
+			if len(msg.Data) > 0 {
+				maxBytes := 32
+				if len(msg.Data) < maxBytes {
+					maxBytes = len(msg.Data)
+				}
+				p.debugLog.Printf("First %d bytes: %v", maxBytes, msg.Data[:maxBytes])
+			}
 		}
 
 		// Always try to parse as JSON regardless of IsString flag
@@ -228,6 +236,8 @@ func (p *Peer) setupControlChannel(dc *webrtc.DataChannel) {
 			if ok && p.messageHandler != nil {
 				p.debugLog.Printf("Dispatching chat message: %s", content)
 				p.messageHandler(content)
+			} else {
+				p.debugLog.Printf("Invalid message format or missing content field: %v", msgData)
 			}
 		default:
 			// Pass to general control handler
@@ -427,20 +437,19 @@ func (p *Peer) Accept(wsURL, token string) error {
 }
 
 func (p *Peer) createDataChannels() {
-	// Helper function to convert string to *string
-	stringPtr := func(s string) *string {
-		return &s
-	}
+	// Helper function to convert string to *string is no longer needed
+	// since we're not setting the Protocol field
 
 	// Create control channel for JSON messages
+	// Simplify the configuration to avoid protocol issues
 	controlConfig := &webrtc.DataChannelInit{
 		ID:         uint16Ptr(1),
 		Ordered:    boolPtr(true),
 		Negotiated: boolPtr(true),
-		Protocol:   stringPtr("json"), // Explicitly set protocol for JSON messages
+		// Don't set protocol explicitly to avoid compatibility issues
 	}
 
-	p.debugLog.Printf("Creating control channel with protocol: json")
+	p.debugLog.Printf("Creating control channel")
 	controlChannel, err := p.conn.CreateDataChannel("p2pftp-control", controlConfig)
 	if err != nil {
 		p.debugLog.Printf("Failed to create control channel: %v", err)
@@ -450,14 +459,15 @@ func (p *Peer) createDataChannels() {
 	p.setupControlChannel(controlChannel)
 
 	// Create data channel for binary data
+	// Simplify the configuration to avoid protocol issues
 	dataConfig := &webrtc.DataChannelInit{
 		ID:         uint16Ptr(2),
 		Ordered:    boolPtr(true),
 		Negotiated: boolPtr(true),
-		Protocol:   stringPtr("binary"), // Explicitly set protocol for binary data
+		// Don't set protocol explicitly to avoid compatibility issues
 	}
 
-	p.debugLog.Printf("Creating data channel with protocol: binary")
+	p.debugLog.Printf("Creating data channel")
 	dataChannel, err := p.conn.CreateDataChannel("p2pftp-data", dataConfig)
 	if err != nil {
 		p.debugLog.Printf("Failed to create data channel: %v", err)
@@ -497,10 +507,17 @@ func (p *Peer) SendMessage(msg string) error {
 
 	p.debugLog.Printf("Sending chat message: %s", msg)
 
-	// Send as binary data to ensure consistent handling
-	err = p.controlChannel.Send(data)
+	// Try sending as text first
+	textData := string(data)
+	p.debugLog.Printf("Sending as text: %s", textData)
+	err = p.controlChannel.SendText(textData)
 	if err != nil {
-		return fmt.Errorf("failed to send message: %v", err)
+		p.debugLog.Printf("Failed to send as text, trying binary: %v", err)
+		// Fall back to binary if text fails
+		err = p.controlChannel.Send(data)
+		if err != nil {
+			return fmt.Errorf("failed to send message: %v", err)
+		}
 	}
 
 	p.debugLog.Printf("Message sent successfully")
