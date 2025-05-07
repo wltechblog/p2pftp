@@ -477,61 +477,122 @@ func (p *Peer) Accept(wsURL, token string) error {
 }
 
 func (p *Peer) createDataChannels() {
-	// Create control channel with minimal configuration
-	// Use non-negotiated channels to avoid protocol identifier issues
+	// Use a single data channel for all communication to simplify the protocol
+	// This avoids issues with multiple data channels and protocol identifiers
+
+	// Create a single data channel with minimal configuration
 	// Don't use any configuration at all to let WebRTC use defaults
-	var controlConfig *webrtc.DataChannelInit = nil
+	var channelConfig *webrtc.DataChannelInit = nil
 
-	p.debugLog.Printf("Creating control channel with standard negotiation")
-	controlChannel, err := p.conn.CreateDataChannel("p2pftp-control", controlConfig)
-	if err != nil {
-		p.debugLog.Printf("Failed to create control channel: %v", err)
-		return
-	}
-	p.controlChannel = controlChannel
-	p.setupControlChannel(controlChannel)
-
-	// Create data channel with minimal configuration
-	// Use non-negotiated channels to avoid protocol identifier issues
-	// Don't use any configuration at all to let WebRTC use defaults
-	var dataConfig *webrtc.DataChannelInit = nil
-
-	p.debugLog.Printf("Creating data channel with standard negotiation")
-	dataChannel, err := p.conn.CreateDataChannel("p2pftp-data", dataConfig)
+	p.debugLog.Printf("Creating single data channel with standard negotiation")
+	dataChannel, err := p.conn.CreateDataChannel("p2pftp-channel", channelConfig)
 	if err != nil {
 		p.debugLog.Printf("Failed to create data channel: %v", err)
 		return
 	}
+
+	// Use the same channel for both control and data
+	p.controlChannel = dataChannel
 	p.dataChannel = dataChannel
-	p.setupDataChannel(dataChannel)
+
+	// Set up the channel
+	dataChannel.OnOpen(func() {
+		p.debugLog.Printf("Data channel opened")
+		// Send capabilities after channel is open
+		p.sendCapabilities()
+	})
+
+	dataChannel.OnMessage(func(msg webrtc.DataChannelMessage) {
+		// Log message details with more information for debugging
+		if msg.IsString {
+			p.debugLog.Printf("Message received (string): %s", string(msg.Data))
+
+			// Try to parse as JSON for control messages
+			var msgData map[string]interface{}
+			if err := json.Unmarshal(msg.Data, &msgData); err != nil {
+				p.debugLog.Printf("Error parsing message as JSON: %v", err)
+				// Still pass the raw data to handlers
+				if p.controlHandler != nil {
+					p.controlHandler(msg.Data)
+				}
+				return
+			}
+
+			// Successfully parsed JSON, now handle by message type
+			msgType, ok := msgData["type"].(string)
+			if !ok {
+				p.debugLog.Printf("Message missing 'type' field: %v", msgData)
+				return
+			}
+
+			p.debugLog.Printf("Received message of type: %s", msgType)
+
+			// Handle different message types
+			switch msgType {
+			case "message":
+				// Handle chat message
+				content, ok := msgData["content"].(string)
+				if ok && p.messageHandler != nil {
+					p.debugLog.Printf("Dispatching chat message: %s", content)
+					p.messageHandler(content)
+				} else {
+					p.debugLog.Printf("Invalid message format or missing content field: %v", msgData)
+				}
+			default:
+				// Pass to general control handler
+				if p.controlHandler != nil {
+					p.controlHandler(msg.Data)
+				}
+			}
+		} else {
+			// Binary data is for file transfers
+			p.debugLog.Printf("Message received (binary): %d bytes", len(msg.Data))
+			// Print first few bytes for debugging
+			if len(msg.Data) > 0 {
+				maxBytes := 32
+				if len(msg.Data) < maxBytes {
+					maxBytes = len(msg.Data)
+				}
+				p.debugLog.Printf("First %d bytes: %v", maxBytes, msg.Data[:maxBytes])
+			}
+
+			// Pass binary data to data handler
+			if p.dataHandler != nil {
+				p.dataHandler(msg.Data)
+			}
+		}
+	})
+
+	dataChannel.OnClose(func() {
+		p.debugLog.Printf("Data channel closed")
+	})
+
+	dataChannel.OnError(func(err error) {
+		p.debugLog.Printf("Data channel error: %v", err)
+		if p.errorHandler != nil {
+			p.errorHandler(fmt.Sprintf("Data channel error: %v", err))
+		}
+	})
 }
 
-// SendMessage sends a chat message through the control channel
+// SendMessage sends a chat message through the data channel
+// This is a completely new implementation that uses a non-blocking approach
 func (p *Peer) SendMessage(msg string) error {
 	p.debugLog.Printf("SendMessage called with message: %s", msg)
 
-	// Check connection state with detailed logging
-	if !p.IsConnected() {
-		peerState := p.conn.ConnectionState()
-		iceState := p.conn.ICEConnectionState()
-		p.debugLog.Printf("Cannot send message - connection not established. Peer state: %s, ICE state: %s",
-			peerState.String(), iceState.String())
-		return fmt.Errorf("peer connection not established (peer state: %s, ICE state: %s)",
-			peerState.String(), iceState.String())
+	// Basic checks
+	if p.dataChannel == nil {
+		p.debugLog.Printf("Cannot send message - data channel not established")
+		return fmt.Errorf("data channel not established")
 	}
 
-	if p.controlChannel == nil {
-		p.debugLog.Printf("Cannot send message - control channel not established")
-		return fmt.Errorf("control channel not established")
+	if p.dataChannel.ReadyState() != webrtc.DataChannelStateOpen {
+		p.debugLog.Printf("Cannot send message - data channel not open (state: %s)",
+			p.dataChannel.ReadyState().String())
+		return fmt.Errorf("data channel not open (state: %s)", p.dataChannel.ReadyState().String())
 	}
 
-	// Check if the data channel is open
-	if p.controlChannel.ReadyState() != webrtc.DataChannelStateOpen {
-		p.debugLog.Printf("Cannot send message - control channel not open (state: %s)",
-			p.controlChannel.ReadyState().String())
-		return fmt.Errorf("control channel not open (state: %s)", p.controlChannel.ReadyState().String())
-	}
-
+	// Create a simple text message
 	message := struct {
 		Type    string `json:"type"`
 		Content string `json:"content"`
@@ -542,83 +603,82 @@ func (p *Peer) SendMessage(msg string) error {
 
 	data, err := json.Marshal(message)
 	if err != nil {
+		p.debugLog.Printf("Failed to marshal message: %v", err)
 		return fmt.Errorf("failed to marshal message: %v", err)
 	}
 
 	p.debugLog.Printf("Sending chat message: %s", msg)
 
-	// Always send chat messages as text to avoid binary protocol issues
-	textData := string(data)
-	p.debugLog.Printf("Sending as text: %s", textData)
-
-	// Create a channel to signal completion
-	done := make(chan error, 1)
-
-	// Send the message in a goroutine with timeout
+	// Use a non-blocking approach - send in background and return immediately
 	go func() {
-		p.debugLog.Printf("Starting to send message...")
-		err := p.controlChannel.SendText(textData)
-		p.debugLog.Printf("SendText call completed with error: %v", err)
-		done <- err
+		textData := string(data)
+		p.debugLog.Printf("Sending message as text in background: %s", textData)
+
+		// Try SendText first
+		err := p.dataChannel.SendText(textData)
+		if err != nil {
+			p.debugLog.Printf("SendText failed: %v, trying Send...", err)
+
+			// If SendText fails, try Send
+			err = p.dataChannel.Send(data)
+			if err != nil {
+				p.debugLog.Printf("Send also failed: %v", err)
+			} else {
+				p.debugLog.Printf("Message sent successfully using Send")
+			}
+		} else {
+			p.debugLog.Printf("Message sent successfully using SendText")
+		}
 	}()
 
-	// Wait for the send operation to complete with a timeout
-	select {
-	case err := <-done:
-		if err != nil {
-			p.debugLog.Printf("Failed to send message: %v", err)
-			return fmt.Errorf("failed to send message: %v", err)
-		}
-		p.debugLog.Printf("Message sent successfully")
-		return nil
-	case <-time.After(5 * time.Second):
-		p.debugLog.Printf("Send operation timed out after 5 seconds")
-		return fmt.Errorf("send operation timed out after 5 seconds")
-	}
+	// Return immediately without waiting for the send to complete
+	// This keeps the UI responsive even if the WebRTC implementation is slow
+	p.debugLog.Printf("Returning from SendMessage (message sending in background)")
+	return nil
 }
 
-// SendControl sends a control message through the control channel
+// SendControl sends a control message through the data channel
+// This is a completely new implementation that uses a non-blocking approach
 func (p *Peer) SendControl(data []byte) error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	if !p.IsConnected() {
-		return fmt.Errorf("peer connection not established")
+	// Basic checks
+	if p.dataChannel == nil {
+		p.debugLog.Printf("Cannot send control message - data channel not established")
+		return fmt.Errorf("data channel not established")
 	}
 
-	if p.controlChannel == nil {
-		return fmt.Errorf("control channel not established")
+	if p.dataChannel.ReadyState() != webrtc.DataChannelStateOpen {
+		p.debugLog.Printf("Cannot send control message - data channel not open (state: %s)",
+			p.dataChannel.ReadyState().String())
+		return fmt.Errorf("data channel not open (state: %s)", p.dataChannel.ReadyState().String())
 	}
 
-	// Check if the control channel is open
-	if p.controlChannel.ReadyState() != webrtc.DataChannelStateOpen {
-		return fmt.Errorf("control channel not open (state: %s)", p.controlChannel.ReadyState().String())
-	}
+	p.debugLog.Printf("Sending control message: %d bytes", len(data))
 
-	// Create a channel to signal completion
-	done := make(chan error, 1)
-
-	// Send the message in a goroutine with timeout
+	// Use a non-blocking approach - send in background and return immediately
 	go func() {
-		p.debugLog.Printf("Starting to send control message...")
-		err := p.controlChannel.Send(data)
-		p.debugLog.Printf("Send call completed with error: %v", err)
-		done <- err
+		p.debugLog.Printf("Sending control message in background")
+
+		// Try Send
+		err := p.dataChannel.Send(data)
+		if err != nil {
+			p.debugLog.Printf("Send failed: %v, trying SendText...", err)
+
+			// If Send fails, try SendText
+			err = p.dataChannel.SendText(string(data))
+			if err != nil {
+				p.debugLog.Printf("SendText also failed: %v", err)
+			} else {
+				p.debugLog.Printf("Control message sent successfully using SendText")
+			}
+		} else {
+			p.debugLog.Printf("Control message sent successfully using Send")
+		}
 	}()
 
-	// Wait for the send operation to complete with a timeout
-	select {
-	case err := <-done:
-		if err != nil {
-			p.debugLog.Printf("Failed to send control message: %v", err)
-			return fmt.Errorf("failed to send control message: %v", err)
-		}
-		p.debugLog.Printf("Control message sent successfully")
-		return nil
-	case <-time.After(5 * time.Second):
-		p.debugLog.Printf("Send operation timed out after 5 seconds")
-		return fmt.Errorf("send operation timed out after 5 seconds")
-	}
+	// Return immediately without waiting for the send to complete
+	// This keeps the UI responsive even if the WebRTC implementation is slow
+	p.debugLog.Printf("Returning from SendControl (message sending in background)")
+	return nil
 }
 
 // SendData sends binary data through the data channel

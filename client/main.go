@@ -479,11 +479,17 @@ func (c *CLI) handleInput(text string) {
 			return
 		}
 
-		if err := c.peer.SendMessage(text); err != nil {
-			fmt.Printf("Failed to send message: %v\n", err)
-			return
-		}
+		// Use a completely non-blocking approach for sending messages
+		// This prevents the UI from hanging if the WebRTC implementation is slow
 		fmt.Printf("You: %s\n", text)
+
+		// Send the message in a goroutine to avoid blocking the UI
+		go func(message string) {
+			if err := c.peer.SendMessage(message); err != nil {
+				// Print error on a new line to avoid messing up the prompt
+				fmt.Printf("\nFailed to send message: %v\n> ", err)
+			}
+		}(text)
 	}
 }
 

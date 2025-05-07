@@ -1,0 +1,138 @@
+package main
+
+import (
+	"bufio"
+	"fmt"
+	"os"
+	"strings"
+)
+
+// This is a modified version of the handleInput method that uses the non-blocking approach
+func (c *CLI) handleInput(text string) {
+	if text == "" {
+		return
+	}
+
+	if strings.HasPrefix(text, "/") {
+		parts := strings.Fields(text)
+		if len(parts) == 0 {
+			return
+		}
+
+		command := strings.ToLower(parts[0])
+		switch command {
+		case "/connect":
+			if len(parts) != 2 {
+				fmt.Println("Usage: /connect <token>")
+				return
+			}
+			token := parts[1]
+			c.peerToken = token
+			fmt.Printf("Connecting to peer %s...\n", token)
+
+			if c.peer == nil {
+				fmt.Println("Not connected to server yet")
+				return
+			}
+
+			if err := c.peer.Connect(c.wsURL, token); err != nil {
+				fmt.Printf("Failed to connect: %v\n", err)
+				return
+			}
+
+		case "/accept":
+			if len(parts) != 2 {
+				fmt.Println("Usage: /accept <token>")
+				return
+			}
+			token := parts[1]
+			c.peerToken = token
+			fmt.Printf("Accepting connection from %s...\n", token)
+
+			if c.peer == nil {
+				fmt.Println("Not connected to server yet")
+				return
+			}
+
+			if err := c.peer.Accept(c.wsURL, token); err != nil {
+				fmt.Printf("Failed to accept connection: %v\n", err)
+				return
+			}
+
+		case "/send":
+			if len(parts) != 2 {
+				fmt.Println("Usage: /send <filepath>")
+				return
+			}
+			filepath := parts[1]
+
+			if !c.connected {
+				fmt.Println("Not connected to a peer")
+				return
+			}
+
+			if err := c.sendFile(filepath); err != nil {
+				fmt.Printf("Failed to send file: %v\n", err)
+				return
+			}
+
+		case "/link":
+			if c.token == "" {
+				fmt.Println("Not connected to server yet")
+				return
+			}
+			link := fmt.Sprintf("%s/?token=%s", c.serverURL, c.token)
+			fmt.Println("Your connection link:")
+			fmt.Println(link)
+
+		case "/quit", "/exit":
+			fmt.Println("Exiting...")
+			close(c.quit)
+			os.Exit(0)
+
+		case "/help":
+			fmt.Println("Available commands:")
+			fmt.Println("  /connect <token> - Connect to a peer")
+			fmt.Println("  /accept <token>  - Accept a connection")
+			fmt.Println("  /send <filepath> - Send a file")
+			fmt.Println("  /link            - Show your connection link")
+			fmt.Println("  /quit, /exit     - Exit the application")
+			fmt.Println("  /help            - Show this help")
+
+		default:
+			fmt.Printf("Unknown command: %s\n", command)
+		}
+	} else {
+		if !c.connected {
+			fmt.Println("Not connected to a peer")
+			return
+		}
+
+		// Use the fixed version of SendMessage from webrtc_fixed.go
+		// This is a non-blocking implementation that won't hang the UI
+		if err := c.peer.SendMessage(text); err != nil {
+			fmt.Printf("Failed to send message: %v\n", err)
+			return
+		}
+		fmt.Printf("You: %s\n", text)
+	}
+}
+
+// This is a modified version of the Run method that uses the non-blocking approach
+func (c *CLI) Run() {
+	fmt.Println("P2P File Transfer Client")
+	fmt.Println("Type /help for available commands")
+
+	scanner := bufio.NewScanner(os.Stdin)
+	fmt.Print("> ")
+
+	for scanner.Scan() {
+		text := scanner.Text()
+		c.handleInput(text)
+		fmt.Print("> ")
+	}
+
+	if err := scanner.Err(); err != nil {
+		fmt.Printf("Error reading input: %v\n", err)
+	}
+}
