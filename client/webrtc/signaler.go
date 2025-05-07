@@ -217,21 +217,53 @@ func (s *Signaler) handleMessages() {
 
 		case "offer":
 			s.debugLog.Printf("Received offer from: %s", msg.Token)
+
+			// Make sure we have the peer token set
+			if s.peerToken == "" {
+				s.peerToken = msg.Token
+				s.debugLog.Printf("Setting peer token to: %s", s.peerToken)
+			}
+
+			// Create data channels before processing the offer
+			if s.peer != nil {
+				s.debugLog.Printf("Creating data channels for incoming connection")
+				s.peer.createDataChannels()
+			}
+
 			var offer webrtc.SessionDescription
 			if err := json.Unmarshal([]byte(msg.SDP), &offer); err != nil {
 				s.debugLog.Printf("Error parsing offer: %v", err)
 				return
 			}
-			s.peer.conn.SetRemoteDescription(offer)
+
+			// Set remote description
+			if err := s.peer.conn.SetRemoteDescription(offer); err != nil {
+				s.debugLog.Printf("Error setting remote description: %v", err)
+				return
+			}
+
+			// Create answer
 			answer, err := s.peer.conn.CreateAnswer(nil)
 			if err != nil {
 				s.debugLog.Printf("Error creating answer: %v", err)
 				return
 			}
-			s.peer.conn.SetLocalDescription(answer)
+
+			// Set local description
+			if err := s.peer.conn.SetLocalDescription(answer); err != nil {
+				s.debugLog.Printf("Error setting local description: %v", err)
+				return
+			}
+
+			// Send answer
 			if err := s.SendAnswer(answer); err != nil {
 				s.debugLog.Printf("Error sending answer: %v", err)
 				return
+			}
+
+			// Update connection status
+			if s.peer != nil && s.peer.statusHandler != nil {
+				s.peer.statusHandler("Connection established")
 			}
 
 		case "answer":
