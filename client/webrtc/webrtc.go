@@ -36,6 +36,8 @@ type Peer struct {
 	negotiated     bool
 	maxChunkSize   int32
 	mu             sync.Mutex
+	iceConnected   bool
+	iceTimeout     time.Duration
 }
 
 // SetTokenHandler sets a handler for when the server assigns a token
@@ -55,13 +57,20 @@ func (p *Peer) SetDataHandler(handler func([]byte)) {
 
 // NewPeer creates a new WebRTC peer
 func NewPeer(debug *log.Logger) (*Peer, error) {
-	// Create peer connection configuration
+	// Create peer connection configuration with multiple STUN servers for better connectivity
 	config := webrtc.Configuration{
 		ICEServers: []webrtc.ICEServer{
 			{
-				URLs: []string{"stun:stun.l.google.com:19302"},
+				URLs: []string{
+					"stun:stun.l.google.com:19302",
+					"stun:stun1.l.google.com:19302",
+					"stun:stun2.l.google.com:19302",
+					"stun:stun3.l.google.com:19302",
+					"stun:stun4.l.google.com:19302",
+				},
 			},
 		},
+		ICETransportPolicy: webrtc.ICETransportPolicyAll,
 	}
 
 	// Create new peer connection
@@ -89,6 +98,8 @@ func NewPeer(debug *log.Logger) (*Peer, error) {
 		negotiated:     false,
 		maxChunkSize:   16384,
 		mu:             sync.Mutex{},
+		iceConnected:   false,
+		iceTimeout:     30 * time.Second, // 30 second timeout for ICE connection
 	}
 
 	// Set up data channel handlers
@@ -105,9 +116,38 @@ func NewPeer(debug *log.Logger) (*Peer, error) {
 		}
 	})
 
-	// Log state changes
+	// Log state changes and handle ICE connection state
 	pc.OnICEConnectionStateChange(func(state webrtc.ICEConnectionState) {
 		peer.debugLog.Printf("ICE Connection State changed: %s", state.String())
+
+		// Update connection status
+		switch state {
+		case webrtc.ICEConnectionStateConnected, webrtc.ICEConnectionStateCompleted:
+			peer.mu.Lock()
+			peer.iceConnected = true
+			peer.mu.Unlock()
+			peer.debugLog.Printf("ICE connection established successfully")
+		case webrtc.ICEConnectionStateFailed, webrtc.ICEConnectionStateDisconnected, webrtc.ICEConnectionStateClosed:
+			peer.mu.Lock()
+			peer.iceConnected = false
+			peer.mu.Unlock()
+			peer.debugLog.Printf("ICE connection failed or closed")
+		case webrtc.ICEConnectionStateChecking:
+			// Start a timeout for ICE connection
+			go func() {
+				time.Sleep(peer.iceTimeout)
+
+				peer.mu.Lock()
+				if !peer.iceConnected && peer.conn.ICEConnectionState() == webrtc.ICEConnectionStateChecking {
+					peer.debugLog.Printf("ICE connection timed out after %v", peer.iceTimeout)
+					if peer.statusHandler != nil {
+						peer.statusHandler("Connection timed out. Please try again.")
+					}
+				}
+				peer.mu.Unlock()
+			}()
+		}
+
 		if peer.statusHandler != nil {
 			peer.statusHandler(fmt.Sprintf("Connection state: %s", state.String()))
 		}
@@ -119,6 +159,27 @@ func NewPeer(debug *log.Logger) (*Peer, error) {
 
 	pc.OnSignalingStateChange(func(state webrtc.SignalingState) {
 		peer.debugLog.Printf("Signaling State changed: %s", state.String())
+	})
+
+	// Add ICE candidate handler
+	pc.OnICECandidate(func(candidate *webrtc.ICECandidate) {
+		if candidate == nil {
+			peer.debugLog.Printf("ICE gathering completed")
+			return
+		}
+
+		peer.debugLog.Printf("New ICE candidate: %s", candidate.String())
+
+		// Send the ICE candidate to the remote peer via signaling server
+		if peer.signaler != nil {
+			candidateInit := candidate.ToJSON()
+			err := peer.signaler.SendICE(candidateInit)
+			if err != nil {
+				peer.debugLog.Printf("Failed to send ICE candidate: %v", err)
+			}
+		} else {
+			peer.debugLog.Printf("Cannot send ICE candidate: signaler not initialized")
+		}
 	})
 
 	return peer, nil
@@ -336,8 +397,17 @@ func (p *Peer) createDataChannels() {
 
 // SendMessage sends a chat message through the control channel
 func (p *Peer) SendMessage(msg string) error {
+	if !p.IsConnected() {
+		return fmt.Errorf("peer connection not established")
+	}
+
 	if p.controlChannel == nil {
 		return fmt.Errorf("control channel not established")
+	}
+
+	// Check if the data channel is open
+	if p.controlChannel.ReadyState() != webrtc.DataChannelStateOpen {
+		return fmt.Errorf("control channel not open (state: %s)", p.controlChannel.ReadyState().String())
 	}
 
 	message := struct {
@@ -361,8 +431,17 @@ func (p *Peer) SendControl(data []byte) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
+	if !p.IsConnected() {
+		return fmt.Errorf("peer connection not established")
+	}
+
 	if p.controlChannel == nil {
 		return fmt.Errorf("control channel not established")
+	}
+
+	// Check if the control channel is open
+	if p.controlChannel.ReadyState() != webrtc.DataChannelStateOpen {
+		return fmt.Errorf("control channel not open (state: %s)", p.controlChannel.ReadyState().String())
 	}
 
 	return p.controlChannel.Send(data)
@@ -373,8 +452,17 @@ func (p *Peer) SendData(data []byte) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
+	if !p.IsConnected() {
+		return fmt.Errorf("peer connection not established")
+	}
+
 	if p.dataChannel == nil {
 		return fmt.Errorf("data channel not established")
+	}
+
+	// Check if the data channel is open
+	if p.dataChannel.ReadyState() != webrtc.DataChannelStateOpen {
+		return fmt.Errorf("data channel not open (state: %s)", p.dataChannel.ReadyState().String())
 	}
 
 	return p.dataChannel.Send(data)
@@ -393,4 +481,24 @@ func (p *Peer) SetMessageHandler(handler func(string)) {
 // SetStatusHandler sets the handler for connection status updates
 func (p *Peer) SetStatusHandler(handler func(string)) {
 	p.statusHandler = handler
+}
+
+// IsConnected returns true if the peer connection is established and ready for data transfer
+func (p *Peer) IsConnected() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if p.conn == nil {
+		return false
+	}
+
+	// Check both the peer connection state and the ICE connection state
+	peerState := p.conn.ConnectionState()
+	iceState := p.conn.ICEConnectionState()
+
+	// Connection is considered established if:
+	// 1. Peer connection state is Connected AND
+	// 2. ICE connection state is Connected or Completed
+	return (peerState == webrtc.PeerConnectionStateConnected) &&
+		(iceState == webrtc.ICEConnectionStateConnected || iceState == webrtc.ICEConnectionStateCompleted)
 }
