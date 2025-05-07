@@ -96,7 +96,7 @@ func NewPeer(debug *log.Logger) (*Peer, error) {
 		errorHandler:   nil,
 		debugLog:       debug,
 		negotiated:     false,
-		maxChunkSize:   8184, // 8192 - 8 bytes for header
+		maxChunkSize:   16376, // 16384 - 8 bytes for header
 		mu:             sync.Mutex{},
 		iceConnected:   false,
 		iceTimeout:     30 * time.Second, // 30 second timeout for ICE connection

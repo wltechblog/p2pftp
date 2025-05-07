@@ -707,9 +707,9 @@ func (c *CLI) sendFile(filePath string) error {
 func (c *CLI) sendFileChunks(fileData []byte) {
 	c.debugLog.Printf("Starting to send file chunks, total size: %d bytes", len(fileData))
 
-	// Adjust chunk size to account for the 8-byte header (4 bytes sequence + 4 bytes length)
-	// Maximum message size is 16384 bytes, so actual data chunk size should be 16376 bytes
-	chunkSize := 16384 - 8 // 16376 bytes for data + 8 bytes for header = 16384 bytes total
+	// Use a smaller chunk size to avoid potential WebRTC issues
+	// Some WebRTC implementations have issues with the maximum message size
+	chunkSize := 8192 - 8 // 8184 bytes for data + 8 bytes for header = 8192 bytes total
 	totalChunks := (len(fileData) + chunkSize - 1) / chunkSize
 
 	c.debugLog.Printf("Will send %d chunks of %d bytes each (plus 8-byte header per chunk)", totalChunks, chunkSize)
