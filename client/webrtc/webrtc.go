@@ -188,31 +188,51 @@ func NewPeer(debug *log.Logger) (*Peer, error) {
 func (p *Peer) setupControlChannel(dc *webrtc.DataChannel) {
 	dc.OnOpen(func() {
 		p.debugLog.Printf("Control channel opened")
+		// Send capabilities after channel is open
 		p.sendCapabilities()
 	})
 
 	dc.OnMessage(func(msg webrtc.DataChannelMessage) {
-		p.debugLog.Printf("Control message received: %s", string(msg.Data))
-		if p.controlHandler != nil {
-			p.controlHandler(msg.Data)
+		// Log message details
+		if msg.IsString {
+			p.debugLog.Printf("Control message received (string): %s", string(msg.Data))
+		} else {
+			p.debugLog.Printf("Control message received (binary): %d bytes", len(msg.Data))
 		}
 
-		// Parse message to check if it's a chat message
+		// Always try to parse as JSON regardless of IsString flag
 		var msgData map[string]interface{}
 		if err := json.Unmarshal(msg.Data, &msgData); err != nil {
 			p.debugLog.Printf("Error parsing control message: %v", err)
+			// Still pass the raw data to the control handler
+			if p.controlHandler != nil {
+				p.controlHandler(msg.Data)
+			}
 			return
 		}
 
+		// Successfully parsed JSON, now handle by message type
 		msgType, ok := msgData["type"].(string)
 		if !ok {
+			p.debugLog.Printf("Message missing 'type' field: %v", msgData)
 			return
 		}
 
-		if msgType == "message" && p.messageHandler != nil {
+		p.debugLog.Printf("Received message of type: %s", msgType)
+
+		// Handle different message types
+		switch msgType {
+		case "message":
+			// Handle chat message
 			content, ok := msgData["content"].(string)
-			if ok {
+			if ok && p.messageHandler != nil {
+				p.debugLog.Printf("Dispatching chat message: %s", content)
 				p.messageHandler(content)
+			}
+		default:
+			// Pass to general control handler
+			if p.controlHandler != nil {
+				p.controlHandler(msg.Data)
 			}
 		}
 	})
@@ -223,6 +243,9 @@ func (p *Peer) setupControlChannel(dc *webrtc.DataChannel) {
 
 	dc.OnError(func(err error) {
 		p.debugLog.Printf("Control channel error: %v", err)
+		if p.errorHandler != nil {
+			p.errorHandler(fmt.Sprintf("Control channel error: %v", err))
+		}
 	})
 }
 
@@ -232,7 +255,14 @@ func (p *Peer) setupDataChannel(dc *webrtc.DataChannel) {
 	})
 
 	dc.OnMessage(func(msg webrtc.DataChannelMessage) {
-		p.debugLog.Printf("Data channel message received: %d bytes", len(msg.Data))
+		// For data channel, we expect binary data
+		if msg.IsString {
+			p.debugLog.Printf("Warning: Received string data on binary channel: %s", string(msg.Data))
+		} else {
+			p.debugLog.Printf("Data channel message received: %d bytes", len(msg.Data))
+		}
+
+		// Pass data to handler regardless of type
 		if p.dataHandler != nil {
 			p.dataHandler(msg.Data)
 		}
@@ -244,10 +274,18 @@ func (p *Peer) setupDataChannel(dc *webrtc.DataChannel) {
 
 	dc.OnError(func(err error) {
 		p.debugLog.Printf("Data channel error: %v", err)
+		if p.errorHandler != nil {
+			p.errorHandler(fmt.Sprintf("Data channel error: %v", err))
+		}
 	})
 }
 
 func (p *Peer) sendCapabilities() {
+	p.debugLog.Printf("Sending capabilities with max chunk size: %d", p.maxChunkSize)
+
+	// Wait a short time to ensure channel is fully established
+	time.Sleep(100 * time.Millisecond)
+
 	capabilities := struct {
 		Type         string `json:"type"`
 		MaxChunkSize int32  `json:"maxChunkSize"`
@@ -262,9 +300,32 @@ func (p *Peer) sendCapabilities() {
 		return
 	}
 
+	// Check if channel is ready
+	if p.controlChannel.ReadyState() != webrtc.DataChannelStateOpen {
+		p.debugLog.Printf("Cannot send capabilities: control channel not open (state: %s)",
+			p.controlChannel.ReadyState().String())
+
+		// Try again after a delay
+		go func() {
+			time.Sleep(500 * time.Millisecond)
+			if p.controlChannel != nil && p.controlChannel.ReadyState() == webrtc.DataChannelStateOpen {
+				p.debugLog.Printf("Retrying sending capabilities")
+				err := p.controlChannel.Send(data)
+				if err != nil {
+					p.debugLog.Printf("Error sending capabilities on retry: %v", err)
+				} else {
+					p.debugLog.Printf("Capabilities sent successfully on retry")
+				}
+			}
+		}()
+		return
+	}
+
 	err = p.controlChannel.Send(data)
 	if err != nil {
 		p.debugLog.Printf("Error sending capabilities: %v", err)
+	} else {
+		p.debugLog.Printf("Capabilities sent successfully")
 	}
 }
 
@@ -366,13 +427,20 @@ func (p *Peer) Accept(wsURL, token string) error {
 }
 
 func (p *Peer) createDataChannels() {
-	// Create control channel
+	// Helper function to convert string to *string
+	stringPtr := func(s string) *string {
+		return &s
+	}
+
+	// Create control channel for JSON messages
 	controlConfig := &webrtc.DataChannelInit{
 		ID:         uint16Ptr(1),
 		Ordered:    boolPtr(true),
 		Negotiated: boolPtr(true),
+		Protocol:   stringPtr("json"), // Explicitly set protocol for JSON messages
 	}
 
+	p.debugLog.Printf("Creating control channel with protocol: json")
 	controlChannel, err := p.conn.CreateDataChannel("p2pftp-control", controlConfig)
 	if err != nil {
 		p.debugLog.Printf("Failed to create control channel: %v", err)
@@ -381,12 +449,16 @@ func (p *Peer) createDataChannels() {
 	p.controlChannel = controlChannel
 	p.setupControlChannel(controlChannel)
 
-	// Create data channel
-	dataChannel, err := p.conn.CreateDataChannel("p2pftp-data", &webrtc.DataChannelInit{
+	// Create data channel for binary data
+	dataConfig := &webrtc.DataChannelInit{
 		ID:         uint16Ptr(2),
 		Ordered:    boolPtr(true),
 		Negotiated: boolPtr(true),
-	})
+		Protocol:   stringPtr("binary"), // Explicitly set protocol for binary data
+	}
+
+	p.debugLog.Printf("Creating data channel with protocol: binary")
+	dataChannel, err := p.conn.CreateDataChannel("p2pftp-data", dataConfig)
 	if err != nil {
 		p.debugLog.Printf("Failed to create data channel: %v", err)
 		return
@@ -423,7 +495,16 @@ func (p *Peer) SendMessage(msg string) error {
 		return fmt.Errorf("failed to marshal message: %v", err)
 	}
 
-	return p.controlChannel.Send(data)
+	p.debugLog.Printf("Sending chat message: %s", msg)
+
+	// Send as binary data to ensure consistent handling
+	err = p.controlChannel.Send(data)
+	if err != nil {
+		return fmt.Errorf("failed to send message: %v", err)
+	}
+
+	p.debugLog.Printf("Message sent successfully")
+	return nil
 }
 
 // SendControl sends a control message through the control channel
