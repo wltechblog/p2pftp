@@ -233,6 +233,10 @@ func (c *CLI) Start() error {
 		c.handleControlMessage(data)
 	})
 
+	peer.SetDataHandler(func(data []byte) {
+		c.handleDataMessage(data)
+	})
+
 	// Register with server
 	if err := peer.Register(c.wsURL); err != nil {
 		return fmt.Errorf("failed to register with server: %v", err)
@@ -296,6 +300,7 @@ func (c *CLI) handleControlMessage(data []byte) {
 			Size: int64(size),
 			MD5:  md5,
 		}
+		c.fileData = make([]byte, 0, int64(size))
 		c.receiving = true
 		c.transferMu.Unlock()
 
@@ -316,6 +321,10 @@ func (c *CLI) handleControlMessage(data []byte) {
 	case "file-complete":
 		// Handle file complete message
 		fmt.Printf("\nFile transfer complete\n")
+
+		// Save the received file
+		c.saveReceivedFile()
+
 		fmt.Print("> ")
 
 	case "file-verified":
@@ -335,6 +344,95 @@ func (c *CLI) handleControlMessage(data []byte) {
 		fmt.Printf("\n<%s> %s\n", c.peerToken, content)
 		fmt.Print("> ")
 	}
+}
+
+// handleDataMessage processes data messages (file chunks) from the peer
+func (c *CLI) handleDataMessage(data []byte) {
+	// Ensure we're in receiving mode
+	c.transferMu.Lock()
+	defer c.transferMu.Unlock()
+
+	if !c.receiving || c.fileInfo == nil {
+		c.debugLog.Printf("Received data chunk but not in receiving mode")
+		return
+	}
+
+	// Check if we have enough data for the header (8 bytes)
+	if len(data) < 8 {
+		c.debugLog.Printf("Received invalid chunk: too short (%d bytes)", len(data))
+		return
+	}
+
+	// Extract sequence number (first 4 bytes)
+	sequence := int(data[0])<<24 | int(data[1])<<16 | int(data[2])<<8 | int(data[3])
+
+	// Extract chunk size (next 4 bytes)
+	chunkSize := int(data[4])<<24 | int(data[5])<<16 | int(data[6])<<8 | int(data[7])
+
+	// Validate chunk size
+	if chunkSize != len(data)-8 {
+		c.debugLog.Printf("Chunk size mismatch: header says %d, actual %d", chunkSize, len(data)-8)
+		return
+	}
+
+	c.debugLog.Printf("Received chunk %d with %d bytes of data", sequence, chunkSize)
+
+	// Append chunk data to our file buffer
+	c.fileData = append(c.fileData, data[8:8+chunkSize]...)
+
+	// Update progress
+	progress := float64(len(c.fileData)) / float64(c.fileInfo.Size) * 100
+	fmt.Printf("\rReceiving: %.1f%% (%d/%d bytes)", progress, len(c.fileData), c.fileInfo.Size)
+}
+
+// saveReceivedFile saves the received file data to disk
+func (c *CLI) saveReceivedFile() {
+	c.transferMu.Lock()
+	defer c.transferMu.Unlock()
+
+	if !c.receiving || c.fileInfo == nil || len(c.fileData) == 0 {
+		c.debugLog.Printf("Cannot save file: no data or file info")
+		return
+	}
+
+	// Verify file size
+	if int64(len(c.fileData)) != c.fileInfo.Size {
+		c.debugLog.Printf("File size mismatch: expected %d, got %d", c.fileInfo.Size, len(c.fileData))
+		fmt.Printf("\nFile size mismatch: expected %d, got %d bytes\n", c.fileInfo.Size, len(c.fileData))
+		return
+	}
+
+	// Verify MD5 hash
+	hash := md5.Sum(c.fileData)
+	md5Hash := fmt.Sprintf("%x", hash)
+	if md5Hash != c.fileInfo.MD5 {
+		c.debugLog.Printf("MD5 mismatch: expected %s, got %s", c.fileInfo.MD5, md5Hash)
+		fmt.Printf("\nMD5 mismatch: file may be corrupted\n")
+		return
+	}
+
+	// Save file
+	outputPath := c.fileInfo.Name
+	// If file exists, add a suffix
+	if _, err := os.Stat(outputPath); err == nil {
+		ext := filepath.Ext(outputPath)
+		base := strings.TrimSuffix(outputPath, ext)
+		outputPath = fmt.Sprintf("%s_received%s", base, ext)
+	}
+
+	err := os.WriteFile(outputPath, c.fileData, 0644)
+	if err != nil {
+		c.debugLog.Printf("Failed to save file: %v", err)
+		fmt.Printf("\nFailed to save file: %v\n", err)
+		return
+	}
+
+	fmt.Printf("\nFile saved as: %s\n", outputPath)
+
+	// Reset transfer state
+	c.fileInfo = nil
+	c.fileData = nil
+	c.receiving = false
 }
 
 // sendCapabilitiesAck sends a capabilities acknowledgment
