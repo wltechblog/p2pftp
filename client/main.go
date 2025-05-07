@@ -754,7 +754,8 @@ func (c *CLI) sendFileChunks(fileData []byte) {
 		fmt.Printf("\rSending: %.1f%% (%d/%d chunks)", percentage, i+1, totalChunks)
 
 		// Throttle sending to avoid overwhelming the connection
-		time.Sleep(50 * time.Millisecond)
+		// Use a shorter delay for better throughput
+		time.Sleep(20 * time.Millisecond)
 	}
 
 	fmt.Println("\nAll chunks sent")

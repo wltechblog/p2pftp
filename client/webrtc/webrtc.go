@@ -507,13 +507,14 @@ func (p *Peer) Accept(wsURL, token string) error {
 }
 
 func (p *Peer) createDataChannels() {
-	// Create data channels with minimal configuration
-	// Don't use any configuration at all to let WebRTC use defaults
-	var channelConfig *webrtc.DataChannelInit = nil
+	// Create control channel with reliable configuration
+	controlConfig := &webrtc.DataChannelInit{
+		Ordered: boolPtr(true), // Ordered delivery
+	}
 
 	// Create control channel
-	p.debugLog.Printf("Creating control data channel with standard negotiation")
-	controlChannel, err := p.conn.CreateDataChannel("p2pftp-control", channelConfig)
+	p.debugLog.Printf("Creating control data channel with ordered delivery")
+	controlChannel, err := p.conn.CreateDataChannel("p2pftp-control", controlConfig)
 	if err != nil {
 		p.debugLog.Printf("Failed to create control channel: %v", err)
 		return
@@ -524,9 +525,16 @@ func (p *Peer) createDataChannels() {
 	// Set up the control channel
 	p.setupControlChannel(controlChannel)
 
+	// Create data channel with partial reliability
+	// Use unordered delivery with retransmits for better throughput
+	dataConfig := &webrtc.DataChannelInit{
+		Ordered:        boolPtr(false), // Unordered delivery for better throughput
+		MaxRetransmits: uint16Ptr(3),   // Retry a few times but don't block forever
+	}
+
 	// Create data channel
-	p.debugLog.Printf("Creating data channel with standard negotiation")
-	dataChannel, err := p.conn.CreateDataChannel("p2pftp-data", channelConfig)
+	p.debugLog.Printf("Creating data channel with unordered delivery and max retransmits: 3")
+	dataChannel, err := p.conn.CreateDataChannel("p2pftp-data", dataConfig)
 	if err != nil {
 		p.debugLog.Printf("Failed to create data channel: %v", err)
 		return
@@ -701,37 +709,42 @@ func (p *Peer) SendData(data []byte) error {
 	// Unlock the mutex before the send operation to allow other sends to proceed
 	p.mu.Unlock()
 
-	// Use a non-blocking approach - send in background and return immediately
-	go func() {
-		p.debugLog.Printf("Starting to send data message of %d bytes...", len(data))
+	// Extract sequence number from the first 4 bytes for better logging
+	sequence := -1
+	if len(data) >= 4 {
+		sequence = int(data[0])<<24 | int(data[1])<<16 | int(data[2])<<8 | int(data[3])
+		p.debugLog.Printf("Sending chunk with sequence number: %d", sequence)
+	}
 
-		// Extract sequence number from the first 4 bytes for better logging
-		sequence := -1
-		if len(data) >= 4 {
-			sequence = int(data[0])<<24 | int(data[1])<<16 | int(data[2])<<8 | int(data[3])
-			p.debugLog.Printf("Sending chunk with sequence number: %d", sequence)
-		}
+	// Send directly without a goroutine for the first attempt
+	p.debugLog.Printf("Starting to send data message of %d bytes (sequence: %d)...", len(data), sequence)
 
-		// Try to send the data
-		err := dataChannel.Send(data)
+	// Try to send the data
+	err := dataChannel.Send(data)
 
-		if err != nil {
-			p.debugLog.Printf("Failed to send data message (sequence: %d): %v", sequence, err)
+	if err != nil {
+		p.debugLog.Printf("Failed to send data message (sequence: %d): %v", sequence, err)
 
-			// Try again after a short delay
-			time.Sleep(100 * time.Millisecond)
-			p.debugLog.Printf("Retrying send for sequence: %d", sequence)
+		// Try again immediately in a background goroutine
+		go func() {
+			// Try a few more times with increasing delays
+			for i := 0; i < 3; i++ {
+				time.Sleep(time.Duration(50*(i+1)) * time.Millisecond)
+				p.debugLog.Printf("Retry %d for sequence: %d", i+1, sequence)
 
-			err = dataChannel.Send(data)
-			if err != nil {
-				p.debugLog.Printf("Retry also failed for sequence %d: %v", sequence, err)
-			} else {
-				p.debugLog.Printf("Data message sent successfully on retry (sequence: %d)", sequence)
+				err = dataChannel.Send(data)
+				if err != nil {
+					p.debugLog.Printf("Retry %d failed for sequence %d: %v", i+1, sequence, err)
+				} else {
+					p.debugLog.Printf("Data message sent successfully on retry %d (sequence: %d)", i+1, sequence)
+					return
+				}
 			}
-		} else {
-			p.debugLog.Printf("Data message sent successfully (sequence: %d)", sequence)
-		}
-	}()
+			p.debugLog.Printf("All retries failed for sequence %d", sequence)
+		}()
+	} else {
+		p.debugLog.Printf("Data message sent successfully (sequence: %d)", sequence)
+	}
 
 	// Return immediately without waiting for the send to complete
 	// This keeps the UI responsive even if the WebRTC implementation is slow
