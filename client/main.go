@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"crypto/md5"
+	"encoding/base64"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -279,6 +280,47 @@ func (c *CLI) handleControlMessage(data []byte) {
 	}
 
 	switch msgType {
+	case "file-chunk":
+		// Handle file chunk sent via control channel
+		c.debugLog.Printf("Received file chunk via control channel")
+
+		// Extract chunk data
+		sequence, _ := msg["sequence"].(float64)
+		size, _ := msg["size"].(float64)
+		dataStr, _ := msg["data"].(string)
+
+		c.debugLog.Printf("Chunk info: sequence=%.0f, size=%.0f", sequence, size)
+
+		// Decode base64 data
+		chunkData, err := base64.StdEncoding.DecodeString(dataStr)
+		if err != nil {
+			c.debugLog.Printf("Error decoding chunk data: %v", err)
+			return
+		}
+
+		// Create a fake data message with header
+		headerData := make([]byte, 8+len(chunkData))
+
+		// Write sequence number (4 bytes)
+		seq := int(sequence)
+		headerData[0] = byte(seq >> 24)
+		headerData[1] = byte(seq >> 16)
+		headerData[2] = byte(seq >> 8)
+		headerData[3] = byte(seq)
+
+		// Write chunk size (4 bytes)
+		chunkSize := len(chunkData)
+		headerData[4] = byte(chunkSize >> 24)
+		headerData[5] = byte(chunkSize >> 16)
+		headerData[6] = byte(chunkSize >> 8)
+		headerData[7] = byte(chunkSize)
+
+		// Copy chunk data
+		copy(headerData[8:], chunkData)
+
+		// Process the chunk as if it came from the data channel
+		c.handleDataMessage(headerData)
+
 	case "capabilities":
 		// Handle capabilities message
 		maxChunkSize, _ := msg["maxChunkSize"].(float64)
@@ -707,9 +749,9 @@ func (c *CLI) sendFile(filePath string) error {
 func (c *CLI) sendFileChunks(fileData []byte) {
 	c.debugLog.Printf("Starting to send file chunks, total size: %d bytes", len(fileData))
 
-	// Use a smaller chunk size to avoid potential WebRTC issues
-	// Some WebRTC implementations have issues with the maximum message size
-	chunkSize := 8192 - 8 // 8184 bytes for data + 8 bytes for header = 8192 bytes total
+	// Use an even smaller chunk size for the control channel approach
+	// Control channel messages are JSON and base64 encoded, so they need to be smaller
+	chunkSize := 4096 - 8 // 4088 bytes for data + 8 bytes for header = 4096 bytes total
 	totalChunks := (len(fileData) + chunkSize - 1) / chunkSize
 
 	c.debugLog.Printf("Will send %d chunks of %d bytes each (plus 8-byte header per chunk)", totalChunks, chunkSize)
@@ -744,7 +786,27 @@ func (c *CLI) sendFileChunks(fileData []byte) {
 		c.debugLog.Printf("Sending chunk %d of %d, size: %d bytes (including 8-byte header)", i+1, totalChunks, len(chunkData))
 
 		// Send chunk
-		if err := c.peer.SendData(chunkData); err != nil {
+		// Try sending chunk via control channel as a workaround
+		// This is a temporary solution until we fix the data channel
+		c.debugLog.Printf("Sending chunk %d via control channel", i)
+
+		// Create a control message with the chunk data
+		chunkMsg := map[string]interface{}{
+			"type":     "file-chunk",
+			"sequence": i,
+			"size":     end - start,
+			"data":     base64.StdEncoding.EncodeToString(fileData[start:end]),
+		}
+
+		// Convert to JSON
+		chunkJSON, err := json.Marshal(chunkMsg)
+		if err != nil {
+			c.debugLog.Printf("Error marshaling chunk %d: %v", i, err)
+			continue
+		}
+
+		// Send via control channel
+		if err := c.peer.SendControl(chunkJSON); err != nil {
 			c.debugLog.Printf("Error sending chunk %d: %v", i, err)
 			continue
 		}
@@ -753,9 +815,9 @@ func (c *CLI) sendFileChunks(fileData []byte) {
 		percentage := float64(i+1) / float64(totalChunks) * 100
 		fmt.Printf("\rSending: %.1f%% (%d/%d chunks)", percentage, i+1, totalChunks)
 
-		// Throttle sending to avoid overwhelming the connection
-		// Use a shorter delay for better throughput
-		time.Sleep(20 * time.Millisecond)
+		// Throttle sending to avoid overwhelming the control channel
+		// Use a longer delay since we're using the control channel
+		time.Sleep(100 * time.Millisecond)
 	}
 
 	fmt.Println("\nAll chunks sent")

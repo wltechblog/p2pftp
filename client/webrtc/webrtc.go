@@ -266,13 +266,31 @@ func (p *Peer) setupControlChannel(dc *webrtc.DataChannel) {
 func (p *Peer) setupDataChannel(dc *webrtc.DataChannel) {
 	p.debugLog.Printf("Setting up data channel (ID: %d, Label: %s)", dc.ID(), dc.Label())
 
+	// Set buffer thresholds for better performance
+	dc.SetBufferedAmountLowThreshold(65536) // 64KB
+
+	dc.OnBufferedAmountLow(func() {
+		p.debugLog.Printf("Data channel buffer low event (ID: %d)", dc.ID())
+	})
+
 	dc.OnOpen(func() {
-		p.debugLog.Printf("Data channel opened (ID: %d, Label: %s)", dc.ID(), dc.Label())
+		p.debugLog.Printf("*** DATA CHANNEL OPENED (ID: %d, Label: %s) ***", dc.ID(), dc.Label())
 		p.debugLog.Printf("Data channel state: %s", dc.ReadyState().String())
+		p.debugLog.Printf("Data channel buffered amount: %d", dc.BufferedAmount())
 
 		// Notify status handler about the data channel being open
 		if p.statusHandler != nil {
 			p.statusHandler(fmt.Sprintf("Data channel opened (ID: %d, Label: %s)", dc.ID(), dc.Label()))
+		}
+
+		// Send a test message to verify the channel is working
+		testData := []byte{0, 0, 0, 0, 0, 0, 0, 8, 1, 2, 3, 4, 5, 6, 7, 8}
+		p.debugLog.Printf("Sending test message on data channel open")
+		err := dc.Send(testData)
+		if err != nil {
+			p.debugLog.Printf("Failed to send test message: %v", err)
+		} else {
+			p.debugLog.Printf("Test message sent successfully")
 		}
 	})
 
