@@ -654,8 +654,12 @@ func (c *CLI) sendFile(filePath string) error {
 
 // sendFileChunks sends file data in chunks
 func (c *CLI) sendFileChunks(fileData []byte) {
+	c.debugLog.Printf("Starting to send file chunks, total size: %d bytes", len(fileData))
+
 	chunkSize := 16384 // 16KB default
 	totalChunks := (len(fileData) + chunkSize - 1) / chunkSize
+
+	c.debugLog.Printf("Will send %d chunks of %d bytes each", totalChunks, chunkSize)
 
 	for i := 0; i < totalChunks; i++ {
 		// Calculate chunk boundaries
@@ -683,6 +687,8 @@ func (c *CLI) sendFileChunks(fileData []byte) {
 
 		// Copy chunk data
 		copy(chunkData[8:], fileData[start:end])
+
+		c.debugLog.Printf("Sending chunk %d of %d, size: %d bytes", i+1, totalChunks, len(chunkData))
 
 		// Send chunk
 		if err := c.peer.SendData(chunkData); err != nil {

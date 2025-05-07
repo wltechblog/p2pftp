@@ -104,15 +104,19 @@ func NewPeer(debug *log.Logger) (*Peer, error) {
 
 	// Set up data channel handlers
 	pc.OnDataChannel(func(dc *webrtc.DataChannel) {
-		peer.debugLog.Printf("New data channel: %s", dc.Label())
+		peer.debugLog.Printf("New data channel received: %s (ID: %d)", dc.Label(), dc.ID())
 
 		switch dc.Label() {
 		case "p2pftp-control":
+			peer.debugLog.Printf("Setting up control channel from OnDataChannel")
 			peer.controlChannel = dc
 			peer.setupControlChannel(dc)
 		case "p2pftp-data":
+			peer.debugLog.Printf("Setting up data channel from OnDataChannel")
 			peer.dataChannel = dc
 			peer.setupDataChannel(dc)
+		default:
+			peer.debugLog.Printf("Received unknown channel label: %s", dc.Label())
 		}
 	})
 
@@ -261,29 +265,41 @@ func (p *Peer) setupControlChannel(dc *webrtc.DataChannel) {
 
 func (p *Peer) setupDataChannel(dc *webrtc.DataChannel) {
 	dc.OnOpen(func() {
-		p.debugLog.Printf("Data channel opened")
+		p.debugLog.Printf("Data channel opened (ID: %d, Label: %s)", dc.ID(), dc.Label())
+		p.debugLog.Printf("Data channel state: %s", dc.ReadyState().String())
 	})
 
 	dc.OnMessage(func(msg webrtc.DataChannelMessage) {
 		// For data channel, we expect binary data
 		if msg.IsString {
-			p.debugLog.Printf("Warning: Received string data on binary channel: %s", string(msg.Data))
+			p.debugLog.Printf("Warning: Received string data on binary channel (ID: %d): %s", dc.ID(), string(msg.Data))
 		} else {
-			p.debugLog.Printf("Data channel message received: %d bytes", len(msg.Data))
+			p.debugLog.Printf("Data channel message received (ID: %d): %d bytes", dc.ID(), len(msg.Data))
+			// Print first few bytes for debugging
+			if len(msg.Data) > 0 {
+				maxBytes := 32
+				if len(msg.Data) < maxBytes {
+					maxBytes = len(msg.Data)
+				}
+				p.debugLog.Printf("First %d bytes: %v", maxBytes, msg.Data[:maxBytes])
+			}
 		}
 
 		// Pass data to handler regardless of type
 		if p.dataHandler != nil {
+			p.debugLog.Printf("Calling data handler with %d bytes", len(msg.Data))
 			p.dataHandler(msg.Data)
+		} else {
+			p.debugLog.Printf("No data handler registered to process binary data")
 		}
 	})
 
 	dc.OnClose(func() {
-		p.debugLog.Printf("Data channel closed")
+		p.debugLog.Printf("Data channel closed (ID: %d)", dc.ID())
 	})
 
 	dc.OnError(func(err error) {
-		p.debugLog.Printf("Data channel error: %v", err)
+		p.debugLog.Printf("Data channel error (ID: %d): %v", dc.ID(), err)
 		if p.errorHandler != nil {
 			p.errorHandler(fmt.Sprintf("Data channel error: %v", err))
 		}
@@ -477,164 +493,35 @@ func (p *Peer) Accept(wsURL, token string) error {
 }
 
 func (p *Peer) createDataChannels() {
-	// Use a single data channel for all communication to simplify the protocol
-	// This avoids issues with multiple data channels and protocol identifiers
-
-	// Create a single data channel with minimal configuration
+	// Create data channels with minimal configuration
 	// Don't use any configuration at all to let WebRTC use defaults
 	var channelConfig *webrtc.DataChannelInit = nil
 
+	// Create control channel
 	p.debugLog.Printf("Creating control data channel with standard negotiation")
 	controlChannel, err := p.conn.CreateDataChannel("p2pftp-control", channelConfig)
 	if err != nil {
 		p.debugLog.Printf("Failed to create control channel: %v", err)
 		return
 	}
+	p.debugLog.Printf("Control channel created with ID: %d", controlChannel.ID())
 	p.controlChannel = controlChannel
 
+	// Set up the control channel
+	p.setupControlChannel(controlChannel)
+
+	// Create data channel
 	p.debugLog.Printf("Creating data channel with standard negotiation")
 	dataChannel, err := p.conn.CreateDataChannel("p2pftp-data", channelConfig)
 	if err != nil {
 		p.debugLog.Printf("Failed to create data channel: %v", err)
 		return
 	}
+	p.debugLog.Printf("Data channel created with ID: %d", dataChannel.ID())
 	p.dataChannel = dataChannel
 
-	// Set up the control channel
-	controlChannel.OnOpen(func() {
-		p.debugLog.Printf("Control channel opened")
-		// Send capabilities after channel is open
-		p.sendCapabilities()
-	})
-
-	controlChannel.OnMessage(func(msg webrtc.DataChannelMessage) {
-		// Log message details with more information for debugging
-		if msg.IsString {
-			p.debugLog.Printf("Control message received (string): %s", string(msg.Data))
-
-			// Try to parse as JSON for control messages
-			var msgData map[string]interface{}
-			if err := json.Unmarshal(msg.Data, &msgData); err != nil {
-				p.debugLog.Printf("Error parsing control message as JSON: %v", err)
-				// Still pass the raw data to handlers
-				if p.controlHandler != nil {
-					p.controlHandler(msg.Data)
-				}
-				return
-			}
-
-			// Successfully parsed JSON, now handle by message type
-			msgType, ok := msgData["type"].(string)
-			if !ok {
-				p.debugLog.Printf("Message missing 'type' field: %v", msgData)
-				return
-			}
-
-			p.debugLog.Printf("Received control message of type: %s", msgType)
-
-			// Handle different message types
-			switch msgType {
-			case "message":
-				// Handle chat message
-				content, ok := msgData["content"].(string)
-				if ok && p.messageHandler != nil {
-					p.debugLog.Printf("Dispatching chat message: %s", content)
-					p.messageHandler(content)
-				} else {
-					p.debugLog.Printf("Invalid message format or missing content field: %v", msgData)
-				}
-			default:
-				// Pass to general control handler
-				if p.controlHandler != nil {
-					p.controlHandler(msg.Data)
-				}
-			}
-		} else {
-			p.debugLog.Printf("Control message received (binary): %d bytes", len(msg.Data))
-			// Pass to control handler
-			if p.controlHandler != nil {
-				p.controlHandler(msg.Data)
-			}
-		}
-	})
-
-	controlChannel.OnClose(func() {
-		p.debugLog.Printf("Control channel closed")
-	})
-
-	controlChannel.OnError(func(err error) {
-		p.debugLog.Printf("Control channel error: %v", err)
-		if p.errorHandler != nil {
-			p.errorHandler(fmt.Sprintf("Control channel error: %v", err))
-		}
-	})
-
 	// Set up the data channel
-	dataChannel.OnOpen(func() {
-		p.debugLog.Printf("Data channel opened")
-	})
-
-	dataChannel.OnMessage(func(msg webrtc.DataChannelMessage) {
-		// Log message details with more information for debugging
-		if msg.IsString {
-			p.debugLog.Printf("Data message received (string): %s", string(msg.Data))
-
-			// Try to parse as JSON for messages
-			var msgData map[string]interface{}
-			if err := json.Unmarshal(msg.Data, &msgData); err != nil {
-				p.debugLog.Printf("Error parsing data message as JSON: %v", err)
-				return
-			}
-
-			// Successfully parsed JSON, now handle by message type
-			msgType, ok := msgData["type"].(string)
-			if !ok {
-				p.debugLog.Printf("Message missing 'type' field: %v", msgData)
-				return
-			}
-
-			p.debugLog.Printf("Received data message of type: %s", msgType)
-
-			// Handle different message types
-			if msgType == "message" {
-				// Handle chat message
-				content, ok := msgData["content"].(string)
-				if ok && p.messageHandler != nil {
-					p.debugLog.Printf("Dispatching chat message: %s", content)
-					p.messageHandler(content)
-				} else {
-					p.debugLog.Printf("Invalid message format or missing content field: %v", msgData)
-				}
-			}
-		} else {
-			// Binary data is for file transfers
-			p.debugLog.Printf("Data message received (binary): %d bytes", len(msg.Data))
-			// Print first few bytes for debugging
-			if len(msg.Data) > 0 {
-				maxBytes := 32
-				if len(msg.Data) < maxBytes {
-					maxBytes = len(msg.Data)
-				}
-				p.debugLog.Printf("First %d bytes: %v", maxBytes, msg.Data[:maxBytes])
-			}
-
-			// Pass binary data to data handler
-			if p.dataHandler != nil {
-				p.dataHandler(msg.Data)
-			}
-		}
-	})
-
-	dataChannel.OnClose(func() {
-		p.debugLog.Printf("Data channel closed")
-	})
-
-	dataChannel.OnError(func(err error) {
-		p.debugLog.Printf("Data channel error: %v", err)
-		if p.errorHandler != nil {
-			p.errorHandler(fmt.Sprintf("Data channel error: %v", err))
-		}
-	})
+	p.setupDataChannel(dataChannel)
 }
 
 // SendMessage sends a chat message through the data channel
@@ -748,17 +635,25 @@ func (p *Peer) SendData(data []byte) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
+	p.debugLog.Printf("SendData called with %d bytes", len(data))
+
 	if !p.IsConnected() {
+		p.debugLog.Printf("Cannot send data: peer connection not established")
 		return fmt.Errorf("peer connection not established")
 	}
 
 	if p.dataChannel == nil {
+		p.debugLog.Printf("Cannot send data: data channel not established (nil)")
 		return fmt.Errorf("data channel not established")
 	}
 
 	// Check if the data channel is open
-	if p.dataChannel.ReadyState() != webrtc.DataChannelStateOpen {
-		return fmt.Errorf("data channel not open (state: %s)", p.dataChannel.ReadyState().String())
+	state := p.dataChannel.ReadyState()
+	p.debugLog.Printf("Data channel state: %s", state.String())
+
+	if state != webrtc.DataChannelStateOpen {
+		p.debugLog.Printf("Cannot send data: data channel not open (state: %s)", state.String())
+		return fmt.Errorf("data channel not open (state: %s)", state.String())
 	}
 
 	// Create a channel to signal completion
@@ -766,7 +661,7 @@ func (p *Peer) SendData(data []byte) error {
 
 	// Send the message in a goroutine with timeout
 	go func() {
-		p.debugLog.Printf("Starting to send data message...")
+		p.debugLog.Printf("Starting to send data message of %d bytes...", len(data))
 		err := p.dataChannel.Send(data)
 		p.debugLog.Printf("Send call completed with error: %v", err)
 		done <- err
