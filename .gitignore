@@ -1,5 +1,10 @@
-# Binary
+# Binaries
 p2pftp
+p2pftp-server
+p2pftp-cli
+bin/
+client/client
+client/p2pftp-cli
 
 # Downloaded files
 downloads/*
@@ -7,6 +12,7 @@ downloads/*
 
 # Debugging
 __debug*
+*.log
 
 # Dependencies
 vendor/
@@ -18,8 +24,6 @@ vendor/
 # OS files
 .DS_Store
 Thumbs.db
-cli/cli
-p2pftp
-client/client
-client/p2pftp-cli
-memory-bank
+
+# Memory bank
+memory-bank/

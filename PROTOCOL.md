@@ -1,4 +1,4 @@
-# P2PFTP Protocol Documentation
+# P2PFTP Protocol Documentation (v2)
 
 This document describes the communication and file transfer protocol used by P2PFTP, a peer-to-peer file transfer application. This protocol documentation can be used to test compatibility with other implementations.
 
@@ -45,16 +45,26 @@ The signaling protocol uses WebSockets to exchange connection information betwee
 
 ## 2. WebRTC Data Channels
 
-P2PFTP uses two WebRTC data channels:
+P2PFTP uses two WebRTC data channels with specific configurations:
 
 1. **Control Channel** (ID: 1, Label: "p2pftp-control"):
-   - Ordered delivery
-   - Used for JSON messages (metadata, control commands)
+   - Negotiated: true (pre-negotiated ID)
+   - Ordered: true (guaranteed order delivery)
+   - MaxPacketLifeTime: null (no time limit)
+   - MaxRetransmits: null (unlimited retransmissions)
+   - Protocol: "" (no subprotocol)
+   - Priority: "high"
+   - BufferSize: 262144 bytes (256KB)
 
 2. **Data Channel** (ID: 2, Label: "p2pftp-data"):
-   - Ordered delivery
-   - Binary mode (arraybuffer)
-   - Used for file chunk transfer
+   - Negotiated: true (pre-negotiated ID)
+   - Ordered: true (guaranteed order delivery)
+   - MaxPacketLifeTime: null (no time limit)
+   - MaxRetransmits: null (unlimited retransmissions)
+   - Protocol: "" (no subprotocol)
+   - Priority: "medium"
+   - BufferSize: 1048576 bytes (1MB)
+   - BinaryType: "arraybuffer"
 
 ## 3. Control Channel Protocol
 
@@ -62,10 +72,20 @@ The control channel exchanges JSON messages for file transfer coordination.
 
 ### Message Types
 
-1. **Capabilities Exchange**:
-   - Sent after connection establishment
+1. **Capabilities Exchange** (MANDATORY):
+   - Must be sent immediately after connection establishment
+   - Must be completed before any file transfer begins
    - Format: `{"type": "capabilities", "maxChunkSize": <max-chunk-size>}`
    - Response: `{"type": "capabilities-ack", "negotiatedChunkSize": <negotiated-size>}`
+   - If no capabilities exchange occurs within 5 seconds, the connection should be considered invalid
+   - Chunk Size Parameters:
+     - Default Chunk Size: 16384 bytes (16KB)
+     - Minimum Chunk Size: 4096 bytes (4KB)
+     - Maximum Chunk Size: 262144 bytes (256KB)
+   - Negotiation Algorithm:
+     - The negotiated chunk size is the minimum of the two peers' maximum supported sizes
+     - If a peer supports larger chunks than our maximum, log an INFO message
+     - Both peers must acknowledge the negotiated size before transfer begins
 
 2. **Chat Message**:
    - Format: `{"type": "message", "content": "<message-text>"}`
@@ -83,30 +103,24 @@ The control channel exchanges JSON messages for file transfer coordination.
      }
      ```
 
-4. **Chunk Information**:
-   - Sent before each chunk on the data channel
+4. **Progress Update**:
+   - Sent periodically (every 1 second or every 32 chunks) by the receiver
    - Format:
      ```json
      {
-       "type": "chunk-info",
-       "sequence": <chunk-sequence-number>,
-       "totalChunks": <total-chunks>,
-       "size": <chunk-size-in-bytes>
+       "type": "progress-update",
+       "bytesReceived": <bytes-received>,
+       "highestSequence": <highest-sequence-received>
      }
      ```
 
-5. **Chunk Acknowledgment**:
-   - Sent by receiver to confirm chunk receipt
-   - Format: `{"type": "chunk-confirm", "sequence": <chunk-sequence-number>}`
-
-6. **Missing Chunks Request**:
-   - Sent by receiver to request retransmission of specific chunks
-   - Used for explicit recovery of lost or corrupted chunks
-   - Format: `{"type": "request-chunks", "sequences": [<sequence1>, <sequence2>, ...]}`
-   - The sender should prioritize these chunks for immediate retransmission
-
-7. **Transfer Completion**:
+5. **Transfer Completion**:
+   - Sent by sender when all chunks have been sent
    - Format: `{"type": "file-complete"}`
+
+6. **File Verification**:
+   - Sent by receiver after MD5 verification
+   - Format: `{"type": "file-verified"}` or `{"type": "file-failed", "reason": "<failure-reason>"}`
 
 ## 4. Data Channel Protocol
 
@@ -114,7 +128,7 @@ The data channel transfers binary data using a framed format.
 
 ### Chunk Format
 
-Each chunk is framed with metadata:
+Each chunk is framed with minimal metadata:
 ```
 [4 bytes sequence number][4 bytes length][data bytes]
 ```
@@ -125,71 +139,59 @@ Each chunk is framed with metadata:
 
 ## 5. Transfer Protocol
 
-P2PFTP uses a sliding window protocol with selective acknowledgment for reliable file transfer.
+P2PFTP leverages WebRTC's built-in reliability guarantees while implementing a simplified flow control mechanism.
 
 ### Sender Process
 
 1. Calculate total chunks based on file size and negotiated chunk size
 2. Send file metadata via control channel
-3. For each chunk in the sliding window:
-   - Send chunk info via control channel
+3. For each chunk in the window:
    - Send framed chunk data via data channel
-   - Track unacknowledged chunks with timestamps
-4. Process acknowledgments and adjust window:
-   - Update the last acknowledged sequence
-   - Remove chunks from the unacknowledged list
-   - Advance the sliding window
-5. Handle retransmission requests:
-   - Prioritize explicitly requested chunks
-   - Add requested chunks to the retransmission queue
-   - Send requested chunks immediately when possible
-6. Periodically check for timed-out chunks:
-   - Identify chunks that haven't been acknowledged within timeout period
-   - Add timed-out chunks to the retransmission queue
-7. Send completion message when all chunks are acknowledged
+   - Track sent chunks for progress reporting
+4. Monitor data channel's bufferedAmount to avoid overwhelming the channel:
+   - If bufferedAmount exceeds threshold (1MB), pause sending until it decreases
+5. Process progress updates from receiver:
+   - Adjust sending rate based on receiver's progress
+6. Send completion message when all chunks are sent
+7. Wait for verification message from receiver
 
 ### Receiver Process
 
 1. Receive file metadata and prepare buffer or file handle
 2. For each received chunk:
-   - Validate sequence number and size
-   - Store in buffer or write to file at the correct offset
-   - Send acknowledgment via the control channel
-   - Process out-of-order chunks correctly
-3. Actively track missing chunks by:
-   - Maintaining a map of missing sequence numbers
-   - Periodically checking for gaps in the received sequence
-   - Explicitly requesting missing chunks via the "request-chunks" message
-4. Handle unexpected or out-of-sequence chunks:
-   - Accept and process valid chunks even if they arrive out of order
-   - Track the highest sequence number received to detect gaps
-5. Verify file integrity using MD5 hash when all chunks are received
-6. Complete transfer when all chunks are received
+   - Extract sequence number and size from header
+   - Write chunk data to file at the correct offset
+   - Track progress and periodically send progress updates
+3. When all chunks are received:
+   - Verify file integrity using MD5 hash
+   - Send verification result to sender
 
-## 6. Flow Control and Congestion Control
+## 6. Flow Control
 
-P2PFTP implements TCP-like flow control and congestion control:
+P2PFTP implements a simplified flow control mechanism:
 
-1. **Sliding Window**: Default window size of 64 chunks
-2. **Slow Start**: Exponential window growth up to 32 chunks
-3. **Congestion Avoidance**: Additive increase after slow start
-4. **Timeout Detection**: Chunks not acknowledged within 3 seconds are considered lost
-5. **Multiplicative Decrease**: Window size reduced by 30% after consecutive timeouts
+1. **Basic Window Control**:
+   - Start with window size of 64 chunks
+   - Sender can have up to window_size chunks "in flight"
+   - Receiver sends periodic progress updates
+   - Sender adjusts sending rate based on progress updates
+
+2. **Congestion Handling**:
+   - Monitor data channel's bufferedAmount
+   - If bufferedAmount exceeds 1MB, pause sending until it decreases
+   - Resume sending when bufferedAmount falls below threshold
 
 ## 7. Error Handling
 
 1. **Connection Errors**:
-   - ICE connection failures trigger reconnection attempts
-   - Persistent failures result in disconnection
-   - Channel state is monitored continuously during transfers
+   - Monitor WebRTC connection state
+   - If connection is lost, pause transfer
+   - Attempt to reconnect through signaling server
+   - Resume transfer from last progress point if reconnection succeeds
 
 2. **Transfer Errors**:
-   - Missing chunks are explicitly requested for retransmission using the "request-chunks" message
-   - Corrupted chunks are detected by size mismatch and added to the missing chunks list
-   - Out-of-order delivery is handled gracefully by writing chunks at the correct file offset
-   - Unexpected chunks are processed if valid, improving resilience to network issues
-   - Periodic checks identify gaps in the received sequence
    - File integrity is verified with MD5 hash after all chunks are received
+   - If verification fails, restart transfer or offer manual retry
 
 ## 8. Security Considerations
 
@@ -202,22 +204,12 @@ P2PFTP implements TCP-like flow control and congestion control:
 To implement a compatible client:
 
 1. Support WebSocket signaling protocol
-2. Implement WebRTC with data channel support
-3. Support the control channel message formats:
-   - Implement all message types including "request-chunks" for explicit retransmission
-   - Handle out-of-order message processing
-4. Implement the data channel framing format:
-   - 4-byte sequence number + 4-byte length + data
-   - Support writing chunks at correct file offsets regardless of arrival order
-5. Support sliding window transfer with selective acknowledgment:
-   - Track unacknowledged chunks with timestamps
-   - Maintain a retransmission queue
-   - Process explicit retransmission requests
-6. Implement robust error handling:
-   - Detect and request missing chunks
-   - Process unexpected but valid chunks
-   - Handle corrupted chunks by requesting retransmission
-   - Monitor channel state during transfers
+2. Implement WebRTC with data channel support as specified
+3. Support the control channel message formats
+4. Implement the data channel framing format
+5. Support the simplified flow control mechanism
+6. Implement robust error handling
+7. Perform end-to-end MD5 verification
 
 ## 10. Testing Compatibility
 
@@ -226,6 +218,6 @@ To test compatibility with P2PFTP:
 1. Connect to a P2PFTP signaling server
 2. Complete the signaling process
 3. Establish WebRTC data channels
-4. Exchange capabilities
+4. Exchange capabilities (MANDATORY)
 5. Transfer a test file in both directions
 6. Verify file integrity using MD5 hash
