@@ -532,19 +532,14 @@ func (p *Peer) SendMessage(msg string) error {
 	// Lock the mutex for the initial checks
 	p.mu.Lock()
 
-	// Lock the mutex for the initial checks
-	p.mu.Lock()
-
 	// Basic checks for control channel (for chat messages)
 	if p.controlChannel == nil {
-		p.mu.Unlock()
 		p.mu.Unlock()
 		p.debugLog.Printf("Cannot send message - control channel not established")
 		return fmt.Errorf("control channel not established")
 	}
 
 	if p.controlChannel.ReadyState() != webrtc.DataChannelStateOpen {
-		p.mu.Unlock()
 		p.mu.Unlock()
 		p.debugLog.Printf("Cannot send message - control channel not open (state: %s)",
 			p.controlChannel.ReadyState().String())
