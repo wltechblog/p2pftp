@@ -96,7 +96,7 @@ func NewPeer(debug *log.Logger) (*Peer, error) {
 		errorHandler:   nil,
 		debugLog:       debug,
 		negotiated:     false,
-		maxChunkSize:   16384,
+		maxChunkSize:   16376, // 16384 - 8 bytes for header
 		mu:             sync.Mutex{},
 		iceConnected:   false,
 		iceTimeout:     30 * time.Second, // 30 second timeout for ICE connection
@@ -532,14 +532,19 @@ func (p *Peer) SendMessage(msg string) error {
 	// Lock the mutex for the initial checks
 	p.mu.Lock()
 
+	// Lock the mutex for the initial checks
+	p.mu.Lock()
+
 	// Basic checks for control channel (for chat messages)
 	if p.controlChannel == nil {
+		p.mu.Unlock()
 		p.mu.Unlock()
 		p.debugLog.Printf("Cannot send message - control channel not established")
 		return fmt.Errorf("control channel not established")
 	}
 
 	if p.controlChannel.ReadyState() != webrtc.DataChannelStateOpen {
+		p.mu.Unlock()
 		p.mu.Unlock()
 		p.debugLog.Printf("Cannot send message - control channel not open (state: %s)",
 			p.controlChannel.ReadyState().String())

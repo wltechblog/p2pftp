@@ -450,7 +450,7 @@ func (c *CLI) saveReceivedFile() {
 // sendCapabilitiesAck sends a capabilities acknowledgment
 func (c *CLI) sendCapabilitiesAck(peerMaxChunkSize int) {
 	// Use the minimum of our max and peer's max
-	ourMaxChunkSize := 16384 // 16KB default
+	ourMaxChunkSize := 16376 // 16384 - 8 bytes for header
 	negotiatedSize := ourMaxChunkSize
 	if peerMaxChunkSize < negotiatedSize {
 		negotiatedSize = peerMaxChunkSize
@@ -680,10 +680,12 @@ func (c *CLI) sendFile(filePath string) error {
 func (c *CLI) sendFileChunks(fileData []byte) {
 	c.debugLog.Printf("Starting to send file chunks, total size: %d bytes", len(fileData))
 
-	chunkSize := 16384 // 16KB default
+	// Adjust chunk size to account for the 8-byte header (4 bytes sequence + 4 bytes length)
+	// Maximum message size is 16384 bytes, so actual data chunk size should be 16376 bytes
+	chunkSize := 16384 - 8 // 16376 bytes for data + 8 bytes for header = 16384 bytes total
 	totalChunks := (len(fileData) + chunkSize - 1) / chunkSize
 
-	c.debugLog.Printf("Will send %d chunks of %d bytes each", totalChunks, chunkSize)
+	c.debugLog.Printf("Will send %d chunks of %d bytes each (plus 8-byte header per chunk)", totalChunks, chunkSize)
 
 	for i := 0; i < totalChunks; i++ {
 		// Calculate chunk boundaries
@@ -712,7 +714,7 @@ func (c *CLI) sendFileChunks(fileData []byte) {
 		// Copy chunk data
 		copy(chunkData[8:], fileData[start:end])
 
-		c.debugLog.Printf("Sending chunk %d of %d, size: %d bytes", i+1, totalChunks, len(chunkData))
+		c.debugLog.Printf("Sending chunk %d of %d, size: %d bytes (including 8-byte header)", i+1, totalChunks, len(chunkData))
 
 		// Send chunk
 		if err := c.peer.SendData(chunkData); err != nil {
