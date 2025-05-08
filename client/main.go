@@ -8,6 +8,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"log"
 	"net/url"
 	"os"
@@ -897,7 +898,7 @@ func dumpGoroutineStacks(logger *log.Logger) {
 	timestamp := time.Now().Format("20060102-150405")
 	filename := fmt.Sprintf("goroutine-dump-%s.log", timestamp)
 
-	err := os.WriteFile(filename, stack, 0644)
+	err := ioutil.WriteFile(filename, stack, 0644)
 	if err != nil {
 		logger.Printf("Failed to write goroutine dump to file: %v", err)
 	} else {
