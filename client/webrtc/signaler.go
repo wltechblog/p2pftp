@@ -205,47 +205,8 @@ func (s *Signaler) handleMessages() {
 		case "accepted":
 			s.peerToken = msg.Token
 			s.debugLog.Printf("Connection accepted by: %s", s.peerToken)
-
-			if s.peer != nil {
-				// Mark the connection as accepted
-				s.peer.mu.Lock()
-				s.peer.connectionAccepted = true
-				isInitiator := s.peer.isInitiator
-				s.peer.mu.Unlock()
-
-				// Notify the user
-				if s.peer.statusHandler != nil {
-					s.peer.statusHandler(fmt.Sprintf("Connection accepted by: %s", s.peerToken))
-				}
-
-				// If this peer is the initiator, create and send the offer now
-				if isInitiator {
-					s.debugLog.Printf("Creating and sending offer now that connection is accepted")
-
-					// Create offer
-					offer, err := s.peer.conn.CreateOffer(nil)
-					if err != nil {
-						s.debugLog.Printf("Failed to create offer: %v", err)
-						return
-					}
-
-					// Set local description
-					err = s.peer.conn.SetLocalDescription(offer)
-					if err != nil {
-						s.debugLog.Printf("Failed to set local description: %v", err)
-						return
-					}
-
-					// Send offer through signaling server
-					err = s.SendOffer(offer)
-					if err != nil {
-						s.debugLog.Printf("Failed to send offer: %v", err)
-						return
-					}
-
-					// Send any buffered ICE candidates
-					s.peer.SendBufferedICECandidates()
-				}
+			if s.peer != nil && s.peer.statusHandler != nil {
+				s.peer.statusHandler(fmt.Sprintf("Connection accepted by: %s", s.peerToken))
 			}
 
 		case "rejected":

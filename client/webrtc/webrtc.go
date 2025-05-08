@@ -764,20 +764,61 @@ func (p *Peer) processPendingOffer() error {
 	return nil
 }
 
-// HandleOffer stores an offer from a peer without processing it
-// The offer will be processed when Accept is explicitly called
+// HandleOffer processes an offer from a peer
+// If the connection has already been accepted, it processes the offer immediately
+// Otherwise, it stores the offer for later processing when Accept is called
 func (p *Peer) HandleOffer(token string, offer webrtc.SessionDescription) {
 	p.mu.Lock()
-	defer p.mu.Unlock()
+	connectionAccepted := p.connectionAccepted
+	p.mu.Unlock()
 
-	p.debugLog.Printf("Storing offer from %s for later acceptance", token)
-	p.pendingOffer = &offer
-	p.pendingOfferFrom = token
+	if connectionAccepted {
+		// If the connection has already been accepted, process the offer immediately
+		p.debugLog.Printf("Connection already accepted, processing offer from %s immediately", token)
 
-	// Notify the user about the pending connection
-	if p.statusHandler != nil {
-		p.statusHandler(fmt.Sprintf("Connection offer received from: %s. Use 'accept %s' to accept.",
-			token, token))
+		// Set remote description
+		if err := p.conn.SetRemoteDescription(offer); err != nil {
+			p.debugLog.Printf("Error setting remote description: %v", err)
+			return
+		}
+
+		// Create answer
+		answer, err := p.conn.CreateAnswer(nil)
+		if err != nil {
+			p.debugLog.Printf("Error creating answer: %v", err)
+			return
+		}
+
+		// Set local description
+		if err := p.conn.SetLocalDescription(answer); err != nil {
+			p.debugLog.Printf("Error setting local description: %v", err)
+			return
+		}
+
+		// Send answer
+		if err := p.signaler.SendAnswer(answer); err != nil {
+			p.debugLog.Printf("Error sending answer: %v", err)
+			return
+		}
+
+		// Update connection status
+		if p.statusHandler != nil {
+			p.statusHandler(fmt.Sprintf("Connection established with %s", token))
+		}
+	} else {
+		// Otherwise, store the offer for later processing when Accept is called
+		p.mu.Lock()
+		defer p.mu.Unlock()
+
+		p.debugLog.Printf("Storing offer from %s for later acceptance", token)
+		p.pendingOffer = &offer
+		p.pendingOfferFrom = token
+
+		// Notify the user about the pending connection
+		if p.statusHandler != nil {
+			p.statusHandler(fmt.Sprintf("Connection offer received from: %s. Use 'accept %s' to accept.",
+				token, token))
+		}
 	}
 }
 
