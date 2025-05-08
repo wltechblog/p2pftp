@@ -52,13 +52,23 @@ func (p *Peer) SendData(data []byte) error {
 	dataChannel := p.dataChannel
 
 	// Check if the data size is too large for the data channel
-	// WebRTC has a practical limit around 8KB for reliable transmission
-	maxSize := 8192 // 8KB is a safer limit for WebRTC data channels
+	// Use the negotiated chunk size from capabilities exchange, or fall back to the default
+	var maxSize int
+	
+	// If we have a negotiated chunk size, use it
+	if p.negotiatedChunkSize > 0 {
+		maxSize = int(p.negotiatedChunkSize)
+		p.debugLog.Printf("Using negotiated chunk size: %d bytes", maxSize)
+	} else {
+		// Fall back to the protocol default
+		maxSize = int(DefaultChunkSize)
+		p.debugLog.Printf("No negotiated chunk size available, using protocol default: %d bytes", maxSize)
+	}
 
 	if len(data) > maxSize {
 		p.mu.Unlock()
-		p.debugLog.Printf("Data size %d exceeds safe WebRTC limit of %d bytes", len(data), maxSize)
-		return fmt.Errorf("data size %d exceeds maximum safe size of %d bytes", len(data), maxSize)
+		p.debugLog.Printf("Data size %d exceeds negotiated/default limit of %d bytes", len(data), maxSize)
+		return fmt.Errorf("data size %d exceeds maximum size of %d bytes", len(data), maxSize)
 	}
 
 	// Unlock the mutex before the send operation to allow other sends to proceed

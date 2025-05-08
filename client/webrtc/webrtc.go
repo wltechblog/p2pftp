@@ -1226,7 +1226,7 @@ func (p *Peer) GetNegotiatedChunkSize() int32 {
 		return p.negotiatedChunkSize
 	}
 
-	// Otherwise return the default size
+	// Otherwise return the protocol default size
 	return DefaultChunkSize
 }
 

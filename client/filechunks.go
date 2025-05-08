@@ -18,10 +18,17 @@ type ChunkResult struct {
 func (c *CLI) sendFileChunks(fileData []byte) {
 	c.debugLog.Printf("Starting to send file chunks, total size: %d bytes", len(fileData))
 
-	// Use the default chunk size from the protocol (16KB)
-	// Subtract 8 bytes for our header
-	chunkSize := 16384 - 8 // 16KB - 8 bytes for header = 16376 bytes
-	c.debugLog.Printf("Using protocol default chunk size of %d bytes (plus 8-byte header)", chunkSize)
+	// Get the negotiated chunk size from the peer if available
+	var chunkSize int
+	if c.peer != nil && c.peer.GetNegotiatedChunkSize() > 0 {
+		// Subtract 8 bytes for our header
+		chunkSize = int(c.peer.GetNegotiatedChunkSize()) - 8
+		c.debugLog.Printf("Using negotiated chunk size of %d bytes (plus 8-byte header)", chunkSize)
+	} else {
+		// Fall back to the protocol default
+		chunkSize = 16384 - 8 // 16KB - 8 bytes for header = 16376 bytes
+		c.debugLog.Printf("Using protocol default chunk size of %d bytes (plus 8-byte header)", chunkSize)
+	}
 
 	totalChunks := (len(fileData) + chunkSize - 1) / chunkSize
 	c.debugLog.Printf("Will send %d chunks of %d bytes each (plus 8-byte header per chunk)", totalChunks, chunkSize)
