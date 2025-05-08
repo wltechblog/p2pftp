@@ -576,7 +576,10 @@ func (c *CLI) saveReceivedFile() {
 		return
 	}
 
-	fmt.Printf("\nFile saved as: %s\n", outputPath)
+	fmt.Printf("\nMD5 verification successful!\n")
+	fmt.Printf("Expected: %s\n", c.fileInfo.MD5)
+	fmt.Printf("Actual:   %s\n", md5Hash)
+	fmt.Printf("File saved as: %s\n", outputPath)
 
 	// Reset transfer state
 	c.fileInfo = nil
