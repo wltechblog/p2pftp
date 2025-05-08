@@ -3,17 +3,25 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"sync"
 	"time"
 )
 
-// sendFileChunks sends file data in chunks
+// ChunkResult represents the result of sending a chunk
+type ChunkResult struct {
+	ChunkIndex int
+	Success    bool
+	Error      error
+}
+
+// sendFileChunks sends file data in chunks using a sliding window approach
 func (c *CLI) sendFileChunks(fileData []byte) {
 	c.debugLog.Printf("Starting to send file chunks, total size: %d bytes", len(fileData))
 
-	// Use a fixed, conservative chunk size for WebRTC data channels
-	// WebRTC has practical limits that vary by implementation
-	chunkSize := 4096 - 8 // 4KB - 8 bytes for header = 4088 bytes
-	c.debugLog.Printf("Using fixed chunk size of %d bytes (plus 8-byte header) for reliability", chunkSize)
+	// Use the default chunk size from the protocol (16KB)
+	// Subtract 8 bytes for our header
+	chunkSize := 16384 - 8 // 16KB - 8 bytes for header = 16376 bytes
+	c.debugLog.Printf("Using protocol default chunk size of %d bytes (plus 8-byte header)", chunkSize)
 
 	totalChunks := (len(fileData) + chunkSize - 1) / chunkSize
 	c.debugLog.Printf("Will send %d chunks of %d bytes each (plus 8-byte header per chunk)", totalChunks, chunkSize)
@@ -33,67 +41,70 @@ func (c *CLI) sendFileChunks(fileData []byte) {
 	successCount := 0
 	failCount := 0
 
+	// Sliding window parameters
+	windowSize := 8 // Number of chunks to send in parallel
+	if totalChunks < windowSize {
+		windowSize = totalChunks
+	}
+
+	c.debugLog.Printf("Using sliding window with size %d for parallel transfers", windowSize)
+
+	// Channel for tracking chunk results
+	resultChan := make(chan ChunkResult, windowSize*2)
+
+	// WaitGroup to wait for all goroutines to finish
+	var wg sync.WaitGroup
+
+	// Mutex for protecting shared counters
+	var counterMutex sync.Mutex
+
+	// Current chunk index to send
+	nextChunkToSend := 0
+
+	// Start the sliding window
+	for i := 0; i < windowSize && i < totalChunks; i++ {
+		wg.Add(1)
+		go sendChunk(c, fileData, i, chunkSize, &wg, resultChan)
+		nextChunkToSend++
+	}
+
+	// Process results and send new chunks as needed
 	for i := 0; i < totalChunks; i++ {
-		// Calculate chunk boundaries
-		start := i * chunkSize
-		end := start + chunkSize
-		if end > len(fileData) {
-			end = len(fileData)
-		}
+		// Wait for a chunk to complete
+		result := <-resultChan
 
-		// Create chunk with header (4 bytes sequence + 4 bytes length)
-		chunkData := make([]byte, 8+end-start)
-
-		// Write sequence number (4 bytes)
-		chunkData[0] = byte(i >> 24)
-		chunkData[1] = byte(i >> 16)
-		chunkData[2] = byte(i >> 8)
-		chunkData[3] = byte(i)
-
-		// Write chunk size (4 bytes)
-		size := end - start
-		chunkData[4] = byte(size >> 24)
-		chunkData[5] = byte(size >> 16)
-		chunkData[6] = byte(size >> 8)
-		chunkData[7] = byte(size)
-
-		// Copy chunk data
-		copy(chunkData[8:], fileData[start:end])
-
-		c.debugLog.Printf("Sending chunk %d of %d, size: %d bytes (including 8-byte header)", i+1, totalChunks, len(chunkData))
-
-		// Send via data channel
-		c.debugLog.Printf("Sending chunk %d via data channel", i)
-		err := c.peer.SendData(chunkData)
-
-		if err != nil {
-			c.debugLog.Printf("Error sending chunk %d: %v", i, err)
-			failCount++
-
-			// Try again once after a short delay
-			time.Sleep(50 * time.Millisecond)
-			c.debugLog.Printf("Retrying chunk %d", i)
-
-			err = c.peer.SendData(chunkData)
-			if err != nil {
-				c.debugLog.Printf("Retry also failed for chunk %d: %v", i, err)
-				// Continue with next chunk
-			} else {
-				c.debugLog.Printf("Retry succeeded for chunk %d", i)
-				successCount++
-			}
-		} else {
+		// Update counters
+		counterMutex.Lock()
+		if result.Success {
 			successCount++
+		} else {
+			failCount++
+			c.debugLog.Printf("Chunk %d failed: %v, retrying...", result.ChunkIndex, result.Error)
+
+			// Retry failed chunk
+			wg.Add(1)
+			go sendChunk(c, fileData, result.ChunkIndex, chunkSize, &wg, resultChan)
+			counterMutex.Unlock()
+			continue
 		}
+
+		// If there are more chunks to send, start a new one
+		if nextChunkToSend < totalChunks {
+			wg.Add(1)
+			go sendChunk(c, fileData, nextChunkToSend, chunkSize, &wg, resultChan)
+			nextChunkToSend++
+		}
+		counterMutex.Unlock()
 
 		// Print progress
 		percentage := float64(i+1) / float64(totalChunks) * 100
 		fmt.Printf("\rSending: %.1f%% (%d/%d chunks, %d succeeded, %d failed)",
 			percentage, i+1, totalChunks, successCount, failCount)
-
-		// Add a small delay between chunks to avoid overwhelming the data channel
-		time.Sleep(10 * time.Millisecond)
 	}
+
+	// Wait for all goroutines to finish
+	wg.Wait()
+	close(resultChan)
 
 	fmt.Println("\nAll chunks sent")
 	c.debugLog.Printf("File transfer complete: %d/%d chunks succeeded, %d failed",
@@ -113,4 +124,70 @@ func (c *CLI) sendFileChunks(fileData []byte) {
 	if err := c.peer.SendControl(completeData); err != nil {
 		c.debugLog.Printf("Error sending file-complete: %v", err)
 	}
+}
+
+// sendChunk sends a single chunk of data
+func sendChunk(c *CLI, fileData []byte, chunkIndex int, chunkSize int, wg *sync.WaitGroup, resultChan chan ChunkResult) {
+	defer wg.Done()
+
+	// Calculate chunk boundaries
+	start := chunkIndex * chunkSize
+	end := start + chunkSize
+	if end > len(fileData) {
+		end = len(fileData)
+	}
+
+	// Create chunk with header (4 bytes sequence + 4 bytes length)
+	chunkData := make([]byte, 8+end-start)
+
+	// Write sequence number (4 bytes)
+	chunkData[0] = byte(chunkIndex >> 24)
+	chunkData[1] = byte(chunkIndex >> 16)
+	chunkData[2] = byte(chunkIndex >> 8)
+	chunkData[3] = byte(chunkIndex)
+
+	// Write chunk size (4 bytes)
+	size := end - start
+	chunkData[4] = byte(size >> 24)
+	chunkData[5] = byte(size >> 16)
+	chunkData[6] = byte(size >> 8)
+	chunkData[7] = byte(size)
+
+	// Copy chunk data
+	copy(chunkData[8:], fileData[start:end])
+
+	c.debugLog.Printf("Sending chunk %d, size: %d bytes (including 8-byte header)", chunkIndex, len(chunkData))
+
+	// Send via data channel
+	err := c.peer.SendData(chunkData)
+
+	// Create result
+	result := ChunkResult{
+		ChunkIndex: chunkIndex,
+		Success:    err == nil,
+		Error:      err,
+	}
+
+	if err != nil {
+		c.debugLog.Printf("Error sending chunk %d: %v", chunkIndex, err)
+
+		// Try again once after a short delay
+		time.Sleep(50 * time.Millisecond)
+		c.debugLog.Printf("Retrying chunk %d", chunkIndex)
+
+		err = c.peer.SendData(chunkData)
+
+		// Update result based on retry
+		result.Success = err == nil
+		result.Error = err
+
+		if err != nil {
+			c.debugLog.Printf("Retry also failed for chunk %d: %v", chunkIndex, err)
+		} else {
+			c.debugLog.Printf("Retry succeeded for chunk %d", chunkIndex)
+		}
+	}
+
+	// Send result back through channel
+	resultChan <- result
 }
