@@ -231,6 +231,7 @@ func NewPeer(debug *log.Logger) (*Peer, error) {
 	return peer, nil
 }
 
+/* Commented out due to duplicate implementation in setup_channels_fixed.go
 func (p *Peer) setupControlChannel(dc *webrtc.DataChannel) {
 	dc.OnOpen(func() {
 		p.debugLog.Printf("Control channel opened")
@@ -310,7 +311,9 @@ func (p *Peer) setupControlChannel(dc *webrtc.DataChannel) {
 		}
 	})
 }
+*/
 
+/* Commented out due to duplicate implementation in setup_channels_fixed.go
 func (p *Peer) setupDataChannel(dc *webrtc.DataChannel) {
 	p.debugLog.Printf("Setting up data channel (ID: %d, Label: %s)", dc.ID(), dc.Label())
 
@@ -385,6 +388,7 @@ func (p *Peer) setupDataChannel(dc *webrtc.DataChannel) {
 		}
 	})
 }
+*/
 
 // handleCapabilities processes a capabilities message from the peer
 func (p *Peer) handleCapabilities(data []byte) {
