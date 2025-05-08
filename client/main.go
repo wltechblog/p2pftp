@@ -11,9 +11,14 @@ import (
 	"log"
 	"net/url"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"runtime"
+	"runtime/pprof"
 	"strings"
 	"sync"
+	"syscall"
+	"time"
 
 	"github.com/wltechblog/p2pftp/client/webrtc"
 )
@@ -878,6 +883,46 @@ func (c *CLI) sendFileChunks(fileData []byte) {
 }
 */
 
+// dumpGoroutineStacks writes all goroutine stacks to the debug log and a file
+func dumpGoroutineStacks(logger *log.Logger) {
+	// Get the stack trace
+	buf := make([]byte, 1<<20) // 1MB buffer
+	stackLen := runtime.Stack(buf, true)
+	stack := buf[:stackLen]
+
+	// Log to debug logger
+	logger.Printf("=== BEGIN GOROUTINE DUMP ===\n%s\n=== END GOROUTINE DUMP ===", stack)
+
+	// Also write to a file with timestamp
+	timestamp := time.Now().Format("20060102-150405")
+	filename := fmt.Sprintf("goroutine-dump-%s.log", timestamp)
+
+	err := os.WriteFile(filename, stack, 0644)
+	if err != nil {
+		logger.Printf("Failed to write goroutine dump to file: %v", err)
+	} else {
+		logger.Printf("Wrote goroutine dump to %s", filename)
+		fmt.Printf("Wrote goroutine dump to %s\n", filename)
+	}
+
+	// Also write a CPU profile if possible
+	cpuProfileName := fmt.Sprintf("cpu-profile-%s.pprof", timestamp)
+	f, err := os.Create(cpuProfileName)
+	if err != nil {
+		logger.Printf("Failed to create CPU profile: %v", err)
+	} else {
+		logger.Printf("Writing CPU profile to %s", cpuProfileName)
+		pprof.StartCPUProfile(f)
+		// Stop the profile after 5 seconds
+		go func() {
+			time.Sleep(5 * time.Second)
+			pprof.StopCPUProfile()
+			f.Close()
+			logger.Printf("CPU profile completed")
+		}()
+	}
+}
+
 func main() {
 	flag.Parse()
 
@@ -888,6 +933,23 @@ func main() {
 		fmt.Printf("Error setting up logger: %v\n", err)
 		os.Exit(1)
 	}
+
+	// Set up signal handler for SIGUSR1 to dump goroutine stacks
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGUSR1)
+
+	go func() {
+		for sig := range sigChan {
+			if sig == syscall.SIGUSR1 {
+				fmt.Println("Received SIGUSR1, dumping goroutine stacks...")
+				debugLog.Printf("Received SIGUSR1, dumping goroutine stacks...")
+				dumpGoroutineStacks(debugLog)
+			}
+		}
+	}()
+
+	debugLog.Printf("Signal handler installed for SIGUSR1 (use 'kill -SIGUSR1 %d' to trigger stack dump)", os.Getpid())
+	fmt.Printf("Signal handler installed for SIGUSR1 (use 'kill -SIGUSR1 %d' to trigger stack dump)\n", os.Getpid())
 
 	var serverURLStr string
 	var token string
