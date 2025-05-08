@@ -57,17 +57,44 @@ func main() {
 		log.Fatal("Failed to create sub filesystem:", err)
 	}
 
-	// Create file server handler
-	fileServer := http.FileServer(http.FS(staticFS))
-
-	// Handle root and static files
+	// Handle root path explicitly to avoid redirect loops
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		// Serve index.html for root path
 		if r.URL.Path == "/" {
-			r.URL.Path = "/index.html"
+			// Serve index.html directly for the root path
+			content, err := fs.ReadFile(staticFS, "index.html")
+			if err != nil {
+				http.Error(w, "Could not read index.html", http.StatusInternalServerError)
+				log.Printf("Error reading index.html: %v", err)
+				return
+			}
+
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			w.Write(content)
+			return
 		}
 
-		fileServer.ServeHTTP(w, r)
+		// For all other paths, strip the leading slash and serve the file
+		path := r.URL.Path
+		if len(path) > 0 && path[0] == '/' {
+			path = path[1:]
+		}
+
+		content, err := fs.ReadFile(staticFS, path)
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+
+		// Set content type based on file extension
+		contentType := http.DetectContentType(content)
+		if path[len(path)-4:] == ".css" {
+			contentType = "text/css; charset=utf-8"
+		} else if path[len(path)-3:] == ".js" {
+			contentType = "application/javascript; charset=utf-8"
+		}
+
+		w.Header().Set("Content-Type", contentType)
+		w.Write(content)
 	})
 
 	// Start the server
