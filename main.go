@@ -1,8 +1,10 @@
 package main
 
 import (
+	"embed"
 	"flag"
 	"fmt"
+	"io/fs"
 	"log"
 	"net/http"
 	"sync"
@@ -10,6 +12,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 )
+
+//go:embed web/static
+var staticFiles embed.FS
 
 // Client represents a connected user
 type Client struct {
@@ -46,26 +51,32 @@ func main() {
 	// Set up WebSocket route
 	http.HandleFunc("/ws", handleConnections)
 
-	// Add a simple home page that explains this is just a signaling server
+	// Set up static file server for web client
+	staticFS, err := fs.Sub(staticFiles, "web/static")
+	if err != nil {
+		log.Fatal("Failed to create sub filesystem:", err)
+	}
+
+	// Create file server handler
+	fileServer := http.FileServer(http.FS(staticFS))
+
+	// Handle root and static files
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/" {
-			http.Error(w, "Not found", http.StatusNotFound)
-			return
-		}
-		if r.Method != http.MethodGet {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-			return
+		// Serve index.html for root path
+		if r.URL.Path == "/" {
+			r.URL.Path = "/index.html"
 		}
 
-		w.Header().Set("Content-Type", "text/plain")
-		w.Write([]byte("P2PFTP Signaling Server\n\nThis server only provides WebSocket signaling for P2PFTP clients.\nThe web interface has been removed to focus on the CLI implementation."))
+		fileServer.ServeHTTP(w, r)
 	})
 
 	// Start the server
 	listenAddr := fmt.Sprintf("%s:%d", *addr, *port)
-	log.Printf("Signaling server starting on %s", listenAddr)
+	log.Printf("P2PFTP Server starting on %s", listenAddr)
+	log.Printf("Web interface: http://%s/", listenAddr)
 	log.Printf("WebSocket endpoint: ws://%s/ws", listenAddr)
-	err := http.ListenAndServe(listenAddr, nil)
+
+	err = http.ListenAndServe(listenAddr, nil)
 	if err != nil {
 		log.Fatal("ListenAndServe: ", err)
 	}
