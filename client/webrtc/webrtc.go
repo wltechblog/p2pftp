@@ -884,6 +884,7 @@ func (p *Peer) SendBufferedICECandidates() {
 	p.bufferedICECandidates = nil
 }
 
+/* Commented out due to duplicate implementation in datachannels_fixed.go
 func (p *Peer) createDataChannels() {
 	// Create control channel with reliable configuration
 	controlConfig := &webrtc.DataChannelInit{
@@ -904,9 +905,11 @@ func (p *Peer) createDataChannels() {
 	p.setupControlChannel(controlChannel)
 
 	// Create data channel with reliable configuration
-	// Use ordered delivery for reliability
+	// Use ordered delivery for reliability and set protocol to support large messages
 	dataConfig := &webrtc.DataChannelInit{
-		Ordered: boolPtr(true), // Ordered delivery for reliability
+		Ordered:           boolPtr(true),     // Ordered delivery for reliability
+		MaxPacketLifeTime: uint16Ptr(10000),  // 10 seconds lifetime
+		Protocol:          "binary-transfer", // Custom protocol to indicate binary transfer
 	}
 
 	// Create data channel
@@ -922,6 +925,7 @@ func (p *Peer) createDataChannels() {
 	// Set up the data channel
 	p.setupDataChannel(dataChannel)
 }
+*/
 
 // SendMessage sends a chat message through the data channel
 // This is a completely new implementation that uses a non-blocking approach
@@ -1051,6 +1055,7 @@ func (p *Peer) SendControl(data []byte) error {
 	return nil
 }
 
+/* Commented out due to duplicate implementation in senddata_fixed.go
 // SendData sends binary data through the data channel
 func (p *Peer) SendData(data []byte) error {
 	// Only lock the mutex for the initial checks, not for the entire send operation
@@ -1083,6 +1088,43 @@ func (p *Peer) SendData(data []byte) error {
 	// Get a reference to the data channel while still holding the lock
 	dataChannel := p.dataChannel
 
+	// Check if the data size is too large for the data channel
+	// WebRTC has a practical limit around 16KB for reliable transmission
+	maxSize := 16384 // 16KB is a safe limit for most WebRTC implementations
+
+	// If data is larger than the safe limit, fall back to control channel
+	if len(data) > maxSize {
+		p.mu.Unlock()
+		p.debugLog.Printf("Data size %d exceeds safe WebRTC limit of %d bytes, falling back to control channel",
+			len(data), maxSize)
+
+		// Extract sequence number from the first 4 bytes
+		sequence := -1
+		if len(data) >= 4 {
+			sequence = int(data[0])<<24 | int(data[1])<<16 | int(data[2])<<8 | int(data[3])
+		}
+
+		// Extract chunk data (skip the 8-byte header)
+		chunkData := data[8:]
+
+		// Create a control message with the chunk data
+		chunkMsg := map[string]interface{}{
+			"type":     "file-chunk",
+			"sequence": sequence,
+			"size":     len(chunkData),
+			"data":     base64.StdEncoding.EncodeToString(chunkData),
+		}
+
+		// Convert to JSON
+		chunkJSON, err := json.Marshal(chunkMsg)
+		if err != nil {
+			return fmt.Errorf("error marshaling chunk data: %v", err)
+		}
+
+		// Send via control channel
+		return p.SendControl(chunkJSON)
+	}
+
 	// Unlock the mutex before the send operation to allow other sends to proceed
 	p.mu.Unlock()
 
@@ -1102,23 +1144,28 @@ func (p *Peer) SendData(data []byte) error {
 	if err != nil {
 		p.debugLog.Printf("Failed to send data message (sequence: %d): %v", sequence, err)
 
-		// Try again immediately in a background goroutine
-		go func() {
-			// Try a few more times with increasing delays
-			for i := 0; i < 3; i++ {
-				time.Sleep(time.Duration(50*(i+1)) * time.Millisecond)
-				p.debugLog.Printf("Retry %d for sequence: %d", i+1, sequence)
+		// If we get an error, try sending via control channel as fallback
+		p.debugLog.Printf("Falling back to control channel for sequence: %d", sequence)
 
-				err = dataChannel.Send(data)
-				if err != nil {
-					p.debugLog.Printf("Retry %d failed for sequence %d: %v", i+1, sequence, err)
-				} else {
-					p.debugLog.Printf("Data message sent successfully on retry %d (sequence: %d)", i+1, sequence)
-					return
-				}
-			}
-			p.debugLog.Printf("All retries failed for sequence %d", sequence)
-		}()
+		// Extract chunk data (skip the 8-byte header)
+		chunkData := data[8:]
+
+		// Create a control message with the chunk data
+		chunkMsg := map[string]interface{}{
+			"type":     "file-chunk",
+			"sequence": sequence,
+			"size":     len(chunkData),
+			"data":     base64.StdEncoding.EncodeToString(chunkData),
+		}
+
+		// Convert to JSON
+		chunkJSON, err := json.Marshal(chunkMsg)
+		if err != nil {
+			return fmt.Errorf("error marshaling chunk data: %v", err)
+		}
+
+		// Send via control channel
+		return p.SendControl(chunkJSON)
 	} else {
 		p.debugLog.Printf("Data message sent successfully (sequence: %d)", sequence)
 	}
@@ -1128,6 +1175,7 @@ func (p *Peer) SendData(data []byte) error {
 	p.debugLog.Printf("Returning from SendData (message sending in background)")
 	return nil
 }
+*/
 
 // SetControlHandler sets the handler for control channel messages
 func (p *Peer) SetControlHandler(handler func([]byte)) {

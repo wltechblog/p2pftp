@@ -14,7 +14,6 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/wltechblog/p2pftp/client/webrtc"
 )
@@ -745,6 +744,7 @@ func (c *CLI) sendFile(filePath string) error {
 	return nil
 }
 
+/* Commented out due to duplicate implementation in filechunks.go
 // sendFileChunks sends file data in chunks
 func (c *CLI) sendFileChunks(fileData []byte) {
 	c.debugLog.Printf("Starting to send file chunks, total size: %d bytes", len(fileData))
@@ -753,12 +753,24 @@ func (c *CLI) sendFileChunks(fileData []byte) {
 	var chunkSize int
 	if c.peer != nil {
 		// Convert int32 to int
-		chunkSize = int(c.peer.GetNegotiatedChunkSize()) - 8 // Subtract 8 bytes for header
+		negotiatedSize := int(c.peer.GetNegotiatedChunkSize())
+
+		// Use a smaller chunk size than negotiated to ensure reliable transmission
+		// WebRTC has practical limits around 16KB for most implementations
+		maxSafeSize := 8192 // 8KB is a very safe limit for WebRTC data channels
+
+		if negotiatedSize > maxSafeSize {
+			c.debugLog.Printf("Limiting chunk size to %d bytes for reliability (negotiated was %d)",
+				maxSafeSize, negotiatedSize)
+			chunkSize = maxSafeSize - 8 // Subtract 8 bytes for header
+		} else {
+			chunkSize = negotiatedSize - 8 // Subtract 8 bytes for header
+		}
 	}
 
 	// Fallback to default if we couldn't get the negotiated size
 	if chunkSize <= 0 {
-		chunkSize = 16384 - 8 // Default to 16KB - 8 bytes for header
+		chunkSize = 8192 - 8 // Default to 8KB - 8 bytes for header
 	}
 
 	c.debugLog.Printf("Using chunk size of %d bytes (plus 8-byte header)", chunkSize)
@@ -864,6 +876,7 @@ func (c *CLI) sendFileChunks(fileData []byte) {
 		c.debugLog.Printf("Error sending file-complete: %v", err)
 	}
 }
+*/
 
 func main() {
 	flag.Parse()
