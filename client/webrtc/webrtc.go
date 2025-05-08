@@ -224,23 +224,8 @@ func NewPeer(debug *log.Logger) (*Peer, error) {
 
 	// Add ICE candidate handler
 	pc.OnICECandidate(func(candidate *webrtc.ICECandidate) {
-		if candidate == nil {
-			peer.debugLog.Printf("ICE gathering completed")
-			return
-		}
-
-		peer.debugLog.Printf("New ICE candidate: %s", candidate.String())
-
-		// Send the ICE candidate to the remote peer via signaling server
-		if peer.signaler != nil {
-			candidateInit := candidate.ToJSON()
-			err := peer.signaler.SendICE(candidateInit)
-			if err != nil {
-				peer.debugLog.Printf("Failed to send ICE candidate: %v", err)
-			}
-		} else {
-			peer.debugLog.Printf("Cannot send ICE candidate: signaler not initialized")
-		}
+		// Use our new method to handle ICE candidates
+		peer.HandleICECandidate(candidate)
 	})
 
 	return peer, nil
@@ -650,6 +635,11 @@ func (p *Peer) Connect(wsURL, token string) error {
 
 	p.debugLog.Printf("Connecting to peer: %s", token)
 
+	// Set this peer as the initiator
+	p.mu.Lock()
+	p.isInitiator = true
+	p.mu.Unlock()
+
 	if p.signaler == nil {
 		// Register with server first if not already connected
 		if err := p.Register(wsURL); err != nil {
@@ -666,26 +656,16 @@ func (p *Peer) Connect(wsURL, token string) error {
 		return fmt.Errorf("failed to send connect request: %v", err)
 	}
 
-	// Create data channels before creating offer
+	// Create data channels
 	p.createDataChannels()
 
-	// Create offer
-	offer, err := p.conn.CreateOffer(nil)
-	if err != nil {
-		return fmt.Errorf("failed to create offer: %v", err)
+	// Notify the user that the connection request has been sent
+	if p.statusHandler != nil {
+		p.statusHandler(fmt.Sprintf("Connection request sent to %s. Waiting for acceptance...", token))
 	}
 
-	// Set local description
-	err = p.conn.SetLocalDescription(offer)
-	if err != nil {
-		return fmt.Errorf("failed to set local description: %v", err)
-	}
-
-	// Send offer through signaling server
-	err = p.signaler.SendOffer(offer)
-	if err != nil {
-		return fmt.Errorf("failed to send offer: %v", err)
-	}
+	// We'll create and send the offer only after the peer accepts the connection
+	// This will be handled in the signaler's "accepted" message handler
 
 	return nil
 }
@@ -707,6 +687,11 @@ func (p *Peer) Accept(wsURL, token string) error {
 
 	// Set peer token in signaler
 	p.signaler.peerToken = token
+
+	// Mark the connection as accepted
+	p.mu.Lock()
+	p.connectionAccepted = true
+	p.mu.Unlock()
 
 	// Send accept message
 	err := p.signaler.SendAccept(token)
