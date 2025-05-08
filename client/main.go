@@ -749,12 +749,26 @@ func (c *CLI) sendFile(filePath string) error {
 func (c *CLI) sendFileChunks(fileData []byte) {
 	c.debugLog.Printf("Starting to send file chunks, total size: %d bytes", len(fileData))
 
-	// Use an even smaller chunk size for the control channel approach
-	// Control channel messages are JSON and base64 encoded, so they need to be smaller
-	chunkSize := 4096 - 8 // 4088 bytes for data + 8 bytes for header = 4096 bytes total
+	// Get the negotiated chunk size from the peer
+	var chunkSize int
+	if c.peer != nil {
+		// Convert int32 to int
+		chunkSize = int(c.peer.GetNegotiatedChunkSize()) - 8 // Subtract 8 bytes for header
+	}
+
+	// Fallback to default if we couldn't get the negotiated size
+	if chunkSize <= 0 {
+		chunkSize = 16384 - 8 // Default to 16KB - 8 bytes for header
+	}
+
+	c.debugLog.Printf("Using chunk size of %d bytes (plus 8-byte header)", chunkSize)
 	totalChunks := (len(fileData) + chunkSize - 1) / chunkSize
 
 	c.debugLog.Printf("Will send %d chunks of %d bytes each (plus 8-byte header per chunk)", totalChunks, chunkSize)
+
+	// Try to use data channel first, fall back to control channel if needed
+	useDataChannel := c.peer != nil && c.peer.IsDataChannelOpen()
+	c.debugLog.Printf("Data channel available: %v", useDataChannel)
 
 	for i := 0; i < totalChunks; i++ {
 		// Calculate chunk boundaries
@@ -785,39 +799,52 @@ func (c *CLI) sendFileChunks(fileData []byte) {
 
 		c.debugLog.Printf("Sending chunk %d of %d, size: %d bytes (including 8-byte header)", i+1, totalChunks, len(chunkData))
 
-		// Send chunk
-		// Try sending chunk via control channel as a workaround
-		// This is a temporary solution until we fix the data channel
-		c.debugLog.Printf("Sending chunk %d via control channel", i)
+		var err error
+		if useDataChannel {
+			// Try to send via data channel first
+			c.debugLog.Printf("Sending chunk %d via data channel", i)
+			err = c.peer.SendData(chunkData)
 
-		// Create a control message with the chunk data
-		chunkMsg := map[string]interface{}{
-			"type":     "file-chunk",
-			"sequence": i,
-			"size":     end - start,
-			"data":     base64.StdEncoding.EncodeToString(fileData[start:end]),
+			// If data channel fails, fall back to control channel
+			if err != nil {
+				c.debugLog.Printf("Data channel send failed: %v, falling back to control channel", err)
+				useDataChannel = false
+			}
 		}
 
-		// Convert to JSON
-		chunkJSON, err := json.Marshal(chunkMsg)
-		if err != nil {
-			c.debugLog.Printf("Error marshaling chunk %d: %v", i, err)
-			continue
-		}
+		// If data channel is not available or failed, use control channel
+		if !useDataChannel {
+			c.debugLog.Printf("Sending chunk %d via control channel", i)
 
-		// Send via control channel
-		if err := c.peer.SendControl(chunkJSON); err != nil {
-			c.debugLog.Printf("Error sending chunk %d: %v", i, err)
-			continue
+			// Create a control message with the chunk data
+			chunkMsg := map[string]interface{}{
+				"type":     "file-chunk",
+				"sequence": i,
+				"size":     end - start,
+				"data":     base64.StdEncoding.EncodeToString(fileData[start:end]),
+			}
+
+			// Convert to JSON
+			chunkJSON, err := json.Marshal(chunkMsg)
+			if err != nil {
+				c.debugLog.Printf("Error marshaling chunk %d: %v", i, err)
+				continue
+			}
+
+			// Send via control channel
+			if err := c.peer.SendControl(chunkJSON); err != nil {
+				c.debugLog.Printf("Error sending chunk %d: %v", i, err)
+				continue
+			}
+
+			// Throttle sending to avoid overwhelming the control channel
+			// Only add delay when using control channel, and use a shorter delay
+			time.Sleep(20 * time.Millisecond)
 		}
 
 		// Print progress
 		percentage := float64(i+1) / float64(totalChunks) * 100
 		fmt.Printf("\rSending: %.1f%% (%d/%d chunks)", percentage, i+1, totalChunks)
-
-		// Throttle sending to avoid overwhelming the control channel
-		// Use a longer delay since we're using the control channel
-		time.Sleep(100 * time.Millisecond)
 	}
 
 	fmt.Println("\nAll chunks sent")

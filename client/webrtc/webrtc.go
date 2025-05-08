@@ -1164,6 +1164,28 @@ func (p *Peer) IsConnected() bool {
 		(iceState == webrtc.ICEConnectionStateConnected || iceState == webrtc.ICEConnectionStateCompleted)
 }
 
+// GetNegotiatedChunkSize returns the negotiated chunk size for file transfers
+func (p *Peer) GetNegotiatedChunkSize() int32 {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	// If capabilities have been exchanged, return the negotiated size
+	if p.capabilitiesExchanged {
+		return p.negotiatedChunkSize
+	}
+
+	// Otherwise return the default size
+	return DefaultChunkSize
+}
+
+// IsDataChannelOpen returns whether the data channel is open and ready for use
+func (p *Peer) IsDataChannelOpen() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	return p.dataChannel != nil && p.dataChannel.ReadyState() == webrtc.DataChannelStateOpen
+}
+
 // StoreRequestToken stores the most recent connection request token
 func (p *Peer) StoreRequestToken(token string) {
 	p.mu.Lock()
