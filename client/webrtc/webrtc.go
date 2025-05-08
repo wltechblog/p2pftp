@@ -543,15 +543,14 @@ func (p *Peer) createDataChannels() {
 	// Set up the control channel
 	p.setupControlChannel(controlChannel)
 
-	// Create data channel with partial reliability
-	// Use unordered delivery with retransmits for better throughput
+	// Create data channel with reliable configuration
+	// Use ordered delivery for reliability
 	dataConfig := &webrtc.DataChannelInit{
-		Ordered:        boolPtr(false), // Unordered delivery for better throughput
-		MaxRetransmits: uint16Ptr(3),   // Retry a few times but don't block forever
+		Ordered: boolPtr(true), // Ordered delivery for reliability
 	}
 
 	// Create data channel
-	p.debugLog.Printf("Creating data channel with unordered delivery and max retransmits: 3")
+	p.debugLog.Printf("Creating data channel with ordered delivery for reliability")
 	dataChannel, err := p.conn.CreateDataChannel("p2pftp-data", dataConfig)
 	if err != nil {
 		p.debugLog.Printf("Failed to create data channel: %v", err)

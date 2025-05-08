@@ -3,15 +3,9 @@ package main
 import (
 	"flag"
 	"fmt"
-	"io"
-	"io/fs"
 	"log"
-	"mime"
 	"net/http"
-	"path/filepath"
-	"strings"
 	"sync"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
@@ -40,59 +34,45 @@ var (
 			return true // Allow all origins for testing
 		},
 	}
-	mutex    = &sync.Mutex{}
-	staticFS fs.FS
+	mutex = &sync.Mutex{}
 )
 
 func main() {
-	// Set up embedded filesystem
-	var err error
-	staticFS, err = fs.Sub(staticFiles, "static")
-	if err != nil {
-		log.Fatal("Error setting up static files:", err)
-	}
-
 	// Parse command line arguments
 	addr := flag.String("addr", "localhost", "Listen address")
 	port := flag.Int("port", 8089, "Listen port")
 	flag.Parse()
 
-	// Set up routes
-	http.HandleFunc("/", serveHome)
+	// Set up WebSocket route
 	http.HandleFunc("/ws", handleConnections)
-	http.HandleFunc("/static/", serveStatic)
+
+	// Add a simple home page that explains this is just a signaling server
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/" {
+			http.Error(w, "Not found", http.StatusNotFound)
+			return
+		}
+		if r.Method != http.MethodGet {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		w.Header().Set("Content-Type", "text/plain")
+		w.Write([]byte("P2PFTP Signaling Server\n\nThis server only provides WebSocket signaling for P2PFTP clients.\nThe web interface has been removed to focus on the CLI implementation."))
+	})
 
 	// Start the server
 	listenAddr := fmt.Sprintf("%s:%d", *addr, *port)
-	log.Printf("Server starting on %s", listenAddr)
-	err = http.ListenAndServe(listenAddr, nil)
+	log.Printf("Signaling server starting on %s", listenAddr)
+	log.Printf("WebSocket endpoint: ws://%s/ws", listenAddr)
+	err := http.ListenAndServe(listenAddr, nil)
 	if err != nil {
 		log.Fatal("ListenAndServe: ", err)
 	}
 }
 
-func serveHome(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path != "/" {
-		http.Error(w, "Not found", http.StatusNotFound)
-		return
-	}
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	content, err := staticFiles.ReadFile("static/index.html")
-	if err != nil {
-		http.Error(w, "Error reading file", http.StatusInternalServerError)
-		return
-	}
-	log.Printf("%s %s", r.Proto, r.Header.Get("X-Forwarded-For"))
-	w.Header().Set("Content-Type", "text/html")
-	w.Write(content)
-}
-
 func handleConnections(w http.ResponseWriter, r *http.Request) {
-	log.Printf("Startign websocket for %s", r.Header.Get("X-Forwarded-For"))
+	log.Printf("Starting websocket for %s", r.Header.Get("X-Forwarded-For"))
 	// Upgrade HTTP connection to WebSocket
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -279,44 +259,4 @@ func forwardICE(client *Client, msg Message) {
 		Token: client.token,
 		ICE:   msg.ICE,
 	})
-}
-
-// Serve static files from embedded filesystem
-func serveStatic(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	// Clean the path to prevent directory traversal
-	path := strings.TrimPrefix(r.URL.Path, "/static/")
-	if path == "" {
-		http.Error(w, "Not found", http.StatusNotFound)
-		return
-	}
-
-	// Read the file from embedded filesystem
-	content, err := staticFS.Open(path)
-	if err != nil {
-		http.Error(w, "Not found", http.StatusNotFound)
-		return
-	}
-	defer content.Close()
-
-	// Set content type
-	ext := filepath.Ext(path)
-	var contentType string
-	switch ext {
-	case ".js":
-		contentType = "application/javascript"
-	default:
-		contentType = mime.TypeByExtension(ext)
-		if contentType == "" {
-			contentType = "application/octet-stream"
-		}
-	}
-	w.Header().Set("Content-Type", contentType)
-
-	// Copy the file contents to the response
-	http.ServeContent(w, r, path, time.Now(), content.(io.ReadSeeker))
 }

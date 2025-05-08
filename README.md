@@ -3,12 +3,10 @@
 A service providing secure and reliable P2P file transfers and chat
 
 ## Features
-- Web or CLI interfaces! (See the [CLI README](cli/README.md) for CLI-specific instructions)
+- Command-line interface for file transfers and chat
 - Peer-to-peer file transfer over WebRTC data channels
 - Secure token-based authentication
 - Text chat between peers
-- Mobile-first responsive design (NOTE: Android browsers tend to kill webrtc connections when you switch away, so may not be reliable there!)
-- Real-time transfer progress indication
 - Direct end-to-end encrypted, peer-to-peer communication (no server involvement once connected)
 - Works through typical NAT situations
 - Robust error handling with automatic retransmission of missing chunks
@@ -30,8 +28,7 @@ encryption is a must.
 ## Requirements
 
 - Go 1.24.1 or higher
-- Modern web browsers with WebRTC support
-- https reverse proxy such as Caddy or nginx
+- https reverse proxy such as Caddy or nginx for production deployments
 
 ## Installation
 
@@ -41,9 +38,11 @@ go install github.com/wltechblog/p2pftp@latest
 
 ## Usage
 
-1. Run the Go executable to start the server:
+### Server
+
+1. Run the Go executable to start the signaling server:
    ```
-   p2pftp
+   p2pftp-server
    ```
 
    Optional command line arguments:
@@ -52,28 +51,34 @@ go install github.com/wltechblog/p2pftp@latest
 
    Example with custom address and port:
    ```
-   p2pftp -addr 0.0.0.0 -port 9000
+   p2pftp-server -addr 0.0.0.0 -port 9000
    ```
 
-2. Use a https proxy such as Caddy, nginx, etc to provide a secure connection. Just forward all requests for the url hostname to localhost:8089 or whatever you specify in your command line.
+2. For production use, set up a https proxy such as Caddy, nginx, etc to provide a secure connection. Forward all requests for the URL hostname to localhost:8089 or whatever you specify in your command line.
 
    **Note**: The CLI client always uses secure WebSocket connections (WSS) as it expects the server to be behind an SSL proxy.
 
+### Client
 
-3. Open your browser to your URL, share your token with the person you want to connect with, or use the "Copy Link" to give them a URL that directly connects to you.
+1. Run the CLI client:
+   ```
+   p2pftp-cli
+   ```
 
-4. When they attempt to connect, authorize the connection request to hook up.
+   Optional command line arguments:
+   - `-server`: Signaling server hostname (default: p2p.teamworkapps.com)
+   - `-url`: Full connection URL (e.g., https://p2p.teamworkapps.com/?token=abcd1234)
+   - `-debug`: Enable debug logging
+   - `-logfile`: Path to debug log file (default: p2pftp-debug.log)
 
-5. Once the connection is established, you can start chatting and sending files
-
-6. When done, close the tab and your session is gone forever.
+2. Follow the on-screen instructions to connect to a peer, send/receive files, and chat.
 
 ## How It Works
 
-1. When users load the page, they establish a WebSocket connection to the server
+1. When users start the client, they establish a WebSocket connection to the signaling server
 2. Each user is assigned a unique, secure token
 3. To connect, one user enters the other's token and initiates the connection
-4. The receiving user is notified and can accept or reject the connection, and can validate the peer token
+4. The receiving user is notified and can accept or reject the connection
 5. When accepted, WebRTC signaling occurs through the server
 6. After the WebRTC connection is established, all communication happens directly between peers
 7. No file data passes through the server, ensuring privacy and reducing server load
@@ -81,14 +86,20 @@ go install github.com/wltechblog/p2pftp@latest
 ## Development
 
 The project structure is simple:
-- `main.go`: Go server implementation
-- `static/index.html`: Frontend HTML
-- `static/app.js`: Frontend JavaScript
+- `main.go`: Signaling server implementation
+- `client/`: CLI client implementation
+  - `main.go`: Main client code
+  - `webrtc/`: WebRTC implementation
+  - `transfer/`: File transfer implementation
 
-To build the executable:
+To build the executables:
 ```
-go build -o p2pftp main.go
+make build
 ```
+
+This will create:
+- `bin/p2pftp-server`: The signaling server
+- `bin/p2pftp-cli`: The CLI client
 
 ## License
 
