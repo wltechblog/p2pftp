@@ -175,6 +175,7 @@ type CLI struct {
 	sendChan         chan []byte
 	quit             chan struct{}
 	lastRequestToken string // Stores the most recent connection request token
+	transferComplete bool   // Flag to indicate the sender has sent file-complete
 }
 
 // NewCLI creates a new CLI client
@@ -188,6 +189,7 @@ func NewCLI(serverURLStr, token string, debug *log.Logger) *CLI {
 		quit:             make(chan struct{}),
 		sendChan:         make(chan []byte, 64),
 		lastRequestToken: "",
+		transferComplete: false,
 	}
 }
 
@@ -379,10 +381,22 @@ func (c *CLI) handleControlMessage(data []byte) {
 
 	case "file-complete":
 		// Handle file complete message
-		fmt.Printf("\nFile transfer complete\n")
+		fmt.Printf("\nFile transfer complete, waiting for all chunks...\n")
 
-		// Save the received file
-		c.saveReceivedFile()
+		c.transferMu.Lock()
+		c.transferComplete = true
+
+		// Check if we've received all the data
+		if c.fileInfo != nil && int64(len(c.fileData)) == c.fileInfo.Size {
+			// We have all the data, proceed with verification and saving
+			c.transferMu.Unlock()
+			c.saveReceivedFile()
+		} else {
+			// We're still waiting for chunks, don't verify yet
+			c.debugLog.Printf("Received file-complete but only have %d/%d bytes. Waiting for remaining chunks...",
+				len(c.fileData), c.fileInfo.Size)
+			c.transferMu.Unlock()
+		}
 
 		fmt.Print("> ")
 
@@ -466,8 +480,17 @@ func (c *CLI) handleDataMessage(data []byte) {
 
 	// Check if file is complete
 	if len(c.fileData) == int(c.fileInfo.Size) {
-		c.debugLog.Printf("File transfer complete, saving file")
-		c.saveReceivedFile()
+		c.debugLog.Printf("All chunks received, total size: %d bytes", len(c.fileData))
+
+		// If we've received the file-complete message, verify and save the file
+		if c.transferComplete {
+			// Release the lock before calling saveReceivedFile
+			c.transferMu.Unlock()
+			c.saveReceivedFile()
+			c.transferMu.Lock() // Re-acquire the lock
+		} else {
+			c.debugLog.Printf("All chunks received but waiting for file-complete message")
+		}
 	}
 }
 
@@ -559,6 +582,7 @@ func (c *CLI) saveReceivedFile() {
 	c.fileInfo = nil
 	c.fileData = nil
 	c.receiving = false
+	c.transferComplete = false
 }
 
 // sendCapabilitiesAck sends a capabilities acknowledgment
