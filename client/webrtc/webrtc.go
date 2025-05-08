@@ -47,6 +47,8 @@ type Peer struct {
 	mu                    sync.Mutex
 	iceConnected          bool
 	iceTimeout            time.Duration
+	pendingOffer          *webrtc.SessionDescription // Stores a pending offer until explicitly accepted
+	pendingOfferFrom      string                     // Token of the peer who sent the pending offer
 }
 
 // SetTokenHandler sets a handler for when the server assigns a token
@@ -712,7 +714,83 @@ func (p *Peer) Accept(wsURL, token string) error {
 	// Create data channels
 	p.createDataChannels()
 
+	// Check if we have a pending offer from this peer
+	p.mu.Lock()
+	pendingOffer := p.pendingOffer
+	pendingOfferFrom := p.pendingOfferFrom
+	p.mu.Unlock()
+
+	if pendingOffer != nil && pendingOfferFrom == token {
+		p.debugLog.Printf("Processing pending offer from %s", token)
+
+		// Process the pending offer
+		if err := p.processPendingOffer(); err != nil {
+			return fmt.Errorf("failed to process pending offer: %v", err)
+		}
+	}
+
 	return nil
+}
+
+// processPendingOffer processes a stored offer after explicit acceptance
+func (p *Peer) processPendingOffer() error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if p.pendingOffer == nil {
+		return fmt.Errorf("no pending offer to process")
+	}
+
+	p.debugLog.Printf("Processing pending offer from: %s", p.pendingOfferFrom)
+
+	// Set remote description
+	if err := p.conn.SetRemoteDescription(*p.pendingOffer); err != nil {
+		return fmt.Errorf("error setting remote description: %v", err)
+	}
+
+	// Create answer
+	answer, err := p.conn.CreateAnswer(nil)
+	if err != nil {
+		return fmt.Errorf("error creating answer: %v", err)
+	}
+
+	// Set local description
+	if err := p.conn.SetLocalDescription(answer); err != nil {
+		return fmt.Errorf("error setting local description: %v", err)
+	}
+
+	// Send answer
+	if err := p.signaler.SendAnswer(answer); err != nil {
+		return fmt.Errorf("error sending answer: %v", err)
+	}
+
+	// Update connection status
+	if p.statusHandler != nil {
+		p.statusHandler("Connection established with " + p.pendingOfferFrom)
+	}
+
+	// Clear the pending offer
+	p.pendingOffer = nil
+	p.pendingOfferFrom = ""
+
+	return nil
+}
+
+// HandleOffer stores an offer from a peer without processing it
+// The offer will be processed when Accept is explicitly called
+func (p *Peer) HandleOffer(token string, offer webrtc.SessionDescription) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	p.debugLog.Printf("Storing offer from %s for later acceptance", token)
+	p.pendingOffer = &offer
+	p.pendingOfferFrom = token
+
+	// Notify the user about the pending connection
+	if p.statusHandler != nil {
+		p.statusHandler(fmt.Sprintf("Connection offer received from: %s. Use 'accept %s' to accept.",
+			token, token))
+	}
 }
 
 func (p *Peer) createDataChannels() {

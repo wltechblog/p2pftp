@@ -224,46 +224,18 @@ func (s *Signaler) handleMessages() {
 				s.debugLog.Printf("Setting peer token to: %s", s.peerToken)
 			}
 
-			// Create data channels before processing the offer
-			if s.peer != nil {
-				s.debugLog.Printf("Creating data channels for incoming connection")
-				s.peer.createDataChannels()
-			}
-
 			var offer webrtc.SessionDescription
 			if err := json.Unmarshal([]byte(msg.SDP), &offer); err != nil {
 				s.debugLog.Printf("Error parsing offer: %v", err)
 				return
 			}
 
-			// Set remote description
-			if err := s.peer.conn.SetRemoteDescription(offer); err != nil {
-				s.debugLog.Printf("Error setting remote description: %v", err)
-				return
-			}
-
-			// Create answer
-			answer, err := s.peer.conn.CreateAnswer(nil)
-			if err != nil {
-				s.debugLog.Printf("Error creating answer: %v", err)
-				return
-			}
-
-			// Set local description
-			if err := s.peer.conn.SetLocalDescription(answer); err != nil {
-				s.debugLog.Printf("Error setting local description: %v", err)
-				return
-			}
-
-			// Send answer
-			if err := s.SendAnswer(answer); err != nil {
-				s.debugLog.Printf("Error sending answer: %v", err)
-				return
-			}
-
-			// Update connection status
-			if s.peer != nil && s.peer.statusHandler != nil {
-				s.peer.statusHandler("Connection established")
+			// Store the offer for later processing when Accept is called
+			if s.peer != nil {
+				s.debugLog.Printf("Storing offer for later acceptance")
+				s.peer.HandleOffer(msg.Token, offer)
+			} else {
+				s.debugLog.Printf("Cannot store offer: peer is nil")
 			}
 
 		case "answer":
