@@ -1,0 +1,11 @@
+	case "file-complete":
+		// Handle file complete message
+		fmt.Printf("\nFile transfer complete\n")
+
+		// Save the received file
+		c.saveReceivedFile()
+
+		fmt.Print("> ")
+
+	case "file-verified":
+		// Handle file verification message

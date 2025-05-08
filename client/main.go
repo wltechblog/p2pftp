@@ -485,6 +485,20 @@ func (c *CLI) saveReceivedFile() {
 	if int64(len(c.fileData)) != c.fileInfo.Size {
 		c.debugLog.Printf("File size mismatch: expected %d, got %d", c.fileInfo.Size, len(c.fileData))
 		fmt.Printf("\nFile size mismatch: expected %d, got %d bytes\n", c.fileInfo.Size, len(c.fileData))
+
+		// Send verification failure message to sender
+		failMsg := map[string]interface{}{
+			"type":   "file-failed",
+			"reason": fmt.Sprintf("Size mismatch: expected %d, got %d bytes", c.fileInfo.Size, len(c.fileData)),
+		}
+
+		if data, err := json.Marshal(failMsg); err == nil {
+			c.peer.SendControl(data)
+			c.debugLog.Printf("Sent file-failed message to sender")
+		} else {
+			c.debugLog.Printf("Failed to marshal file-failed message: %v", err)
+		}
+
 		return
 	}
 
@@ -494,7 +508,33 @@ func (c *CLI) saveReceivedFile() {
 	if md5Hash != c.fileInfo.MD5 {
 		c.debugLog.Printf("MD5 mismatch: expected %s, got %s", c.fileInfo.MD5, md5Hash)
 		fmt.Printf("\nMD5 mismatch: file may be corrupted\n")
+
+		// Send verification failure message to sender
+		failMsg := map[string]interface{}{
+			"type":   "file-failed",
+			"reason": fmt.Sprintf("MD5 mismatch: expected %s, got %s", c.fileInfo.MD5, md5Hash),
+		}
+
+		if data, err := json.Marshal(failMsg); err == nil {
+			c.peer.SendControl(data)
+			c.debugLog.Printf("Sent file-failed message to sender")
+		} else {
+			c.debugLog.Printf("Failed to marshal file-failed message: %v", err)
+		}
+
 		return
+	}
+
+	// Send verification success message to sender
+	verifyMsg := map[string]interface{}{
+		"type": "file-verified",
+	}
+
+	if data, err := json.Marshal(verifyMsg); err == nil {
+		c.peer.SendControl(data)
+		c.debugLog.Printf("Sent file-verified message to sender")
+	} else {
+		c.debugLog.Printf("Failed to marshal file-verified message: %v", err)
 	}
 
 	// Save file
