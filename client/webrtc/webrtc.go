@@ -20,24 +20,33 @@ func boolPtr(v bool) *bool {
 	return &v
 }
 
+// Chunk size constants as defined in the protocol
+const (
+	MinChunkSize     int32 = 4096   // 4KB minimum
+	DefaultChunkSize int32 = 16384  // 16KB default
+	MaxChunkSize     int32 = 262144 // 256KB maximum
+)
+
 // Peer represents a WebRTC peer connection
 type Peer struct {
-	conn           *webrtc.PeerConnection
-	signaler       *Signaler
-	controlChannel *webrtc.DataChannel
-	dataChannel    *webrtc.DataChannel
-	controlHandler func([]byte)
-	messageHandler func(string)
-	statusHandler  func(string)
-	dataHandler    func([]byte)
-	debugLog       *log.Logger
-	tokenHandler   func(string)
-	errorHandler   func(string)
-	negotiated     bool
-	maxChunkSize   int32
-	mu             sync.Mutex
-	iceConnected   bool
-	iceTimeout     time.Duration
+	conn                  *webrtc.PeerConnection
+	signaler              *Signaler
+	controlChannel        *webrtc.DataChannel
+	dataChannel           *webrtc.DataChannel
+	controlHandler        func([]byte)
+	messageHandler        func(string)
+	statusHandler         func(string)
+	dataHandler           func([]byte)
+	debugLog              *log.Logger
+	tokenHandler          func(string)
+	errorHandler          func(string)
+	negotiated            bool
+	maxChunkSize          int32 // Maximum supported chunk size
+	negotiatedChunkSize   int32 // Negotiated chunk size after capabilities exchange
+	capabilitiesExchanged bool  // Whether capabilities have been exchanged
+	mu                    sync.Mutex
+	iceConnected          bool
+	iceTimeout            time.Duration
 }
 
 // SetTokenHandler sets a handler for when the server assigns a token
@@ -53,6 +62,44 @@ func (p *Peer) SetErrorHandler(handler func(string)) {
 // SetDataHandler sets a handler for data channel messages
 func (p *Peer) SetDataHandler(handler func([]byte)) {
 	p.dataHandler = handler
+}
+
+// determineOptimalChunkSize determines the optimal chunk size based on WebRTC capabilities
+func determineOptimalChunkSize(pc *webrtc.PeerConnection, logger *log.Logger) int32 {
+	// Start with the default chunk size from the protocol
+	optimalSize := DefaultChunkSize
+
+	// Try to get SCTP transport information if available
+	// Note: This might not be available until after connection establishment
+	// so we'll implement a more complete detection later in the connection lifecycle
+
+	// For now, use the protocol-defined default
+	logger.Printf("Using protocol default chunk size: %d bytes", optimalSize)
+
+	// In a future implementation, we could try to access SCTP transport properties:
+	// if pc.SCTP() != nil && pc.SCTP().Transport() != nil {
+	//     // Get max message size if available
+	//     maxMessageSize := pc.SCTP().Transport().MaxMessageSize()
+	//     if maxMessageSize > 0 {
+	//         // Subtract header size (8 bytes)
+	//         detectedSize := int32(maxMessageSize) - 8
+	//         logger.Printf("Detected max message size: %d bytes", detectedSize)
+	//
+	//         // Apply protocol constraints
+	//         if detectedSize < MinChunkSize {
+	//             logger.Printf("Detected size %d is below minimum, using %d", detectedSize, MinChunkSize)
+	//             return MinChunkSize
+	//         }
+	//         if detectedSize > MaxChunkSize {
+	//             logger.Printf("Detected size %d exceeds maximum, using %d", detectedSize, MaxChunkSize)
+	//             return MaxChunkSize
+	//         }
+	//
+	//         return detectedSize
+	//     }
+	// }
+
+	return optimalSize
 }
 
 // NewPeer creates a new WebRTC peer
@@ -83,23 +130,28 @@ func NewPeer(debug *log.Logger) (*Peer, error) {
 		debug = log.New(io.Discard, "", 0)
 	}
 
+	// Determine optimal chunk size
+	detectedMaxSize := determineOptimalChunkSize(pc, debug)
+
 	peer := &Peer{
-		conn:           pc,
-		signaler:       nil,
-		controlChannel: nil,
-		dataChannel:    nil,
-		controlHandler: nil,
-		messageHandler: nil,
-		statusHandler:  nil,
-		dataHandler:    nil,
-		tokenHandler:   nil,
-		errorHandler:   nil,
-		debugLog:       debug,
-		negotiated:     false,
-		maxChunkSize:   8184, // 8192 - 8 bytes for header
-		mu:             sync.Mutex{},
-		iceConnected:   false,
-		iceTimeout:     30 * time.Second, // 30 second timeout for ICE connection
+		conn:                  pc,
+		signaler:              nil,
+		controlChannel:        nil,
+		dataChannel:           nil,
+		controlHandler:        nil,
+		messageHandler:        nil,
+		statusHandler:         nil,
+		dataHandler:           nil,
+		tokenHandler:          nil,
+		errorHandler:          nil,
+		debugLog:              debug,
+		negotiated:            false,
+		maxChunkSize:          detectedMaxSize,
+		negotiatedChunkSize:   DefaultChunkSize, // Start with default, will be negotiated
+		capabilitiesExchanged: false,
+		mu:                    sync.Mutex{},
+		iceConnected:          false,
+		iceTimeout:            30 * time.Second, // 30 second timeout for ICE connection
 	}
 
 	// Set up data channel handlers
@@ -243,6 +295,12 @@ func (p *Peer) setupControlChannel(dc *webrtc.DataChannel) {
 			} else {
 				p.debugLog.Printf("Invalid message format or missing content field: %v", msgData)
 			}
+		case "capabilities":
+			// Handle capabilities message directly
+			p.handleCapabilities(msg.Data)
+		case "capabilities-ack":
+			// Handle capabilities acknowledgment directly
+			p.handleCapabilitiesAck(msg.Data)
 		default:
 			// Pass to general control handler
 			if p.controlHandler != nil {
@@ -338,18 +396,151 @@ func (p *Peer) setupDataChannel(dc *webrtc.DataChannel) {
 	})
 }
 
+// handleCapabilities processes a capabilities message from the peer
+func (p *Peer) handleCapabilities(data []byte) {
+	var capabilities struct {
+		Type            string `json:"type"`
+		MaxChunkSize    int32  `json:"maxChunkSize"`
+		DetectedMaxSize int32  `json:"detectedMaxSize,omitempty"`
+	}
+
+	if err := json.Unmarshal(data, &capabilities); err != nil {
+		p.debugLog.Printf("Error parsing capabilities: %v", err)
+		return
+	}
+
+	if capabilities.Type != "capabilities" {
+		p.debugLog.Printf("Invalid capabilities message type: %s", capabilities.Type)
+		return
+	}
+
+	p.debugLog.Printf("Received peer's maximum chunk size: %d", capabilities.MaxChunkSize)
+
+	// Enforce minimum and maximum limits
+	peerMaxChunkSize := capabilities.MaxChunkSize
+	if peerMaxChunkSize < MinChunkSize {
+		p.debugLog.Printf("Peer's max chunk size %d is below minimum %d, using minimum",
+			peerMaxChunkSize, MinChunkSize)
+		peerMaxChunkSize = MinChunkSize
+	}
+	if peerMaxChunkSize > MaxChunkSize {
+		p.debugLog.Printf("Peer's max chunk size %d exceeds maximum %d, using maximum",
+			peerMaxChunkSize, MaxChunkSize)
+		peerMaxChunkSize = MaxChunkSize
+	}
+
+	// Use the smaller of our max and peer's max
+	negotiatedSize := p.maxChunkSize
+	if peerMaxChunkSize < negotiatedSize {
+		negotiatedSize = peerMaxChunkSize
+	}
+
+	p.debugLog.Printf("Negotiated chunk size: %d", negotiatedSize)
+	p.negotiatedChunkSize = negotiatedSize
+
+	// Send acknowledgment
+	ack := struct {
+		Type                string `json:"type"`
+		NegotiatedChunkSize int32  `json:"negotiatedChunkSize"`
+	}{
+		Type:                "capabilities-ack",
+		NegotiatedChunkSize: negotiatedSize,
+	}
+
+	data, err := json.Marshal(ack)
+	if err != nil {
+		p.debugLog.Printf("Error marshaling capabilities-ack: %v", err)
+		return
+	}
+
+	err = p.controlChannel.Send(data)
+	if err != nil {
+		p.debugLog.Printf("Error sending capabilities-ack: %v", err)
+		return
+	}
+
+	// Mark capabilities as exchanged
+	p.capabilitiesExchanged = true
+	p.debugLog.Printf("Capabilities exchange completed, using chunk size: %d", p.negotiatedChunkSize)
+}
+
+// handleCapabilitiesAck processes a capabilities acknowledgment from the peer
+func (p *Peer) handleCapabilitiesAck(data []byte) {
+	var ack struct {
+		Type                string `json:"type"`
+		NegotiatedChunkSize int32  `json:"negotiatedChunkSize"`
+	}
+
+	if err := json.Unmarshal(data, &ack); err != nil {
+		p.debugLog.Printf("Error parsing capabilities-ack: %v", err)
+		return
+	}
+
+	if ack.Type != "capabilities-ack" {
+		p.debugLog.Printf("Invalid capabilities-ack message type: %s", ack.Type)
+		return
+	}
+
+	p.debugLog.Printf("Received capabilities acknowledgment with negotiated chunk size: %d",
+		ack.NegotiatedChunkSize)
+
+	// Enforce minimum and maximum limits
+	negotiatedSize := ack.NegotiatedChunkSize
+	if negotiatedSize < MinChunkSize {
+		p.debugLog.Printf("Negotiated chunk size %d is below minimum %d, using minimum",
+			negotiatedSize, MinChunkSize)
+		negotiatedSize = MinChunkSize
+	}
+	if negotiatedSize > MaxChunkSize {
+		p.debugLog.Printf("Negotiated chunk size %d exceeds maximum %d, using maximum",
+			negotiatedSize, MaxChunkSize)
+		negotiatedSize = MaxChunkSize
+	}
+
+	p.negotiatedChunkSize = negotiatedSize
+
+	// Mark capabilities as exchanged
+	p.capabilitiesExchanged = true
+	p.debugLog.Printf("Capabilities exchange completed, using chunk size: %d", p.negotiatedChunkSize)
+}
+
+func (p *Peer) enforceCapabilitiesTimeout() {
+	// Wait for 5 seconds as specified in the protocol
+	timer := time.NewTimer(5 * time.Second)
+	defer timer.Stop()
+
+	select {
+	case <-timer.C:
+		// Check if capabilities have been exchanged
+		if !p.capabilitiesExchanged {
+			p.debugLog.Printf("ERROR: No capabilities exchange occurred within 5 seconds")
+			// Notify the user
+			if p.statusHandler != nil {
+				p.statusHandler("Connection failed: No capabilities exchange within timeout period")
+			}
+			// Close the connection
+			p.Close()
+		}
+	}
+}
+
 func (p *Peer) sendCapabilities() {
 	p.debugLog.Printf("Sending capabilities with max chunk size: %d", p.maxChunkSize)
 
 	// Wait a short time to ensure channel is fully established
 	time.Sleep(100 * time.Millisecond)
 
+	// Start a timeout for capabilities exchange
+	go p.enforceCapabilitiesTimeout()
+
 	capabilities := struct {
-		Type         string `json:"type"`
-		MaxChunkSize int32  `json:"maxChunkSize"`
+		Type            string `json:"type"`
+		MaxChunkSize    int32  `json:"maxChunkSize"`
+		DetectedMaxSize int32  `json:"detectedMaxSize"`
 	}{
-		Type:         "capabilities",
-		MaxChunkSize: p.maxChunkSize,
+		Type:            "capabilities",
+		MaxChunkSize:    p.maxChunkSize,
+		DetectedMaxSize: p.maxChunkSize, // Currently the same, but could differ in future implementations
 	}
 
 	data, err := json.Marshal(capabilities)
@@ -813,5 +1004,39 @@ func (p *Peer) StoreRequestToken(token string) {
 	if p.statusHandler != nil {
 		// Use a special format that the CLI can parse to extract the token
 		p.statusHandler(fmt.Sprintf("__STORE_REQUEST_TOKEN__:%s", token))
+	}
+}
+
+// Close closes the WebRTC peer connection and cleans up resources
+func (p *Peer) Close() {
+	p.debugLog.Printf("Closing peer connection")
+
+	// Close data channels if they exist
+	if p.dataChannel != nil {
+		p.debugLog.Printf("Closing data channel")
+		if err := p.dataChannel.Close(); err != nil {
+			p.debugLog.Printf("Error closing data channel: %v", err)
+		}
+	}
+
+	if p.controlChannel != nil {
+		p.debugLog.Printf("Closing control channel")
+		if err := p.controlChannel.Close(); err != nil {
+			p.debugLog.Printf("Error closing control channel: %v", err)
+		}
+	}
+
+	// Close the peer connection
+	if p.conn != nil {
+		p.debugLog.Printf("Closing peer connection")
+		if err := p.conn.Close(); err != nil {
+			p.debugLog.Printf("Error closing peer connection: %v", err)
+		}
+	}
+
+	// Close the signaler if it exists
+	if p.signaler != nil {
+		p.debugLog.Printf("Closing signaler")
+		p.signaler.Close()
 	}
 }
