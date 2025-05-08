@@ -13,10 +13,23 @@ func (p *Peer) SendData(data []byte) error {
 
 	p.debugLog.Printf("SendData called with %d bytes", len(data))
 
-	if !p.IsConnected() {
+	// Check connection state directly instead of calling IsConnected() to avoid deadlock
+	if p.conn == nil {
 		p.mu.Unlock()
-		p.debugLog.Printf("Cannot send data: peer connection not established")
+		p.debugLog.Printf("Cannot send data: peer connection is nil")
 		return fmt.Errorf("peer connection not established")
+	}
+
+	// Check connection state
+	peerState := p.conn.ConnectionState()
+	iceState := p.conn.ICEConnectionState()
+	if peerState != webrtc.PeerConnectionStateConnected ||
+		(iceState != webrtc.ICEConnectionStateConnected && iceState != webrtc.ICEConnectionStateCompleted) {
+		p.mu.Unlock()
+		p.debugLog.Printf("Cannot send data: peer connection not established (state: %s, ICE: %s)",
+			peerState.String(), iceState.String())
+		return fmt.Errorf("peer connection not established (state: %s, ICE: %s)",
+			peerState.String(), iceState.String())
 	}
 
 	if p.dataChannel == nil {
