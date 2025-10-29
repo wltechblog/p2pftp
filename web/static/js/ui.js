@@ -3,6 +3,27 @@
  * This file handles the user interface
  */
 
+// Toggle panel collapse/expand state
+function togglePanel(panelId) {
+    const panel = document.getElementById(panelId);
+    const content = document.getElementById(`${panelId}-content`);
+    const icon = document.getElementById(`${panelId}-toggle-icon`);
+    
+    if (content.classList.contains('collapsed')) {
+        // Expand panel
+        content.classList.remove('collapsed');
+        content.classList.add('expanded');
+        icon.classList.remove('rotate-180');
+        panel.classList.remove('collapsed');
+    } else {
+        // Collapse panel
+        content.classList.remove('expanded');
+        content.classList.add('collapsed');
+        icon.classList.add('rotate-180');
+        panel.classList.add('collapsed');
+    }
+}
+
 // Initialize UI when DOM is ready
 function initUI() {
     // UI Elements
@@ -137,6 +158,18 @@ function initUI() {
             // Show file transfer and chat panels
             elements.fileTransferPanel.classList.remove('hidden');
             elements.chatPanel.classList.remove('hidden');
+            
+            // Auto-collapse connection panel when peer connects
+            const connectionContent = document.getElementById('connection-panel-content');
+            const connectionIcon = document.getElementById('connection-panel-toggle-icon');
+            const connectionPanel = document.getElementById('connection-panel');
+            
+            if (!connectionContent.classList.contains('collapsed')) {
+                connectionContent.classList.remove('expanded');
+                connectionContent.classList.add('collapsed');
+                connectionIcon.classList.add('rotate-180');
+                connectionPanel.classList.add('collapsed');
+            }
             
             // Enable send file button if file is selected
             if (elements.fileInput.files.length > 0) {
@@ -478,6 +511,28 @@ function initUI() {
     
     // Initialize
     checkUrlForToken();
+    
+    // Set status log panel to collapsed by default
+    const statusLogContent = document.getElementById('status-log-panel-content');
+    const statusLogIcon = document.getElementById('status-log-panel-toggle-icon');
+    const statusLogPanel = document.getElementById('status-log-panel');
+    
+    // Ensure status log panel is collapsed (it should already be from HTML)
+    if (!statusLogContent.classList.contains('collapsed')) {
+        statusLogContent.classList.remove('expanded');
+        statusLogContent.classList.add('collapsed');
+        statusLogIcon.classList.add('rotate-180');
+        statusLogPanel.classList.add('collapsed');
+    }
+    
+    // Set initial expanded state for connection panel
+    const connectionContent = document.getElementById('connection-panel-content');
+    const connectionIcon = document.getElementById('connection-panel-toggle-icon');
+    const connectionPanel = document.getElementById('connection-panel');
+    
+    connectionContent.classList.add('expanded');
+    connectionIcon.classList.remove('rotate-180');
+    connectionPanel.classList.remove('collapsed');
 }
 
 // Check if DOM is already loaded

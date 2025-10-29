@@ -83,3 +83,43 @@
         /* Dark mode styles can be added here if needed */
     }
 }
+
+/* Collapsible panel styles */
+.panel-header {
+    user-select: none;
+}
+
+.panel-content {
+    transition: all 0.3s ease;
+    overflow: hidden;
+}
+
+.panel-content.collapsed {
+    max-height: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+    opacity: 0;
+}
+
+.panel-content.expanded {
+    max-height: 2000px;
+    opacity: 1;
+}
+
+.panel-toggle svg {
+    transition: transform 0.3s ease;
+}
+
+.panel-toggle svg.rotate-180 {
+    transform: rotate(180deg);
+}
+
+/* Ensure proper spacing when panels are collapsed */
+section .panel-header {
+    border-bottom: 1px solid transparent;
+    transition: border-color 0.3s ease;
+}
+
+section.collapsed .panel-header {
+    border-bottom-color: #e5e7eb;
+}
