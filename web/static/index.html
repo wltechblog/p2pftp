@@ -56,6 +56,16 @@
                 <div id="connection-status" class="text-sm text-gray-600 mt-2">
                     Not connected
                 </div>
+                
+                <div id="capabilities-status" class="text-sm text-gray-600 mt-2 hidden">
+                    <span class="inline-flex items-center">
+                        <svg class="animate-spin h-4 w-4 mr-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        <span id="capabilities-text">Exchanging capabilities...</span>
+                    </span>
+                </div>
             </section>
 
             <!-- File Transfer Panel -->
@@ -148,8 +158,9 @@
         </div>
     </div>
 
-    <script src="js/webrtc.js"></script>
-    <script src="js/filetransfer.js"></script>
-    <script src="js/ui.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/spark-md5/3.0.2/spark-md5.min.js"></script>
+    <script src="js/webrtc.js?v=2"></script>
+    <script src="js/filetransfer.js?v=2"></script>
+    <script src="js/ui.js?v=2"></script>
 </body>
 </html>

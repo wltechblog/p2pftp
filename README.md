@@ -3,7 +3,7 @@
 A service providing secure and reliable P2P file transfers and chat
 
 ## Features
-- Command-line interface for file transfers and chat
+- Web-based interface for file transfers and chat
 - Peer-to-peer file transfer over WebRTC data channels
 - Secure token-based authentication
 - Text chat between peers
@@ -56,26 +56,18 @@ go install github.com/wltechblog/p2pftp@latest
 
 2. For production use, set up a https proxy such as Caddy, nginx, etc to provide a secure connection. Forward all requests for the URL hostname to localhost:8089 or whatever you specify in your command line.
 
-   **Note**: The CLI client always uses secure WebSocket connections (WSS) as it expects the server to be behind an SSL proxy.
+### Web Client
 
-### Client
-
-1. Run the CLI client:
+1. Open your web browser and navigate to the server URL:
    ```
-   p2pftp-cli
+   http://localhost:8089/
    ```
-
-   Optional command line arguments:
-   - `-server`: Signaling server hostname (default: p2p.teamworkapps.com)
-   - `-url`: Full connection URL (e.g., https://p2p.teamworkapps.com/?token=abcd1234)
-   - `-debug`: Enable debug logging
-   - `-logfile`: Path to debug log file (default: p2pftp-debug.log)
 
 2. Follow the on-screen instructions to connect to a peer, send/receive files, and chat.
 
 ## How It Works
 
-1. When users start the client, they establish a WebSocket connection to the signaling server
+1. When users access the web interface, they establish a WebSocket connection to the signaling server
 2. Each user is assigned a unique, secure token
 3. To connect, one user enters the other's token and initiates the connection
 4. The receiving user is notified and can accept or reject the connection
@@ -87,19 +79,18 @@ go install github.com/wltechblog/p2pftp@latest
 
 The project structure is simple:
 - `main.go`: Signaling server implementation
-- `client/`: CLI client implementation
-  - `main.go`: Main client code
-  - `webrtc/`: WebRTC implementation
-  - `transfer/`: File transfer implementation
+- `web/static/`: Web client implementation
+  - `index.html`: Main web interface
+  - `js/`: JavaScript implementation
+  - `css/`: Styling
 
-To build the executables:
+To build the executable:
 ```
 make build
 ```
 
 This will create:
 - `bin/p2pftp-server`: The signaling server
-- `bin/p2pftp-cli`: The CLI client
 
 ## License
 

@@ -28,8 +28,7 @@ class P2PConnection {
             id: 1,
             label: 'p2pftp-control',
             ordered: true,
-            priority: 'high',
-            maxRetransmits: null
+            priority: 'high'
         };
 
         this.dataChannelConfig = {
@@ -37,9 +36,12 @@ class P2PConnection {
             id: 2,
             label: 'p2pftp-data',
             ordered: true,
-            priority: 'medium',
-            maxRetransmits: null
+            priority: 'medium'
         };
+
+        // Buffer size configuration as per protocol
+        this.CONTROL_BUFFER_SIZE = 256 * 1024; // 256KB for control channel
+        this.DATA_BUFFER_SIZE = 1024 * 1024; // 1MB for data channel
 
         // Chunk size constants as defined in the protocol
         this.MIN_CHUNK_SIZE = 4096;   // 4KB minimum
@@ -58,6 +60,10 @@ class P2PConnection {
         this.maxChunkSize = this.DEFAULT_CHUNK_SIZE;
         this.negotiatedChunkSize = this.DEFAULT_CHUNK_SIZE;
         this.capabilitiesExchanged = false;
+        this.capabilitiesExchangeTimeout = null;
+        this.capabilitiesPromise = null;
+        this.capabilitiesResolve = null;
+        this.capabilitiesReject = null;
         this.logger = logger || console;
         this.pendingICECandidates = [];
         this.connectionAccepted = false;
@@ -318,6 +324,21 @@ class P2PConnection {
             return;
         }
 
+        // Create a promise for capabilities exchange
+        this.capabilitiesPromise = new Promise((resolve, reject) => {
+            this.capabilitiesResolve = resolve;
+            this.capabilitiesReject = reject;
+            
+            // Set up 5-second timeout
+            this.capabilitiesExchangeTimeout = setTimeout(() => {
+                this.logger.error('Capabilities exchange timed out after 5 seconds');
+                this.capabilitiesExchanged = false;
+                if (this.capabilitiesReject) {
+                    this.capabilitiesReject(new Error('Capabilities exchange timed out'));
+                }
+            }, 5000);
+        });
+
         const message = {
             type: 'capabilities',
             maxChunkSize: this.maxChunkSize
@@ -325,6 +346,22 @@ class P2PConnection {
 
         this.controlChannel.send(JSON.stringify(message));
         this.logger.log('Sent capabilities, max chunk size:', this.maxChunkSize);
+    }
+
+    /**
+     * Wait for capabilities exchange to complete
+     * @returns {Promise} - Resolves when capabilities are exchanged
+     */
+    waitForCapabilitiesExchange() {
+        if (this.capabilitiesExchanged) {
+            return Promise.resolve();
+        }
+        
+        if (!this.capabilitiesPromise) {
+            return Promise.reject(new Error('Capabilities exchange not initiated'));
+        }
+        
+        return this.capabilitiesPromise;
     }
 
     /**
@@ -362,6 +399,12 @@ class P2PConnection {
      * Close the connection
      */
     close() {
+        // Clear capabilities exchange timeout
+        if (this.capabilitiesExchangeTimeout) {
+            clearTimeout(this.capabilitiesExchangeTimeout);
+            this.capabilitiesExchangeTimeout = null;
+        }
+        
         // Close data channels
         if (this.controlChannel) {
             this.controlChannel.close();
@@ -386,6 +429,9 @@ class P2PConnection {
         this.isInitiator = false;
         this.capabilitiesExchanged = false;
         this.connectionAccepted = false;
+        this.capabilitiesPromise = null;
+        this.capabilitiesResolve = null;
+        this.capabilitiesReject = null;
         
         this.logger.log('Connection closed');
         
@@ -400,30 +446,40 @@ class P2PConnection {
      */
     _createDataChannels() {
         try {
-            // Create control channel
+            // Create control channel with proper buffer size
             this.controlChannel = this.peerConnection.createDataChannel(
                 this.controlChannelConfig.label,
                 {
                     negotiated: this.controlChannelConfig.negotiated,
                     id: this.controlChannelConfig.id,
                     ordered: this.controlChannelConfig.ordered,
-                    priority: this.controlChannelConfig.priority,
-                    maxRetransmits: this.controlChannelConfig.maxRetransmits
+                    priority: this.controlChannelConfig.priority
                 }
             );
+            
+            // Set buffer size for control channel (256KB)
+            if (this.controlChannel.bufferedAmountLowThreshold !== undefined) {
+                this.controlChannel.bufferedAmountLowThreshold = this.CONTROL_BUFFER_SIZE / 4; // 25% threshold
+            }
+            
             this._setupControlChannel(this.controlChannel);
 
-            // Create data channel
+            // Create data channel with proper buffer size
             this.dataChannel = this.peerConnection.createDataChannel(
                 this.dataChannelConfig.label,
                 {
                     negotiated: this.dataChannelConfig.negotiated,
                     id: this.dataChannelConfig.id,
                     ordered: this.dataChannelConfig.ordered,
-                    priority: this.dataChannelConfig.priority,
-                    maxRetransmits: this.dataChannelConfig.maxRetransmits
+                    priority: this.dataChannelConfig.priority
                 }
             );
+            
+            // Set buffer size for data channel (1MB)
+            if (this.dataChannel.bufferedAmountLowThreshold !== undefined) {
+                this.dataChannel.bufferedAmountLowThreshold = this.DATA_BUFFER_SIZE / 4; // 25% threshold
+            }
+            
             this._setupDataChannel(this.dataChannel);
 
             this.logger.log('Data channels created');
@@ -606,6 +662,18 @@ class P2PConnection {
         // Mark capabilities as exchanged
         this.capabilitiesExchanged = true;
         
+        // Clear timeout and resolve promise
+        if (this.capabilitiesExchangeTimeout) {
+            clearTimeout(this.capabilitiesExchangeTimeout);
+            this.capabilitiesExchangeTimeout = null;
+        }
+        
+        if (this.capabilitiesResolve) {
+            this.capabilitiesResolve();
+            this.capabilitiesResolve = null;
+            this.capabilitiesReject = null;
+        }
+        
         this.logger.log('Negotiated chunk size:', negotiatedSize);
         
         if (this.onStatusChange) {
@@ -628,6 +696,18 @@ class P2PConnection {
         
         // Mark capabilities as exchanged
         this.capabilitiesExchanged = true;
+        
+        // Clear timeout and resolve promise
+        if (this.capabilitiesExchangeTimeout) {
+            clearTimeout(this.capabilitiesExchangeTimeout);
+            this.capabilitiesExchangeTimeout = null;
+        }
+        
+        if (this.capabilitiesResolve) {
+            this.capabilitiesResolve();
+            this.capabilitiesResolve = null;
+            this.capabilitiesReject = null;
+        }
         
         if (this.onStatusChange) {
             this.onStatusChange('Negotiated chunk size: ' + negotiatedSize + ' bytes');

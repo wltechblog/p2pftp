@@ -3,7 +3,8 @@
  * This file handles the user interface
  */
 
-document.addEventListener('DOMContentLoaded', () => {
+// Initialize UI when DOM is ready
+function initUI() {
     // UI Elements
     const elements = {
         // Connection panel
@@ -18,6 +19,8 @@ document.addEventListener('DOMContentLoaded', () => {
         connectButton: document.getElementById('connect-button'),
         connectPeerButton: document.getElementById('connect-peer-button'),
         connectionStatus: document.getElementById('connection-status'),
+        capabilitiesStatus: document.getElementById('capabilities-status'),
+        capabilitiesText: document.getElementById('capabilities-text'),
         
         // File transfer panel
         fileTransferPanel: document.getElementById('file-transfer-panel'),
@@ -117,6 +120,17 @@ document.addEventListener('DOMContentLoaded', () => {
     // Set up event handlers
     p2p.onStatusChange = (status) => {
         elements.connectionStatus.textContent = status;
+        
+        // Handle capabilities exchange status
+        if (status.includes('Negotiated chunk size')) {
+            // Capabilities exchange complete
+            elements.capabilitiesStatus.classList.add('hidden');
+            logger.log('Capabilities exchange completed successfully');
+        } else if (status.includes('Control channel opened') && !p2p.capabilitiesExchanged) {
+            // Show capabilities exchange status
+            elements.capabilitiesStatus.classList.remove('hidden');
+            elements.capabilitiesText.textContent = 'Exchanging capabilities...';
+        }
         
         // Check if connected to peer
         if (p2p.isConnected()) {
@@ -464,4 +478,13 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // Initialize
     checkUrlForToken();
-});
+}
+
+// Check if DOM is already loaded
+if (document.readyState === 'loading') {
+    // DOM is still loading, wait for DOMContentLoaded event
+    document.addEventListener('DOMContentLoaded', initUI);
+} else {
+    // DOM is already loaded, initialize immediately
+    initUI();
+}

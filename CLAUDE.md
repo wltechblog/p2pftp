@@ -3,7 +3,6 @@
 ## Build and Run Commands
 - Build: `go build` or `go build -o p2pftp main.go`
 - Run server: `go run main.go` or `p2pftp -addr 0.0.0.0 -port 8089`
-- Run CLI client: `go run cli/main.go cli/ui.go` or `cd cli && go run main.go ui.go`
 - Lint: `go vet ./...`
 - Format: `go fmt ./...`
 - Install: `go install github.com/wltechblog/p2pftp@latest`
@@ -20,6 +19,4 @@
 
 ## Project Organization
 - `main.go`: Server implementation for signaling
-- `cli/`: Command-line client implementation
-- `static/`: Web frontend (HTML, JS, CSS)
-- `embed.go`: Embeds static files into binary
+- `web/static/`: Web frontend (HTML, JS, CSS)

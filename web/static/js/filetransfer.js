@@ -30,11 +30,22 @@ class FileTransfer {
         
         // Window control
         this.windowSize = 64; // Start with 64 chunks in flight
+        this.minWindowSize = 16; // Minimum window size
+        this.maxWindowSize = 256; // Maximum window size
         this.inFlightChunks = 0;
         this.lastAcknowledged = -1;
         
+        // Adaptive window control
+        this.lastWindowAdjustment = Date.now();
+        this.windowAdjustmentInterval = 1000; // Adjust window every 1 second
+        this.lastTransferSpeed = 0;
+        this.speedHistory = []; // Track transfer speed history
+        this.maxSpeedHistory = 10; // Keep last 10 speed measurements
+        this.consecutiveIncreases = 0;
+        this.consecutiveDecreases = 0;
+        
         // Congestion control
-        this.bufferThreshold = 1024 * 1024; // 1MB
+        this.bufferThreshold = this.p2p.DATA_BUFFER_SIZE || (1024 * 1024); // Use configured data buffer size
         this.sendPaused = false;
         
         // Event handlers
@@ -63,8 +74,11 @@ class FileTransfer {
             throw new Error('Not connected to peer');
         }
         
-        if (!this.p2p.capabilitiesExchanged) {
-            throw new Error('Capabilities not exchanged');
+        // Wait for capabilities exchange to complete
+        try {
+            await this.p2p.waitForCapabilitiesExchange();
+        } catch (error) {
+            throw new Error('Capabilities exchange failed: ' + error.message);
         }
         
         if (this.sending || this.receiving) {
@@ -445,13 +459,19 @@ class FileTransfer {
             this.lastAcknowledged = update.highestSequence;
         }
         
-        // Adjust window size based on progress
-        const bytesPerSecond = update.bytesReceived / ((Date.now() - this.startTime) / 1000);
-        if (bytesPerSecond > 10 * 1024 * 1024) { // > 10 MB/s
-            this.windowSize = Math.min(256, this.windowSize + 8);
-        } else if (bytesPerSecond < 1 * 1024 * 1024) { // < 1 MB/s
-            this.windowSize = Math.max(16, this.windowSize - 4);
+        // Calculate current transfer speed
+        const currentTime = Date.now();
+        const elapsedSeconds = (currentTime - this.startTime) / 1000;
+        const currentSpeed = update.bytesReceived / elapsedSeconds;
+        
+        // Track speed history
+        this.speedHistory.push(currentSpeed);
+        if (this.speedHistory.length > this.maxSpeedHistory) {
+            this.speedHistory.shift();
         }
+        
+        // Adjust window size based on network conditions
+        this._adjustWindowSize(currentSpeed);
     }
 
     /**
@@ -684,55 +704,127 @@ class FileTransfer {
      */
     async _calculateMD5(file) {
         return new Promise((resolve, reject) => {
+            if (typeof SparkMD5 === 'undefined') {
+                reject(new Error('SparkMD5 library not loaded'));
+                return;
+            }
+
+            const chunkSize = 2 * 1024 * 1024; // 2MB chunks for large files
+            const chunks = Math.ceil(file.size / chunkSize);
+            let currentChunk = 0;
+            const spark = new SparkMD5.ArrayBuffer();
             const reader = new FileReader();
-            reader.onload = async (e) => {
+
+            reader.onload = (e) => {
                 try {
-                    // Use SubtleCrypto API to calculate MD5
-                    // Note: MD5 is not directly supported in SubtleCrypto, so we use a library
-                    // or implement it ourselves. For simplicity, we'll use a placeholder here.
-                    // In a real implementation, you would use a proper MD5 library.
-                    
-                    // Placeholder for MD5 calculation
-                    const hash = await this._md5ArrayBuffer(e.target.result);
-                    resolve(hash);
+                    spark.append(e.target.result);
+                    currentChunk++;
+
+                    if (currentChunk < chunks) {
+                        loadNext();
+                    } else {
+                        // All chunks processed, get the hash
+                        const hash = spark.end();
+                        resolve(hash);
+                    }
                 } catch (error) {
                     reject(error);
                 }
             };
-            reader.onerror = (e) => reject(e);
-            reader.readAsArrayBuffer(file);
+
+            reader.onerror = (e) => {
+                reject(new Error('Error reading file for MD5 calculation'));
+            };
+
+            const loadNext = () => {
+                const start = currentChunk * chunkSize;
+                const end = Math.min(start + chunkSize, file.size);
+                reader.readAsArrayBuffer(file.slice(start, end));
+            };
+
+            // Start processing
+            loadNext();
         });
     }
 
     /**
-     * Calculate MD5 hash of an ArrayBuffer
-     * This is a simple implementation and should be replaced with a proper library in production
-     * @param {ArrayBuffer} buffer - The buffer to hash
-     * @returns {Promise<string>} - The MD5 hash
+     * Adjust window size based on network conditions and performance
+     * @param {number} currentSpeed - Current transfer speed in bytes per second
      * @private
      */
-    async _md5ArrayBuffer(buffer) {
-        // In a real implementation, you would use a proper MD5 library
-        // For now, we'll use a placeholder that returns a random hash
-        // This should be replaced with a real implementation
+    _adjustWindowSize(currentSpeed) {
+        const now = Date.now();
         
-        // Convert buffer to hex string (first 100 bytes for simplicity)
-        const array = new Uint8Array(buffer);
-        let hexString = '';
-        const len = Math.min(array.length, 100);
-        
-        for (let i = 0; i < len; i++) {
-            hexString += array[i].toString(16).padStart(2, '0');
+        // Only adjust window at specified intervals
+        if (now - this.lastWindowAdjustment < this.windowAdjustmentInterval) {
+            return;
         }
         
-        // Use a hash of the hex string as a placeholder
-        const encoder = new TextEncoder();
-        const data = encoder.encode(hexString);
-        const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-        const hashArray = Array.from(new Uint8Array(hashBuffer));
-        const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+        this.lastWindowAdjustment = now;
         
-        // Return first 32 characters as MD5 is 128 bits (32 hex chars)
-        return hashHex.substring(0, 32);
+        // Calculate average speed from history
+        let avgSpeed = 0;
+        if (this.speedHistory.length > 0) {
+            avgSpeed = this.speedHistory.reduce((sum, speed) => sum + speed, 0) / this.speedHistory.length;
+        }
+        
+        // Calculate speed trend
+        let speedTrend = 0;
+        if (this.speedHistory.length >= 3) {
+            const recent = this.speedHistory.slice(-3);
+            const older = this.speedHistory.slice(-6, -3);
+            if (older.length > 0) {
+                const recentAvg = recent.reduce((sum, speed) => sum + speed, 0) / recent.length;
+                const olderAvg = older.reduce((sum, speed) => sum + speed, 0) / older.length;
+                speedTrend = (recentAvg - olderAvg) / olderAvg;
+            }
+        }
+        
+        // Calculate buffer utilization
+        const bufferUtilization = this.p2p.dataChannel ?
+            this.p2p.dataChannel.bufferedAmount / this.bufferThreshold : 0;
+        
+        let newWindowSize = this.windowSize;
+        
+        // Adaptive window sizing algorithm
+        if (bufferUtilization > 0.8) {
+            // Buffer is congested, reduce window size
+            newWindowSize = Math.max(this.minWindowSize, Math.floor(this.windowSize * 0.75));
+            this.consecutiveDecreases++;
+            this.consecutiveIncreases = 0;
+            this.logger.log(`Buffer congestion detected (${(bufferUtilization * 100).toFixed(1)}%), reducing window to ${newWindowSize}`);
+        } else if (bufferUtilization < 0.3 && speedTrend > 0.1) {
+            // Network is performing well, increase window size
+            newWindowSize = Math.min(this.maxWindowSize, Math.floor(this.windowSize * 1.25));
+            this.consecutiveIncreases++;
+            this.consecutiveDecreases = 0;
+            this.logger.log(`Good network conditions (speed trend: ${(speedTrend * 100).toFixed(1)}%), increasing window to ${newWindowSize}`);
+        } else if (avgSpeed > 10 * 1024 * 1024) { // > 10 MB/s
+            // High speed, can increase window
+            if (this.consecutiveDecreases === 0) {
+                newWindowSize = Math.min(this.maxWindowSize, this.windowSize + 8);
+                this.consecutiveIncreases++;
+            }
+        } else if (avgSpeed < 1 * 1024 * 1024) { // < 1 MB/s
+            // Low speed, reduce window
+            if (this.consecutiveIncreases === 0) {
+                newWindowSize = Math.max(this.minWindowSize, this.windowSize - 4);
+                this.consecutiveDecreases++;
+            }
+        }
+        
+        // Apply new window size if changed
+        if (newWindowSize !== this.windowSize) {
+            this.logger.log(`Window size adjusted: ${this.windowSize} -> ${newWindowSize} (avg speed: ${(avgSpeed / 1024 / 1024).toFixed(2)} MB/s, buffer: ${(bufferUtilization * 100).toFixed(1)}%)`);
+            this.windowSize = newWindowSize;
+        }
+        
+        // Reset counters if we've had consecutive changes in same direction
+        if (this.consecutiveIncreases >= 3) {
+            this.consecutiveIncreases = 0;
+        }
+        if (this.consecutiveDecreases >= 3) {
+            this.consecutiveDecreases = 0;
+        }
     }
 }
