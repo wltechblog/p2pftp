@@ -230,11 +230,20 @@ class FileTransfer {
                 });
             }
             
-            // Check if we need to wait for window space
+            // Check if we need to wait for window space with timeout protection
             if (this.inFlightChunks >= this.windowSize) {
+                const waitStartTime = Date.now();
+                const timeoutMs = 10000; // 10 second timeout
+                
                 await new Promise(resolve => {
                     const checkWindow = () => {
                         if (this.inFlightChunks < this.windowSize) {
+                            resolve();
+                        } else if (Date.now() - waitStartTime > timeoutMs) {
+                            // CRITICAL FIX: Force window reset if deadlock detected
+                            this.logger.warn('Window wait timeout detected, forcing window reset');
+                            this.inFlightChunks = Math.floor(this.windowSize / 2);
+                            this.lastAcknowledged = Math.max(0, this.lastAcknowledged - Math.floor(this.windowSize / 2));
                             resolve();
                         } else {
                             setTimeout(checkWindow, 50);
@@ -350,12 +359,12 @@ class FileTransfer {
     _sendProgressUpdate() {
         const now = Date.now();
         
-        // CRITICAL FIX: Always send progress updates for first 10 chunks to prevent deadlock
-        // This ensures acknowledgments flow during the critical initial phase
-        const isFirstTenChunks = this.highestSequence < 10;
+        // CRITICAL FIX: Separate flow control from progress reporting
+        // Send immediate flow control acknowledgment (unthrottled)
+        this._sendFlowControlAck();
         
-        // Only apply throttling for chunks beyond the first 10
-        if (!isFirstTenChunks && now - this.lastProgressUpdate < 1000) {
+        // Send throttled progress updates only for user feedback
+        if (now - this.lastProgressUpdate < 1000) {
             return;
         }
         
@@ -369,6 +378,40 @@ class FileTransfer {
         
         this.p2p.controlChannel.send(JSON.stringify(message));
         this.logger.log('Sent progress update:', message);
+    }
+
+    /**
+     * Send immediate flow control acknowledgment (unthrottled)
+     * @private
+     */
+    _sendFlowControlAck() {
+        const message = {
+            type: 'flow-control-ack',
+            highestSequence: this.highestSequence
+        };
+        
+        this.p2p.controlChannel.send(JSON.stringify(message));
+        this.logger.log('Sent flow control acknowledgment:', message);
+    }
+
+    /**
+     * Handle flow control acknowledgment from peer
+     * @param {Object} ack - The flow control acknowledgment
+     * @private
+     */
+    _handleFlowControlAck(ack) {
+        if (!this.sending) {
+            return;
+        }
+        
+        this.logger.log('Received flow control acknowledgment:', ack);
+        
+        // Update window control immediately (unthrottled)
+        if (ack.highestSequence > this.lastAcknowledged) {
+            const newAcknowledged = ack.highestSequence - this.lastAcknowledged;
+            this.inFlightChunks = Math.max(0, this.inFlightChunks - newAcknowledged);
+            this.lastAcknowledged = ack.highestSequence;
+        }
     }
 
     /**
@@ -398,6 +441,10 @@ class FileTransfer {
                 
             case 'progress-update':
                 this._handleProgressUpdate(message);
+                break;
+                
+            case 'flow-control-ack':
+                this._handleFlowControlAck(message);
                 break;
                 
             case 'file-complete':
@@ -463,12 +510,8 @@ class FileTransfer {
         
         this.logger.log('Received progress update:', update);
         
-        // Update window control
-        if (update.highestSequence > this.lastAcknowledged) {
-            const newAcknowledged = update.highestSequence - this.lastAcknowledged;
-            this.inFlightChunks = Math.max(0, this.inFlightChunks - newAcknowledged);
-            this.lastAcknowledged = update.highestSequence;
-        }
+        // CRITICAL FIX: Flow control is now handled separately by _handleFlowControlAck()
+        // This method now only handles speed calculation and window adjustment
         
         // Calculate current transfer speed using rolling average
         const currentTime = Date.now();

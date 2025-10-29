@@ -1,0 +1,51 @@
+# Project Intelligence
+
+## Implementation Patterns
+
+1. **Protocol Consistency**
+   - Both client implementations must follow the exact same protocol specification
+   - Any deviation from the protocol is considered a bug
+   - Protocol changes must be documented and implemented in both clients
+
+2. **CLI Client Design**
+   - Avoid complex TUI libraries that caused deadlocks and race conditions
+   - Use a simple IRC-like interface with readline-like input
+   - Keep UI logic separate from protocol implementation
+   - Use goroutines with clear ownership and communication patterns
+
+3. **WebRTC Usage**
+   - Leverage WebRTC's built-in reliability guarantees
+   - Use ordered, reliable data channels
+   - Simplify our protocol to avoid redundant reliability mechanisms
+   - Still perform end-to-end MD5 verification
+
+4. **Error Handling**
+   - All errors must be logged with appropriate context
+   - User-facing errors should be clear and actionable
+   - Connection issues should be handled gracefully with recovery attempts
+   - Transfers should be resumable when possible
+
+5. **Testing Strategy**
+   - Test both client implementations against each other
+   - Test with various file sizes and network conditions
+   - Test connection recovery mechanisms
+   - Validate protocol compliance in both implementations
+
+## Project Decisions
+
+1. **Rebuild Client Implementations**
+   - Previous implementations had fundamental issues
+   - Clean implementation will be more maintainable
+   - Focus on protocol consistency between clients
+
+2. **Simplify Protocol**
+   - Leverage WebRTC's reliability guarantees
+   - Remove redundant acknowledgment mechanisms
+   - Use periodic progress updates instead of per-chunk acknowledgments
+   - Maintain end-to-end verification
+
+3. **CLI Interface Design**
+   - Simple, IRC-like interface
+   - Avoid complex TUI libraries
+   - Clear separation of UI and protocol logic
+   - Robust error handling and user feedback
