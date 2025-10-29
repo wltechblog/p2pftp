@@ -45,7 +45,9 @@ class FileTransfer {
         this.consecutiveDecreases = 0;
         
         // Congestion control
-        this.bufferThreshold = this.p2p.DATA_BUFFER_SIZE || (2 * 1024 * 1024); // Use configured data buffer size, increased to 2MB
+        // CRITICAL FIX: Reduced buffer threshold from 2MB to 512KB for better flow control
+        // This triggers buffer management earlier and prevents saturation
+        this.bufferThreshold = this.p2p.DATA_BUFFER_SIZE || (512 * 1024); // Use configured data buffer size, reduced to 512KB
         this.sendPaused = false;
         
         // Speed calculation tracking
@@ -346,9 +348,14 @@ class FileTransfer {
      * @private
      */
     _sendProgressUpdate() {
-        // Only send progress updates once per second
         const now = Date.now();
-        if (now - this.lastProgressUpdate < 1000) {
+        
+        // CRITICAL FIX: Always send progress updates for first 10 chunks to prevent deadlock
+        // This ensures acknowledgments flow during the critical initial phase
+        const isFirstTenChunks = this.highestSequence < 10;
+        
+        // Only apply throttling for chunks beyond the first 10
+        if (!isFirstTenChunks && now - this.lastProgressUpdate < 1000) {
             return;
         }
         
