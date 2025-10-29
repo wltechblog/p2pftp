@@ -26,25 +26,11 @@ function togglePanel(panelId) {
 
 // Auto-detect server URL based on current page
 function detectServerUrl() {
-    const protocol = window.location.protocol;
     const hostname = window.location.hostname;
-    const port = window.location.port;
     
-    // For WebSocket connections, we need to convert HTTP to WS and HTTPS to WSS
-    let wsProtocol = 'ws://';
-    if (protocol === 'https:') {
-        wsProtocol = 'wss://';
-    }
-    
-    // Default to port 8089 if no port is specified or if it's the standard HTTP/HTTPS port
-    let serverPort = port;
-    if (!port || port === '80' || port === '443') {
-        serverPort = '8089';
-    }
-    
-    // Return the hostname with port for the server URL input field
-    // The WebSocket URL construction will be handled in the connection logic
-    return `${hostname}:${serverPort}`;
+    // Return only the hostname without port for the server URL input field
+    // The WebSocket URL construction will handle the port automatically in the connection logic
+    return hostname;
 }
 
 // Initialize UI when DOM is ready
