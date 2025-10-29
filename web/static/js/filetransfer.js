@@ -45,8 +45,12 @@ class FileTransfer {
         this.consecutiveDecreases = 0;
         
         // Congestion control
-        this.bufferThreshold = this.p2p.DATA_BUFFER_SIZE || (1024 * 1024); // Use configured data buffer size
+        this.bufferThreshold = this.p2p.DATA_BUFFER_SIZE || (2 * 1024 * 1024); // Use configured data buffer size, increased to 2MB
         this.sendPaused = false;
+        
+        // Speed calculation tracking
+        this.lastSpeedCalculationTime = 0;
+        this.lastBytesReceived = 0;
         
         // Event handlers
         this.onProgress = null;
@@ -459,10 +463,30 @@ class FileTransfer {
             this.lastAcknowledged = update.highestSequence;
         }
         
-        // Calculate current transfer speed
+        // Calculate current transfer speed using rolling average
         const currentTime = Date.now();
-        const elapsedSeconds = (currentTime - this.startTime) / 1000;
-        const currentSpeed = update.bytesReceived / elapsedSeconds;
+        let currentSpeed;
+        
+        if (this.lastSpeedCalculationTime === 0) {
+            // First calculation - initialize
+            this.lastSpeedCalculationTime = currentTime;
+            this.lastBytesReceived = update.bytesReceived;
+            currentSpeed = 0;
+        } else {
+            // Calculate speed based on time delta
+            const timeDelta = (currentTime - this.lastSpeedCalculationTime) / 1000; // seconds
+            const bytesDelta = update.bytesReceived - this.lastBytesReceived;
+            
+            if (timeDelta > 0) {
+                currentSpeed = bytesDelta / timeDelta;
+            } else {
+                currentSpeed = 0;
+            }
+            
+            // Update tracking variables
+            this.lastSpeedCalculationTime = currentTime;
+            this.lastBytesReceived = update.bytesReceived;
+        }
         
         // Track speed history
         this.speedHistory.push(currentSpeed);
@@ -760,6 +784,12 @@ class FileTransfer {
             return;
         }
         
+        // Add minimum transfer protection - prevent window adjustments in first 5 seconds
+        const elapsedSeconds = (now - this.startTime) / 1000;
+        if (elapsedSeconds < 5) {
+            return;
+        }
+        
         this.lastWindowAdjustment = now;
         
         // Calculate average speed from history
@@ -786,29 +816,29 @@ class FileTransfer {
         
         let newWindowSize = this.windowSize;
         
-        // Adaptive window sizing algorithm
-        if (bufferUtilization > 0.8) {
-            // Buffer is congested, reduce window size
-            newWindowSize = Math.max(this.minWindowSize, Math.floor(this.windowSize * 0.75));
+        // Less aggressive adaptive window sizing algorithm
+        if (bufferUtilization > 0.9) {
+            // Buffer is congested, reduce window size (less aggressive)
+            newWindowSize = Math.max(this.minWindowSize, Math.floor(this.windowSize * 0.9));
             this.consecutiveDecreases++;
             this.consecutiveIncreases = 0;
             this.logger.log(`Buffer congestion detected (${(bufferUtilization * 100).toFixed(1)}%), reducing window to ${newWindowSize}`);
-        } else if (bufferUtilization < 0.3 && speedTrend > 0.1) {
-            // Network is performing well, increase window size
-            newWindowSize = Math.min(this.maxWindowSize, Math.floor(this.windowSize * 1.25));
+        } else if (bufferUtilization < 0.3 && speedTrend > 0.15) {
+            // Network is performing well, increase window size (more conservative)
+            newWindowSize = Math.min(this.maxWindowSize, Math.floor(this.windowSize * 1.15));
             this.consecutiveIncreases++;
             this.consecutiveDecreases = 0;
             this.logger.log(`Good network conditions (speed trend: ${(speedTrend * 100).toFixed(1)}%), increasing window to ${newWindowSize}`);
-        } else if (avgSpeed > 10 * 1024 * 1024) { // > 10 MB/s
-            // High speed, can increase window
+        } else if (avgSpeed > 15 * 1024 * 1024) { // > 15 MB/s (higher threshold)
+            // High speed, can increase window (more conservative)
             if (this.consecutiveDecreases === 0) {
-                newWindowSize = Math.min(this.maxWindowSize, this.windowSize + 8);
+                newWindowSize = Math.min(this.maxWindowSize, this.windowSize + 4);
                 this.consecutiveIncreases++;
             }
-        } else if (avgSpeed < 1 * 1024 * 1024) { // < 1 MB/s
-            // Low speed, reduce window
+        } else if (avgSpeed < 500 * 1024) { // < 0.5 MB/s (lower threshold)
+            // Low speed, reduce window (more conservative)
             if (this.consecutiveIncreases === 0) {
-                newWindowSize = Math.max(this.minWindowSize, this.windowSize - 4);
+                newWindowSize = Math.max(this.minWindowSize, this.windowSize - 2);
                 this.consecutiveDecreases++;
             }
         }
