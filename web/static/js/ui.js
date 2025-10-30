@@ -375,6 +375,12 @@ function initUI() {
     // Connect to server button
     elements.connectButton.addEventListener('click', async () => {
         try {
+            // Defensive validation: ensure server URL is available
+            if (!elements.serverUrl.value || elements.serverUrl.value.trim() === '') {
+                logger.error('Server URL is required for connection');
+                return;
+            }
+            
             // Disable button during connection
             elements.connectButton.disabled = true;
             elements.connectButton.textContent = 'Connecting...';
@@ -645,22 +651,33 @@ function initUI() {
         }
     });
     
+    // Auto-detect and set server URL FIRST (moved up to fix race condition)
+    const detectedServerUrl = detectServerUrl();
+    elements.serverUrl.value = detectedServerUrl;
+    logger.log(`Auto-detected server URL: ${detectedServerUrl}`);
+    
     // Check for connection token in URL
     function checkUrlForToken() {
         const urlParams = new URLSearchParams(window.location.search);
         const token = urlParams.get('token');
         
         if (token) {
+            // Validate server URL is available before proceeding
+            if (!elements.serverUrl.value || elements.serverUrl.value.trim() === '') {
+                logger.error('Server URL not available for auto-connection');
+                return;
+            }
+            
             // Set peer token
             elements.peerToken.value = token;
             
-            // Auto-connect if token is present
+            // Auto-connect if token is present (now server URL is guaranteed to be set)
             logger.log('Found token in URL, auto-connecting...');
             elements.connectButton.click();
         }
     }
     
-    // Initialize
+    // Initialize URL token check AFTER server URL is set
     checkUrlForToken();
     
     // Set status log panel to collapsed by default
@@ -684,11 +701,6 @@ function initUI() {
     connectionContent.classList.add('expanded');
     connectionIcon.classList.remove('rotate-180');
     connectionPanel.classList.remove('collapsed');
-    
-    // Auto-detect and set server URL
-    const detectedServerUrl = detectServerUrl();
-    elements.serverUrl.value = detectedServerUrl;
-    logger.log(`Auto-detected server URL: ${detectedServerUrl}`);
 }
 
 // Check if DOM is already loaded
