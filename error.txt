@@ -1,26 +1,52 @@
-Found token in URL, auto-connecting... ui.js:102:21
-WebRTC: Using five or more STUN/TURN servers slows down discovery webrtc.js:165
-Data channels created ui.js:102:21
-Peer connection initialized ui.js:102:21
-Error parsing URL: TypeError: URL constructor: wss:// is not a valid URL.
-    _getWebSocketURL https://p2pftp.wltechblog.com/js/webrtc.js?v=10:993
-    connectToServer https://p2pftp.wltechblog.com/js/webrtc.js?v=10:94
-    initUI https://p2pftp.wltechblog.com/js/ui.js?v=10:341
-    checkUrlForToken https://p2pftp.wltechblog.com/js/ui.js?v=10:614
-    initUI https://p2pftp.wltechblog.com/js/ui.js?v=10:619
-ui.js:106:21
-Connecting to signaling server: <empty string> ui.js:102:21
-Error connecting to server: DOMException: An invalid or illegal string was specified
-    connectToServer https://p2pftp.wltechblog.com/js/webrtc.js?v=10:98
-    initUI https://p2pftp.wltechblog.com/js/ui.js?v=10:341
-    checkUrlForToken https://p2pftp.wltechblog.com/js/ui.js?v=10:614
-    initUI https://p2pftp.wltechblog.com/js/ui.js?v=10:619
-ui.js:106:21
-P2P error: Error connecting to server: An invalid or illegal string was specified ui.js:106:21
-Auto-detected server URL: p2pftp.wltechblog.com ui.js:102:21
-Connection error: DOMException: An invalid or illegal string was specified
-    connectToServer https://p2pftp.wltechblog.com/js/webrtc.js?v=10:98
-    initUI https://p2pftp.wltechblog.com/js/ui.js?v=10:341
-    checkUrlForToken https://p2pftp.wltechblog.com/js/ui.js?v=10:614
-    initUI https://p2pftp.wltechblog.com/js/ui.js?v=10:619
-ui.js:106:21
+GET
+https://p2pftp.wltechblog.com/?token=a2bc75e1
+[HTTP/2 200  357ms]
+
+GET
+https://p2pftp.wltechblog.com/css/styles.css
+[HTTP/3 200  150ms]
+
+GET
+https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css
+[HTTP/2 200  457ms]
+
+GET
+https://cdnjs.cloudflare.com/ajax/libs/spark-md5/3.0.2/spark-md5.min.js
+[HTTP/2 200  228ms]
+
+GET
+https://p2pftp.wltechblog.com/js/filetransfer.js?v=11
+[HTTP/3 200  192ms]
+
+GET
+https://p2pftp.wltechblog.com/js/webrtc.js?v=11
+[HTTP/3 200  193ms]
+
+GET
+https://p2pftp.wltechblog.com/js/ui.js?v=11
+[HTTP/3 200  147ms]
+
+Found token in URL, auto-connecting... ui.js:147:21
+WebRTC: Using five or more STUN/TURN servers slows down discovery webrtc.js:187
+Data channels created ui.js:147:21
+Peer connection initialized ui.js:147:21
+Error connecting to server: Error: Server URL is required
+    connectToServer https://p2pftp.wltechblog.com/js/webrtc.js?v=11:90
+    initUI https://p2pftp.wltechblog.com/js/ui.js?v=11:386
+    checkUrlForToken https://p2pftp.wltechblog.com/js/ui.js?v=11:659
+    initUI https://p2pftp.wltechblog.com/js/ui.js?v=11:664
+    EventListener.handleEvent* https://p2pftp.wltechblog.com/js/ui.js?v=11:697
+ui.js:151:21
+P2P error: Error connecting to server: Server URL is required ui.js:151:21
+Auto-detected server URL: p2pftp.wltechblog.com ui.js:147:21
+Connection error: Error: Server URL is required
+    connectToServer https://p2pftp.wltechblog.com/js/webrtc.js?v=11:90
+    initUI https://p2pftp.wltechblog.com/js/ui.js?v=11:386
+    checkUrlForToken https://p2pftp.wltechblog.com/js/ui.js?v=11:659
+    initUI https://p2pftp.wltechblog.com/js/ui.js?v=11:664
+    EventListener.handleEvent* https://p2pftp.wltechblog.com/js/ui.js?v=11:697
+ui.js:151:21
+GET
+https://p2pftp.wltechblog.com/favicon.ico
+[HTTP/3 404  110ms]
+

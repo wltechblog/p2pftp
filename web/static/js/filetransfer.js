@@ -557,11 +557,19 @@ class FileTransfer {
         this.transferComplete = true;
         
         // Check if we've received all the data
-        if (this.bytesReceived === this.totalBytes) {
+        if (this.bytesReceived >= this.totalBytes) {
             // We have all the data, proceed with verification
             this._verifyReceivedFile();
         } else {
             this.logger.log(`Received file-complete but only have ${this.bytesReceived}/${this.totalBytes} bytes. Waiting for remaining chunks...`);
+            
+            // Set a timeout to handle missing chunks
+            this.completionTimeout = setTimeout(() => {
+                if (this.receiving && this.transferComplete) {
+                    this.logger.log(`Completion timeout reached with ${this.bytesReceived}/${this.totalBytes} bytes. Proceeding with verification...`);
+                    this._verifyReceivedFile();
+                }
+            }, 5000); // 5 second timeout
         }
     }
 
@@ -692,7 +700,7 @@ class FileTransfer {
         }
         
         // Check if we've received all chunks and transfer is complete
-        if (this.bytesReceived === this.totalBytes && this.transferComplete) {
+        if (this.bytesReceived >= this.totalBytes && this.transferComplete) {
             this._verifyReceivedFile();
         }
     }
@@ -702,6 +710,12 @@ class FileTransfer {
      * @private
      */
     async _verifyReceivedFile() {
+        // Clear any completion timeout
+        if (this.completionTimeout) {
+            clearTimeout(this.completionTimeout);
+            this.completionTimeout = null;
+        }
+        
         if (this.onVerificationStart) {
             this.onVerificationStart();
         }
@@ -729,8 +743,30 @@ class FileTransfer {
                 // Complete the transfer
                 this.receiving = false;
                 
+                // Send final progress update to ensure UI is synchronized
+                if (this.onProgress) {
+                    const progress = {
+                        bytesReceived: this.totalBytes,
+                        totalBytes: this.totalBytes,
+                        receivedChunks: this.receivedChunks,
+                        totalChunks: this.totalChunks,
+                        percent: 100,
+                        speed: this.bytesReceived / ((Date.now() - this.startTime) / 1000),
+                        timeElapsed: (Date.now() - this.startTime) / 1000,
+                        timeRemaining: 0,
+                        complete: true
+                    };
+                    
+                    this.onProgress(progress);
+                }
+                
                 if (this.onVerificationComplete) {
                     this.onVerificationComplete(blob, this.fileInfo);
+                }
+                
+                // Trigger receiver completion callback for UI synchronization
+                if (this.onComplete) {
+                    this.onComplete();
                 }
             } else {
                 this.logger.error(`File verification failed: MD5 mismatch (expected ${this.fileInfo.md5}, got ${md5Hash})`);
