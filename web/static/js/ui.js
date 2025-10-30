@@ -119,6 +119,7 @@ function initUI() {
         transferCompletion: document.getElementById('transfer-completion'),
         completionFilename: document.getElementById('completion-filename'),
         completionFilesize: document.getElementById('completion-filesize'),
+        completionSpeed: document.getElementById('completion-speed'),
         completionVerification: document.getElementById('completion-verification'),
         downloadSection: document.getElementById('download-section'),
         downloadButton: document.getElementById('download-button'),
@@ -163,14 +164,115 @@ function initUI() {
         }
     };
     
+    // Transfer history storage
+    let transferHistory = [];
+    
     // Add log entry to the log container
     function addLogEntry(level, message) {
+        // Check current number of log entries and trim if exceeding 100
+        const currentEntries = elements.logContainer.children;
+        if (currentEntries.length >= 100) {
+            // Remove oldest entries to maintain maximum of 100 lines
+            const entriesToRemove = currentEntries.length - 99; // Keep 99 to make room for new entry
+            for (let i = 0; i < entriesToRemove; i++) {
+                elements.logContainer.removeChild(currentEntries[0]);
+            }
+        }
+        
         const entry = document.createElement('div');
         entry.className = `log-entry ${level}`;
         entry.textContent = message;
         elements.logContainer.appendChild(entry);
+        
+        // Smooth scrolling to bottom after adding new entry
         elements.logContainer.scrollTop = elements.logContainer.scrollHeight;
     }
+    
+    // Add transfer to history
+    function addToHistory(transferInfo) {
+        const timestamp = new Date().toLocaleString();
+        const historyItem = {
+            ...transferInfo,
+            timestamp: timestamp,
+            id: Date.now()
+        };
+        
+        transferHistory.unshift(historyItem);
+        
+        // Keep only last 10 transfers
+        if (transferHistory.length > 10) {
+            transferHistory = transferHistory.slice(0, 10);
+        }
+        
+        updateHistoryDisplay();
+    }
+    
+    // Update history display
+    function updateHistoryDisplay() {
+        const historyList = document.getElementById('transfer-history-list');
+        
+        if (transferHistory.length === 0) {
+            historyList.innerHTML = '<div class="text-sm text-gray-500 italic">No transfers completed yet</div>';
+            return;
+        }
+        
+        historyList.innerHTML = '';
+        
+        transferHistory.forEach(item => {
+            const historyEntry = document.createElement('div');
+            historyEntry.className = 'p-3 bg-gray-50 rounded-md border border-gray-200';
+            
+            const isReceived = item.type === 'received';
+            const statusIcon = isReceived ? '↓' : '↑';
+            const statusColor = isReceived ? 'text-green-600' : 'text-blue-600';
+            
+            historyEntry.innerHTML = `
+                <div class="flex justify-between items-start">
+                    <div class="flex-1">
+                        <div class="flex items-center mb-1">
+                            <span class="${statusColor} font-medium mr-2">${statusIcon}</span>
+                            <span class="font-medium text-gray-900">${item.filename}</span>
+                        </div>
+                        <div class="text-sm text-gray-600">
+                            <span class="mr-3">${item.filesize}</span>
+                            <span class="mr-3">${item.speed}</span>
+                            <span class="text-xs text-gray-500">${item.timestamp}</span>
+                        </div>
+                    </div>
+                    ${item.downloadUrl ? `
+                        <button onclick="downloadFromHistory('${item.id}')" class="ml-2 bg-blue-500 text-white px-3 py-1 rounded text-sm hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50">
+                            Download
+                        </button>
+                    ` : ''}
+                </div>
+            `;
+            
+            historyList.appendChild(historyEntry);
+        });
+    }
+    
+    // Download file from history
+    window.downloadFromHistory = function(transferId) {
+        const transfer = transferHistory.find(item => item.id == transferId);
+        if (transfer && transfer.downloadUrl) {
+            try {
+                const a = document.createElement('a');
+                a.href = transfer.downloadUrl;
+                a.download = transfer.filename;
+                a.style.display = 'none';
+                document.body.appendChild(a);
+                a.click();
+                
+                setTimeout(() => {
+                    document.body.removeChild(a);
+                }, 100);
+                
+                logger.log('Download from history initiated successfully');
+            } catch (error) {
+                logger.error('Error downloading from history:', error);
+            }
+        }
+    };
     
     // Format bytes to human-readable format
     function formatBytes(bytes, decimals = 2) {
@@ -305,8 +407,12 @@ function initUI() {
         // Hide cancel button
         elements.cancelTransferButton.classList.add('hidden');
         
-        // Show completion status
-        showTransferComplete();
+        // Calculate final transfer speed
+        const transferTime = (Date.now() - fileTransfer.startTime) / 1000; // seconds
+        const finalSpeed = fileTransfer.totalBytes / transferTime;
+        
+        // Show completion status with speed
+        showTransferComplete(finalSpeed);
     };
     
     fileTransfer.onError = (error) => {
@@ -343,11 +449,26 @@ function initUI() {
         window.receivedFileBlob = blob;
         window.receivedFileInfo = fileInfo;
         
+        // Calculate final transfer speed
+        const transferTime = (Date.now() - fileTransfer.startTime) / 1000; // seconds
+        const finalSpeed = fileTransfer.totalBytes / transferTime;
+        
+        // Create download URL for history
+        const downloadUrl = URL.createObjectURL(blob);
+        
+        // Add to transfer history
+        addToHistory({
+            type: 'received',
+            filename: fileInfo.name,
+            filesize: formatBytes(fileInfo.size),
+            speed: formatBytes(finalSpeed) + '/s',
+            downloadUrl: downloadUrl
+        });
+        
         // Try to auto-download first
         try {
-            const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
-            a.href = url;
+            a.href = downloadUrl;
             a.download = fileInfo.name;
             a.style.display = 'none';
             document.body.appendChild(a);
@@ -356,7 +477,7 @@ function initUI() {
             // Clean up
             setTimeout(() => {
                 document.body.removeChild(a);
-                URL.revokeObjectURL(url);
+                // Don't revoke URL here as it's needed for history download
             }, 100);
             
             // Auto-download successful, hide download section
@@ -534,19 +655,32 @@ function initUI() {
     }
     
     // Show transfer completion status
-    function showTransferComplete() {
+    function showTransferComplete(finalSpeed) {
         const filename = elements.transferFilename.textContent;
         const filesize = elements.bytesTransferred.textContent;
+        const speed = finalSpeed ? formatBytes(finalSpeed) + '/s' : elements.transferSpeed.textContent;
         
         // Update completion details
         elements.completionFilename.textContent = filename;
         elements.completionFilesize.textContent = filesize;
+        elements.completionSpeed.textContent = speed;
         elements.completionVerification.textContent = '✓ Verified';
         elements.completionVerification.className = 'text-green-600 font-medium';
         
         // Hide progress section and show completion section
         elements.transferProgress.classList.add('hidden');
         elements.transferCompletion.classList.remove('hidden');
+        
+        // Add to transfer history for sent files
+        if (fileTransfer.sending) {
+            addToHistory({
+                type: 'sent',
+                filename: filename,
+                filesize: filesize,
+                speed: speed,
+                downloadUrl: null
+            });
+        }
         
         // Reset file input after a delay
         setTimeout(() => {
@@ -565,16 +699,28 @@ function initUI() {
     function showTransferError(errorMessage) {
         const filename = elements.transferFilename.textContent;
         const filesize = elements.bytesTransferred.textContent;
+        const speed = elements.transferSpeed.textContent;
         
         // Update completion details with error
         elements.completionFilename.textContent = filename;
         elements.completionFilesize.textContent = filesize;
+        elements.completionSpeed.textContent = speed;
         elements.completionVerification.textContent = `✗ Failed: ${errorMessage}`;
         elements.completionVerification.className = 'text-red-600 font-medium';
         
         // Hide progress section and show completion section
         elements.transferProgress.classList.add('hidden');
         elements.transferCompletion.classList.remove('hidden');
+        
+        // Add failed transfer to history
+        addToHistory({
+            type: fileTransfer.sending ? 'sent' : 'received',
+            filename: filename,
+            filesize: filesize,
+            speed: speed,
+            downloadUrl: null,
+            error: errorMessage
+        });
         
         // Reset file input after a delay
         setTimeout(() => {
@@ -628,9 +774,21 @@ function initUI() {
     elements.downloadButton.addEventListener('click', () => {
         if (window.receivedFileBlob && window.receivedFileInfo) {
             try {
-                const url = URL.createObjectURL(window.receivedFileBlob);
+                // Use the stored download URL from history if available
+                let downloadUrl = null;
+                const historyItem = transferHistory.find(item =>
+                    item.type === 'received' && item.filename === window.receivedFileInfo.name
+                );
+                
+                if (historyItem && historyItem.downloadUrl) {
+                    downloadUrl = historyItem.downloadUrl;
+                } else {
+                    // Create new URL if not found in history
+                    downloadUrl = URL.createObjectURL(window.receivedFileBlob);
+                }
+                
                 const a = document.createElement('a');
-                a.href = url;
+                a.href = downloadUrl;
                 a.download = window.receivedFileInfo.name;
                 a.style.display = 'none';
                 document.body.appendChild(a);
@@ -639,7 +797,10 @@ function initUI() {
                 // Clean up
                 setTimeout(() => {
                     document.body.removeChild(a);
-                    URL.revokeObjectURL(url);
+                    // Don't revoke URL if it's from history (needed for future downloads)
+                    if (!historyItem || !historyItem.downloadUrl) {
+                        URL.revokeObjectURL(downloadUrl);
+                    }
                 }, 100);
                 
                 logger.log('Manual download initiated successfully');

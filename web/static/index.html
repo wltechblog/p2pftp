@@ -155,6 +155,7 @@
                             <div class="mb-3 text-sm text-gray-700">
                                 <p><strong>File:</strong> <span id="completion-filename"></span></p>
                                 <p><strong>Size:</strong> <span id="completion-filesize"></span></p>
+                                <p><strong>Speed:</strong> <span id="completion-speed" class="text-blue-600 font-medium"></span></p>
                                 <p><strong>Status:</strong> <span id="completion-verification" class="text-green-600 font-medium">✓ Verified</span></p>
                             </div>
                             <div id="download-section" class="hidden">
@@ -166,6 +167,19 @@
                                     Download File
                                 </button>
                             </div>
+                        </div>
+                    </div>
+
+                    <!-- Transfer History Section -->
+                    <div id="transfer-history" class="mt-6">
+                        <h3 class="text-lg font-semibold mb-3 flex items-center">
+                            <svg class="w-5 h-5 mr-2 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                            </svg>
+                            Transfer History
+                        </h3>
+                        <div id="transfer-history-list" class="space-y-2">
+                            <div class="text-sm text-gray-500 italic">No transfers completed yet</div>
                         </div>
                     </div>
                 </div>
