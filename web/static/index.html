@@ -142,6 +142,32 @@
                             Cancel
                         </button>
                     </div>
+
+                    <!-- Transfer Completion Section -->
+                    <div id="transfer-completion" class="hidden">
+                        <div class="p-4 bg-green-50 border border-green-200 rounded-md">
+                            <div class="flex items-center mb-3">
+                                <svg class="w-6 h-6 text-green-600 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                </svg>
+                                <h3 class="text-lg font-semibold text-green-800">Transfer Complete</h3>
+                            </div>
+                            <div class="mb-3 text-sm text-gray-700">
+                                <p><strong>File:</strong> <span id="completion-filename"></span></p>
+                                <p><strong>Size:</strong> <span id="completion-filesize"></span></p>
+                                <p><strong>Status:</strong> <span id="completion-verification" class="text-green-600 font-medium">✓ Verified</span></p>
+                            </div>
+                            <div id="download-section" class="hidden">
+                                <p class="text-sm text-amber-700 mb-2">File didn't save automatically. Click below to download:</p>
+                                <button id="download-button" class="bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 flex items-center">
+                                    <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
+                                    </svg>
+                                    Download File
+                                </button>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </section>
 
@@ -191,8 +217,8 @@
     </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/spark-md5/3.0.2/spark-md5.min.js"></script>
-    <script src="js/webrtc.js?v=9"></script>
-    <script src="js/filetransfer.js?v=9"></script>
-    <script src="js/ui.js?v=9"></script>
+    <script src="js/webrtc.js?v=10"></script>
+    <script src="js/filetransfer.js?v=10"></script>
+    <script src="js/ui.js?v=10"></script>
 </body>
 </html>

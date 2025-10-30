@@ -70,6 +70,14 @@ function initUI() {
         timeRemaining: document.getElementById('time-remaining'),
         cancelTransferButton: document.getElementById('cancel-transfer-button'),
         
+        // Transfer completion elements
+        transferCompletion: document.getElementById('transfer-completion'),
+        completionFilename: document.getElementById('completion-filename'),
+        completionFilesize: document.getElementById('completion-filesize'),
+        completionVerification: document.getElementById('completion-verification'),
+        downloadSection: document.getElementById('download-section'),
+        downloadButton: document.getElementById('download-button'),
+        
         // Chat panel
         chatPanel: document.getElementById('chat-panel'),
         chatMessages: document.getElementById('chat-messages'),
@@ -252,13 +260,8 @@ function initUI() {
         // Hide cancel button
         elements.cancelTransferButton.classList.add('hidden');
         
-        // Reset file input after a delay
-        setTimeout(() => {
-            elements.fileInput.value = '';
-            elements.selectedFileName.textContent = 'No file selected';
-            elements.sendFileButton.disabled = true;
-            elements.transferProgress.classList.add('hidden');
-        }, 3000);
+        // Show completion status
+        showTransferComplete();
     };
     
     fileTransfer.onError = (error) => {
@@ -268,13 +271,8 @@ function initUI() {
         // Hide cancel button
         elements.cancelTransferButton.classList.add('hidden');
         
-        // Reset file input after a delay
-        setTimeout(() => {
-            elements.fileInput.value = '';
-            elements.selectedFileName.textContent = 'No file selected';
-            elements.sendFileButton.disabled = true;
-            elements.transferProgress.classList.add('hidden');
-        }, 3000);
+        // Show error completion status
+        showTransferError(error.message);
     };
     
     fileTransfer.onFileInfo = (info) => {
@@ -296,20 +294,33 @@ function initUI() {
     fileTransfer.onVerificationComplete = (blob, fileInfo) => {
         elements.transferStatus.textContent = 'Verified';
         
-        // Create download link
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = fileInfo.name;
-        a.style.display = 'none';
-        document.body.appendChild(a);
-        a.click();
+        // Store blob and file info for potential manual download
+        window.receivedFileBlob = blob;
+        window.receivedFileInfo = fileInfo;
         
-        // Clean up
-        setTimeout(() => {
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
-        }, 100);
+        // Try to auto-download first
+        try {
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = fileInfo.name;
+            a.style.display = 'none';
+            document.body.appendChild(a);
+            a.click();
+            
+            // Clean up
+            setTimeout(() => {
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            }, 100);
+            
+            // Auto-download successful, hide download section
+            elements.downloadSection.classList.add('hidden');
+        } catch (error) {
+            logger.warn('Auto-download failed, showing manual download option:', error);
+            // Show manual download option
+            elements.downloadSection.classList.remove('hidden');
+        }
     };
     
     fileTransfer.onVerificationFailed = (reason) => {
@@ -471,6 +482,62 @@ function initUI() {
         elements.chatMessages.scrollTop = elements.chatMessages.scrollHeight;
     }
     
+    // Show transfer completion status
+    function showTransferComplete() {
+        const filename = elements.transferFilename.textContent;
+        const filesize = elements.bytesTransferred.textContent;
+        
+        // Update completion details
+        elements.completionFilename.textContent = filename;
+        elements.completionFilesize.textContent = filesize;
+        elements.completionVerification.textContent = '✓ Verified';
+        elements.completionVerification.className = 'text-green-600 font-medium';
+        
+        // Hide progress section and show completion section
+        elements.transferProgress.classList.add('hidden');
+        elements.transferCompletion.classList.remove('hidden');
+        
+        // Reset file input after a delay
+        setTimeout(() => {
+            elements.fileInput.value = '';
+            elements.selectedFileName.textContent = 'No file selected';
+            elements.sendFileButton.disabled = true;
+            
+            // Hide completion section after 10 seconds
+            setTimeout(() => {
+                elements.transferCompletion.classList.add('hidden');
+            }, 10000);
+        }, 3000);
+    }
+    
+    // Show transfer error status
+    function showTransferError(errorMessage) {
+        const filename = elements.transferFilename.textContent;
+        const filesize = elements.bytesTransferred.textContent;
+        
+        // Update completion details with error
+        elements.completionFilename.textContent = filename;
+        elements.completionFilesize.textContent = filesize;
+        elements.completionVerification.textContent = `✗ Failed: ${errorMessage}`;
+        elements.completionVerification.className = 'text-red-600 font-medium';
+        
+        // Hide progress section and show completion section
+        elements.transferProgress.classList.add('hidden');
+        elements.transferCompletion.classList.remove('hidden');
+        
+        // Reset file input after a delay
+        setTimeout(() => {
+            elements.fileInput.value = '';
+            elements.selectedFileName.textContent = 'No file selected';
+            elements.sendFileButton.disabled = true;
+            
+            // Hide completion section after 10 seconds
+            setTimeout(() => {
+                elements.transferCompletion.classList.add('hidden');
+            }, 10000);
+        }, 3000);
+    }
+    
     // Accept connection button
     elements.acceptConnection.addEventListener('click', () => {
         const peerToken = elements.connectionRequestModal.dataset.peerToken;
@@ -503,6 +570,33 @@ function initUI() {
             logger.log('Debug mode enabled');
         } else {
             logger.log('Debug mode disabled');
+        }
+    });
+    
+    // Download button click handler
+    elements.downloadButton.addEventListener('click', () => {
+        if (window.receivedFileBlob && window.receivedFileInfo) {
+            try {
+                const url = URL.createObjectURL(window.receivedFileBlob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = window.receivedFileInfo.name;
+                a.style.display = 'none';
+                document.body.appendChild(a);
+                a.click();
+                
+                // Clean up
+                setTimeout(() => {
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                }, 100);
+                
+                logger.log('Manual download initiated successfully');
+            } catch (error) {
+                logger.error('Error during manual download:', error);
+            }
+        } else {
+            logger.error('No file data available for download');
         }
     });
     
