@@ -9,9 +9,12 @@ function togglePanel(panelId) {
     const content = document.getElementById(`${panelId}-content`);
     const icon = document.getElementById(`${panelId}-toggle-icon`);
     
-    if (content.classList.contains('collapsed')) {
+    // Check if panel is currently collapsed (either has 'collapsed' class or is hidden)
+    const isCollapsed = content.classList.contains('collapsed') || content.classList.contains('hidden');
+    
+    if (isCollapsed) {
         // Expand panel
-        content.classList.remove('collapsed');
+        content.classList.remove('collapsed', 'hidden');
         content.classList.add('expanded');
         icon.classList.remove('rotate-180');
         panel.classList.remove('collapsed');
@@ -526,9 +529,9 @@ function initUI() {
     const statusLogIcon = document.getElementById('status-log-panel-toggle-icon');
     const statusLogPanel = document.getElementById('status-log-panel');
     
-    // Ensure status log panel is collapsed (it should already be from HTML)
-    if (!statusLogContent.classList.contains('collapsed')) {
-        statusLogContent.classList.remove('expanded');
+    // Ensure status log panel is collapsed (it has 'hidden' class in HTML)
+    if (statusLogContent.classList.contains('hidden')) {
+        statusLogContent.classList.remove('hidden');
         statusLogContent.classList.add('collapsed');
         statusLogIcon.classList.add('rotate-180');
         statusLogPanel.classList.add('collapsed');
