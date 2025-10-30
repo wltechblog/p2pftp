@@ -29,11 +29,56 @@ function togglePanel(panelId) {
 
 // Auto-detect server URL based on current page
 function detectServerUrl() {
-    const hostname = window.location.hostname;
+    try {
+        const hostname = window.location.hostname;
+        
+        // Validate hostname
+        if (!hostname) {
+            console.warn('Could not detect hostname, using default');
+            return 'p2p.teamworkapps.com';
+        }
+        
+        // Check for localhost or IP addresses
+        if (hostname === 'localhost' || hostname === '127.0.0.1') {
+            console.log('Detected localhost, using default server');
+            return 'p2p.teamworkapps.com';
+        }
+        
+        // Check for invalid hostnames
+        if (!isValidHostname(hostname)) {
+            console.warn(`Invalid hostname detected: ${hostname}, using default`);
+            return 'p2p.teamworkapps.com';
+        }
+        
+        // Return only the hostname without port for the server URL input field
+        // The WebSocket URL construction will handle the port automatically in the connection logic
+        return hostname;
+    } catch (error) {
+        console.error('Error detecting server URL:', error);
+        return 'p2p.teamworkapps.com';
+    }
+}
+
+/**
+ * Validate hostname format
+ * @param {string} hostname - The hostname to validate
+ * @returns {boolean} - True if valid, false otherwise
+ */
+function isValidHostname(hostname) {
+    if (!hostname || typeof hostname !== 'string') {
+        return false;
+    }
     
-    // Return only the hostname without port for the server URL input field
-    // The WebSocket URL construction will handle the port automatically in the connection logic
-    return hostname;
+    // Basic hostname validation
+    const hostnameRegex = /^[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?)*$/;
+    
+    // Check length (max 253 characters)
+    if (hostname.length > 253) {
+        return false;
+    }
+    
+    // Check against regex
+    return hostnameRegex.test(hostname);
 }
 
 // Initialize UI when DOM is ready

@@ -85,6 +85,22 @@ class P2PConnection {
      */
     async connectToServer(serverURL) {
         try {
+            // Validate server URL input
+            if (!serverURL) {
+                throw new Error('Server URL is required');
+            }
+            
+            if (typeof serverURL !== 'string') {
+                throw new Error('Server URL must be a string');
+            }
+            
+            // Trim whitespace
+            serverURL = serverURL.trim();
+            
+            if (!serverURL) {
+                throw new Error('Server URL cannot be empty or whitespace only');
+            }
+
             // Ensure URL has proper format
             if (!serverURL.startsWith('http')) {
                 serverURL = 'https://' + serverURL;
@@ -92,6 +108,12 @@ class P2PConnection {
 
             // Convert HTTP/HTTPS URL to WSS URL
             const wsURL = this._getWebSocketURL(serverURL);
+            
+            // Validate that we got a valid WebSocket URL
+            if (!wsURL || !wsURL.startsWith('wss://')) {
+                throw new Error('Failed to construct valid WebSocket URL from server URL');
+            }
+            
             this.logger.log('Connecting to signaling server:', wsURL);
 
             // Create WebSocket connection
@@ -974,6 +996,18 @@ class P2PConnection {
      * @private
      */
     _getWebSocketURL(httpURL) {
+        // Validate input
+        if (!httpURL || typeof httpURL !== 'string') {
+            throw new Error('Invalid URL: URL must be a non-empty string');
+        }
+        
+        // Trim whitespace
+        httpURL = httpURL.trim();
+        
+        if (!httpURL) {
+            throw new Error('Invalid URL: URL cannot be empty or whitespace only');
+        }
+        
         // Handle URLs without protocol
         if (!httpURL.includes('://')) {
             // Extract hostname (remove port if present)
@@ -981,6 +1015,12 @@ class P2PConnection {
             if (httpURL.includes(':')) {
                 hostname = httpURL.split(':')[0];
             }
+            
+            // Validate hostname
+            if (!hostname || !this._isValidHostname(hostname)) {
+                throw new Error(`Invalid hostname: ${hostname}`);
+            }
+            
             // Always use wss:// and port 443
             return `wss://${hostname}:443/ws`;
         }
@@ -991,12 +1031,41 @@ class P2PConnection {
         // Parse URL to ensure port 443 and path /ws
         try {
             const url = new URL(wsURL);
+            
+            // Validate hostname
+            if (!this._isValidHostname(url.hostname)) {
+                throw new Error(`Invalid hostname: ${url.hostname}`);
+            }
+            
             url.port = '443';
             url.pathname = '/ws';
             return url.toString();
         } catch (error) {
             this.logger.error('Error parsing URL:', error);
-            return '';
+            throw new Error(`Failed to parse URL: ${error.message}`);
         }
+    }
+    
+    /**
+     * Validate hostname format
+     * @param {string} hostname - The hostname to validate
+     * @returns {boolean} - True if valid, false otherwise
+     * @private
+     */
+    _isValidHostname(hostname) {
+        if (!hostname || typeof hostname !== 'string') {
+            return false;
+        }
+        
+        // Basic hostname validation
+        const hostnameRegex = /^[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?)*$/;
+        
+        // Check length (max 253 characters)
+        if (hostname.length > 253) {
+            return false;
+        }
+        
+        // Check against regex
+        return hostnameRegex.test(hostname);
     }
 }

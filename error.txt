@@ -1,63 +1,26 @@
-favicon.ico:1  GET https://p2p.teamworkapps.com/favicon.ico 404 (Not Found)
-ui.js?v=4:61 Data channels created
-ui.js?v=4:61 Peer connection initialized
-ui.js?v=4:61 Connecting to signaling server: wss://p2p.teamworkapps.com/ws
-ui.js?v=4:61 Connected to signaling server
-ui.js?v=4:61 Received signaling message: token
-ui.js?v=4:61 Assigned token: c2e8c9be
-ui.js?v=4:61 Received signaling message: request
-ui.js?v=4:61 Connection request from: 9b1ac3dc
-ui.js?v=4:61 Accepted connection from peer: 9b1ac3dc
-ui.js?v=4:61 Received signaling message: offer
-ui.js?v=4:61 Received offer from: 9b1ac3dc
-ui.js?v=4:61 Received signaling message: ice
-ui.js?v=4:61 Received ICE candidate from: 9b1ac3dc
-ui.js?v=4:61 Received signaling message: ice
-ui.js?v=4:61 Received ICE candidate from: 9b1ac3dc
-ui.js?v=4:61 Sent answer to peer
-ui.js?v=4:61 Sent ICE candidate to peer
-ui.js?v=4:61 Received signaling message: ice
-ui.js?v=4:61 Received ICE candidate from: 9b1ac3dc
-ui.js?v=4:61 ICE connection state: checking
-ui.js?v=4:61 Sent ICE candidate to peer
-ui.js?v=4:61 Received signaling message: ice
-ui.js?v=4:61 Received ICE candidate from: 9b1ac3dc
-ui.js?v=4:61 ICE connection state: connected
-ui.js?v=4:61 Control channel opened
-ui.js?v=4:61 Sent capabilities, max chunk size: 16384
-ui.js?v=4:61 Data channel opened
-ui.js?v=4:61 Test message sent successfully
-ui.js?v=4:61 Received control message: capabilities
-ui.js?v=4:61 Received capabilities from peer, max chunk size: 16384
-ui.js?v=4:61 Sent capabilities acknowledgment, negotiated size: 16384
-ui.js?v=4:61 Negotiated chunk size: 16384
-ui.js?v=4:61 Capabilities exchange completed successfully
-ui.js?v=4:61 Received binary data: 16 bytes
-ui.js?v=4:61 Data appears to be chunk 0 with size 8
-ui.js?v=4:61 Received control message: capabilities-ack
-ui.js?v=4:61 Received capabilities acknowledgment, negotiated size: 16384
-ui.js?v=4:61 Capabilities exchange completed successfully
-ui.js?v=4:61 Starting file transfer: lyrics_video_1761752091022384179.mp4 (35416740 bytes)
-ui.js?v=4:61 Using chunk size: 16384 bytes
-ui.js?v=4:61 Total chunks: 2162
-ui.js?v=4:61 Sent file info: {name: 'lyrics_video_1761752091022384179.mp4', size: 35416740, md5: '6506b277534b08013b9784a85e96f00c'}
-ui.js?v=4:61 Received control message: progress-update
-ui.js?v=4:61 Received progress update: {type: 'progress-update', bytesReceived: 16384, highestSequence: 0}
-ui.js?v=4:61 Received control message: progress-update
-ui.js?v=4:61 Received progress update: {type: 'progress-update', bytesReceived: 32768, highestSequence: 1}
-ui.js?v=4:61 Received control message: progress-update
-ui.js?v=4:61 Received progress update: {type: 'progress-update', bytesReceived: 49152, highestSequence: 2}
-ui.js?v=4:61 Received control message: progress-update
-ui.js?v=4:61 Received progress update: {type: 'progress-update', bytesReceived: 65536, highestSequence: 3}
-ui.js?v=4:61 Received control message: progress-update
-ui.js?v=4:61 Received progress update: {type: 'progress-update', bytesReceived: 81920, highestSequence: 4}
-ui.js?v=4:61 Received control message: progress-update
-ui.js?v=4:61 Received progress update: {type: 'progress-update', bytesReceived: 98304, highestSequence: 5}
-ui.js?v=4:61 Received control message: progress-update
-ui.js?v=4:61 Received progress update: {type: 'progress-update', bytesReceived: 114688, highestSequence: 6}
-ui.js?v=4:61 Received control message: progress-update
-ui.js?v=4:61 Received progress update: {type: 'progress-update', bytesReceived: 131072, highestSequence: 7}
-ui.js?v=4:61 Received control message: progress-update
-ui.js?v=4:61 Received progress update: {type: 'progress-update', bytesReceived: 147456, highestSequence: 8}
-ui.js?v=4:61 Received control message: progress-update
-ui.js?v=4:61 Received progress update: {type: 'progress-update', bytesReceived: 163840, highestSequence: 9}
+Found token in URL, auto-connecting... ui.js:102:21
+WebRTC: Using five or more STUN/TURN servers slows down discovery webrtc.js:165
+Data channels created ui.js:102:21
+Peer connection initialized ui.js:102:21
+Error parsing URL: TypeError: URL constructor: wss:// is not a valid URL.
+    _getWebSocketURL https://p2pftp.wltechblog.com/js/webrtc.js?v=10:993
+    connectToServer https://p2pftp.wltechblog.com/js/webrtc.js?v=10:94
+    initUI https://p2pftp.wltechblog.com/js/ui.js?v=10:341
+    checkUrlForToken https://p2pftp.wltechblog.com/js/ui.js?v=10:614
+    initUI https://p2pftp.wltechblog.com/js/ui.js?v=10:619
+ui.js:106:21
+Connecting to signaling server: <empty string> ui.js:102:21
+Error connecting to server: DOMException: An invalid or illegal string was specified
+    connectToServer https://p2pftp.wltechblog.com/js/webrtc.js?v=10:98
+    initUI https://p2pftp.wltechblog.com/js/ui.js?v=10:341
+    checkUrlForToken https://p2pftp.wltechblog.com/js/ui.js?v=10:614
+    initUI https://p2pftp.wltechblog.com/js/ui.js?v=10:619
+ui.js:106:21
+P2P error: Error connecting to server: An invalid or illegal string was specified ui.js:106:21
+Auto-detected server URL: p2pftp.wltechblog.com ui.js:102:21
+Connection error: DOMException: An invalid or illegal string was specified
+    connectToServer https://p2pftp.wltechblog.com/js/webrtc.js?v=10:98
+    initUI https://p2pftp.wltechblog.com/js/ui.js?v=10:341
+    checkUrlForToken https://p2pftp.wltechblog.com/js/ui.js?v=10:614
+    initUI https://p2pftp.wltechblog.com/js/ui.js?v=10:619
+ui.js:106:21
