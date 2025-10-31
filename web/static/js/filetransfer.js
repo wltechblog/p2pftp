@@ -325,7 +325,7 @@ class FileTransfer {
             const view = new DataView(chunk);
             
             // Write sequence number (4 bytes)
-            view.setUint32(0, sequence);
+            view.setUint32(0, transferSequence);
             
             // Write chunk size (4 bytes)
             view.setUint32(4, chunkArrayBuffer.byteLength);
@@ -362,7 +362,7 @@ class FileTransfer {
                     this.onProgress(progress);
                 }
                 
-                sequence++;
+                transferSequence++;
             } catch (error) {
                 this.logger.error(`Error sending chunk for transfer ${transferData.id}:`, error);
                 

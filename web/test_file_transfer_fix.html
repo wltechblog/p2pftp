@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>File Transfer Fix Verification</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .test-section {
+            border: 1px solid #ddd;
+            margin: 20px 0;
+            padding: 15px;
+            border-radius: 5px;
+        }
+        .test-section h3 {
+            margin-top: 0;
+            color: #333;
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+        }
+        .success {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .error {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .info {
+            background-color: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+        .log {
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            padding: 10px;
+            margin: 10px 0;
+            font-family: monospace;
+            font-size: 12px;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        button:disabled {
+            background-color: #6c757d;
+            cursor: not-allowed;
+        }
+        .progress-bar {
+            width: 100%;
+            height: 20px;
+            background-color: #e9ecef;
+            border-radius: 10px;
+            overflow: hidden;
+            margin: 10px 0;
+        }
+        .progress-fill {
+            height: 100%;
+            background-color: #28a745;
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+        .file-input {
+            margin: 10px 0;
+        }
+        .transfer-info {
+            margin: 10px 0;
+            padding: 10px;
+            background-color: #f8f9fa;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <h1>File Transfer Fix Verification</h1>
+    
+    <div class="status info">
+        <strong>Fix Applied:</strong> Fixed undefined 'sequence' variable in _sendChunksForTransfer method
+        <br><strong>Issue:</strong> ReferenceError: sequence is not defined at line 328 in filetransfer.js
+        <br><strong>Solution:</strong> Changed 'sequence' to 'transferSequence' to match the declared variable
+    </div>
+
+    <div class="test-section">
+        <h3>Connection Status</h3>
+        <div id="connection-status" class="status info">Not connected</div>
+        <button id="connect-btn">Connect to Peer</button>
+        <button id="disconnect-btn" disabled>Disconnect</button>
+        <div id="connection-log" class="log"></div>
+    </div>
+
+    <div class="test-section">
+        <h3>Single File Transfer Test</h3>
+        <div class="file-input">
+            <input type="file" id="single-file-input" accept="*/*">
+            <button id="send-single-btn" disabled>Send Single File</button>
+        </div>
+        <div id="single-transfer-info" class="transfer-info" style="display: none;"></div>
+        <div class="progress-bar">
+            <div id="single-progress" class="progress-fill"></div>
+        </div>
+        <div id="single-status" class="status info">Ready to test single file transfer</div>
+        <div id="single-log" class="log"></div>
+    </div>
+
+    <div class="test-section">
+        <h3>Multiple File Transfer Test</h3>
+        <div class="file-input">
+            <input type="file" id="multiple-file-input" multiple accept="*/*">
+            <button id="send-multiple-btn" disabled>Send Multiple Files</button>
+        </div>
+        <div id="multiple-transfer-info" class="transfer-info" style="display: none;"></div>
+        <div class="progress-bar">
+            <div id="multiple-progress" class="progress-fill"></div>
+        </div>
+        <div id="multiple-status" class="status info">Ready to test multiple file transfer</div>
+        <div id="multiple-log" class="log"></div>
+    </div>
+
+    <div class="test-section">
+        <h3>Test Results</h3>
+        <div id="test-results" class="status info">No tests run yet</div>
+        <button id="run-all-tests">Run All Tests</button>
+    </div>
+
+    <!-- Include the required scripts -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/spark-md5/3.0.2/spark-md5.min.js"></script>
+    <script src="static/js/webrtc.js"></script>
+    <script src="static/js/filetransfer.js"></script>
+    <script src="static/js/ui.js"></script>
+
+    <script>
+        // Test variables
+        let p2pConnection = null;
+        let fileTransfer = null;
+        let ui = null;
+        let testResults = {
+            connection: false,
+            singleFile: false,
+            multipleFiles: false,
+            errors: []
+        };
+
+        // DOM elements
+        const connectionStatus = document.getElementById('connection-status');
+        const connectionLog = document.getElementById('connection-log');
+        const singleStatus = document.getElementById('single-status');
+        const singleLog = document.getElementById('single-log');
+        const multipleStatus = document.getElementById('multiple-status');
+        const multipleLog = document.getElementById('multiple-log');
+        const testResultsDiv = document.getElementById('test-results');
+
+        // Initialize components
+        function initializeComponents() {
+            // Create logger
+            const logger = {
+                log: (message) => {
+                    console.log(message);
+                    appendLog(connectionLog, message);
+                },
+                error: (message) => {
+                    console.error(message);
+                    appendLog(connectionLog, 'ERROR: ' + message);
+                }
+            };
+
+            // Initialize P2P connection
+            p2pConnection = new P2PConnection(logger);
+            
+            // Initialize file transfer
+            fileTransfer = new FileTransfer(p2pConnection, logger);
+            
+            // Initialize UI
+            ui = new UI(p2pConnection, fileTransfer, logger);
+
+            // Set up event handlers
+            setupEventHandlers();
+        }
+
+        // Set up event handlers
+        function setupEventHandlers() {
+            // Connection events
+            p2pConnection.onConnectionStateChange = (state) => {
+                updateConnectionStatus(state);
+            };
+
+            // File transfer events
+            fileTransfer.onProgress = (progress) => {
+                updateTransferProgress(progress);
+            };
+
+            fileTransfer.onComplete = () => {
+                appendLog(singleLog, 'File transfer completed successfully!');
+                singleStatus.className = 'status success';
+                singleStatus.textContent = 'Single file transfer completed successfully';
+                testResults.singleFile = true;
+                updateTestResults();
+            };
+
+            fileTransfer.onError = (error) => {
+                appendLog(singleLog, 'File transfer error: ' + error.message);
+                singleStatus.className = 'status error';
+                singleStatus.textContent = 'Single file transfer failed: ' + error.message;
+                testResults.errors.push('Single file transfer: ' + error.message);
+                updateTestResults();
+            };
+
+            fileTransfer.onFileInfo = (info) => {
+                appendLog(singleLog, 'Receiving file: ' + info.name + ' (' + info.size + ' bytes)');
+            };
+        }
+
+        // Update connection status
+        function updateConnectionStatus(state) {
+            connectionStatus.textContent = 'Connection state: ' + state;
+            
+            if (state === 'connected') {
+                connectionStatus.className = 'status success';
+                document.getElementById('connect-btn').disabled = true;
+                document.getElementById('disconnect-btn').disabled = false;
+                document.getElementById('send-single-btn').disabled = false;
+                document.getElementById('send-multiple-btn').disabled = false;
+                testResults.connection = true;
+                updateTestResults();
+            } else if (state === 'disconnected') {
+                connectionStatus.className = 'status info';
+                document.getElementById('connect-btn').disabled = false;
+                document.getElementById('disconnect-btn').disabled = true;
+                document.getElementById('send-single-btn').disabled = true;
+                document.getElementById('send-multiple-btn').disabled = true;
+            } else {
+                connectionStatus.className = 'status info';
+            }
+        }
+
+        // Update transfer progress
+        function updateTransferProgress(progress) {
+            const progressPercent = progress.percent || 0;
+            const progressFill = document.getElementById(progress.transferId ? 'multiple-progress' : 'single-progress');
+            if (progressFill) {
+                progressFill.style.width = progressPercent + '%';
+            }
+
+            const logDiv = progress.transferId ? multipleLog : singleLog;
+            appendLog(logDiv, `Progress: ${progressPercent.toFixed(2)}% (${progress.bytesSent}/${progress.totalBytes} bytes)`);
+        }
+
+        // Append log message
+        function appendLog(logElement, message) {
+            const timestamp = new Date().toLocaleTimeString();
+            logElement.innerHTML += `[${timestamp}] ${message}\n`;
+            logElement.scrollTop = logElement.scrollHeight;
+        }
+
+        // Update test results
+        function updateTestResults() {
+            const allPassed = testResults.connection && testResults.singleFile && testResults.multipleFiles;
+            const hasErrors = testResults.errors.length > 0;
+            
+            if (allPassed && !hasErrors) {
+                testResultsDiv.className = 'status success';
+                testResultsDiv.innerHTML = '<strong>All tests passed!</strong><br>File transfer fix is working correctly.';
+            } else if (hasErrors) {
+                testResultsDiv.className = 'status error';
+                testResultsDiv.innerHTML = '<strong>Some tests failed:</strong><br>' + testResults.errors.join('<br>');
+            } else {
+                testResultsDiv.className = 'status info';
+                testResultsDiv.innerHTML = '<strong>Tests in progress...</strong><br>Connection: ' + 
+                    (testResults.connection ? '✓' : '○') + 
+                    ', Single file: ' + (testResults.singleFile ? '✓' : '○') + 
+                    ', Multiple files: ' + (testResults.multipleFiles ? '✓' : '○');
+            }
+        }
+
+        // Event listeners
+        document.getElementById('connect-btn').addEventListener('click', async () => {
+            try {
+                appendLog(connectionLog, 'Initiating connection...');
+                await ui.connectToPeer();
+            } catch (error) {
+                appendLog(connectionLog, 'Connection failed: ' + error.message);
+                testResults.errors.push('Connection: ' + error.message);
+                updateTestResults();
+            }
+        });
+
+        document.getElementById('disconnect-btn').addEventListener('click', () => {
+            ui.disconnectFromServer();
+        });
+
+        document.getElementById('send-single-btn').addEventListener('click', async () => {
+            const fileInput = document.getElementById('single-file-input');
+            if (fileInput.files.length === 0) {
+                singleStatus.className = 'status error';
+                singleStatus.textContent = 'Please select a file first';
+                return;
+            }
+
+            try {
+                singleStatus.className = 'status info';
+                singleStatus.textContent = 'Starting single file transfer...';
+                appendLog(singleLog, 'Starting single file transfer...');
+                
+                await fileTransfer.sendFile(fileInput.files[0]);
+            } catch (error) {
+                appendLog(singleLog, 'Single file transfer failed: ' + error.message);
+                singleStatus.className = 'status error';
+                singleStatus.textContent = 'Single file transfer failed: ' + error.message;
+                testResults.errors.push('Single file transfer: ' + error.message);
+                updateTestResults();
+            }
+        });
+
+        document.getElementById('send-multiple-btn').addEventListener('click', async () => {
+            const fileInput = document.getElementById('multiple-file-input');
+            if (fileInput.files.length === 0) {
+                multipleStatus.className = 'status error';
+                multipleStatus.textContent = 'Please select files first';
+                return;
+            }
+
+            try {
+                multipleStatus.className = 'status info';
+                multipleStatus.textContent = 'Starting multiple file transfer...';
+                appendLog(multipleLog, 'Starting multiple file transfer...');
+                
+                // Send files one by one
+                for (let i = 0; i < fileInput.files.length; i++) {
+                    const file = fileInput.files[i];
+                    appendLog(multipleLog, `Sending file ${i + 1}/${fileInput.files.length}: ${file.name}`);
+                    await fileTransfer.sendFile(file);
+                }
+                
+                multipleStatus.className = 'status success';
+                multipleStatus.textContent = 'Multiple file transfer completed successfully';
+                testResults.multipleFiles = true;
+                updateTestResults();
+            } catch (error) {
+                appendLog(multipleLog, 'Multiple file transfer failed: ' + error.message);
+                multipleStatus.className = 'status error';
+                multipleStatus.textContent = 'Multiple file transfer failed: ' + error.message;
+                testResults.errors.push('Multiple file transfer: ' + error.message);
+                updateTestResults();
+            }
+        });
+
+        document.getElementById('run-all-tests').addEventListener('click', async () => {
+            // Reset test results
+            testResults = {
+                connection: false,
+                singleFile: false,
+                multipleFiles: false,
+                errors: []
+            };
+            updateTestResults();
+
+            // Test 1: Connection
+            try {
+                appendLog(connectionLog, 'Running connection test...');
+                await ui.connectToPeer();
+                await new Promise(resolve => setTimeout(resolve, 2000)); // Wait for connection
+            } catch (error) {
+                testResults.errors.push('Connection test: ' + error.message);
+            }
+
+            // Test 2: Single file transfer
+            if (testResults.connection) {
+                // Create a test file
+                const testFile = new File(['Test content for single file transfer'], 'test-single.txt', { type: 'text/plain' });
+                try {
+                    appendLog(singleLog, 'Running single file transfer test...');
+                    await fileTransfer.sendFile(testFile);
+                } catch (error) {
+                    testResults.errors.push('Single file transfer test: ' + error.message);
+                }
+            }
+
+            // Test 3: Multiple file transfer
+            if (testResults.connection) {
+                // Create test files
+                const testFiles = [
+                    new File(['Test content for file 1'], 'test-multi-1.txt', { type: 'text/plain' }),
+                    new File(['Test content for file 2'], 'test-multi-2.txt', { type: 'text/plain' })
+                ];
+                try {
+                    appendLog(multipleLog, 'Running multiple file transfer test...');
+                    for (const file of testFiles) {
+                        await fileTransfer.sendFile(file);
+                    }
+                    testResults.multipleFiles = true;
+                } catch (error) {
+                    testResults.errors.push('Multiple file transfer test: ' + error.message);
+                }
+            }
+
+            updateTestResults();
+        });
+
+        // Initialize on page load
+        window.addEventListener('load', () => {
+            initializeComponents();
+            appendLog(connectionLog, 'Test page initialized. Ready to verify file transfer fix.');
+        });
+    </script>
+</body>
+</html>

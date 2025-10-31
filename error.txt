@@ -1,51 +1,72 @@
-GET
-https://p2pftp.wltechblog.com/?token=013995fc
-[HTTP/2 200  508ms]
-
-GET
-https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css
-[HTTP/2 200  616ms]
-
-GET
-https://p2pftp.wltechblog.com/css/styles.css
-[HTTP/2 200  306ms]
-
-GET
-https://cdnjs.cloudflare.com/ajax/libs/spark-md5/3.0.2/spark-md5.min.js
-[HTTP/2 200  184ms]
-
-GET
-https://p2pftp.wltechblog.com/js/filetransfer.js?v=12
-[HTTP/2 200  159ms]
-
-GET
-https://p2pftp.wltechblog.com/js/webrtc.js?v=12
-[HTTP/2 200  304ms]
-
-GET
-https://p2pftp.wltechblog.com/js/ui.js?v=12
-[HTTP/2 200  159ms]
-GET
-https://p2pftp.wltechblog.com/favicon.ico
-[HTTP/2 404  126ms]
-
-Found token in URL, auto-connecting... ui.js:147:21
-WebRTC: Using five or more STUN/TURN servers slows down discovery webrtc.js:187
-Data channels created ui.js:147:21
-Peer connection initialized ui.js:147:21
-Error connecting to server: Error: Server URL is required
-    connectToServer https://p2pftp.wltechblog.com/js/webrtc.js?v=12:90
-    initUI https://p2pftp.wltechblog.com/js/ui.js?v=12:386
-    checkUrlForToken https://p2pftp.wltechblog.com/js/ui.js?v=12:659
-    initUI https://p2pftp.wltechblog.com/js/ui.js?v=12:664
-    EventListener.handleEvent* https://p2pftp.wltechblog.com/js/ui.js?v=12:697
-ui.js:151:21
-P2P error: Error connecting to server: Server URL is required ui.js:151:21
-Auto-detected server URL: p2pftp.wltechblog.com ui.js:147:21
-Connection error: Error: Server URL is required
-    connectToServer https://p2pftp.wltechblog.com/js/webrtc.js?v=12:90
-    initUI https://p2pftp.wltechblog.com/js/ui.js?v=12:386
-    checkUrlForToken https://p2pftp.wltechblog.com/js/ui.js?v=12:659
-    initUI https://p2pftp.wltechblog.com/js/ui.js?v=12:664
-    EventListener.handleEvent* https://p2pftp.wltechblog.com/js/ui.js?v=12:697
-ui.js:151:21
+ui.js?v=13:148 Auto-detected server URL: p2pftp.wltechblog.com
+ui.js?v=13:148 Data channels created
+ui.js?v=13:148 Peer connection initialized
+ui.js?v=13:148 Connecting to signaling server: wss://p2pftp.wltechblog.com/ws
+ui.js?v=13:148 Connected to signaling server
+ui.js?v=13:148 Received signaling message: token Full message: Object
+ui.js?v=13:148 Assigned token: d8c7ab33
+ui.js?v=13:148 Received signaling message: request Full message: Object
+ui.js?v=13:148 Connection request from: 7287cab9
+ui.js?v=13:148 Accepted connection from peer: 7287cab9
+ui.js?v=13:148 Received signaling message: offer Full message: Object
+ui.js?v=13:148 Received offer from: 7287cab9
+ui.js?v=13:148 Received signaling message: ice Full message: Object
+ui.js?v=13:148 Received ICE candidate from: 7287cab9
+ui.js?v=13:148 Received signaling message: ice Full message: Object
+ui.js?v=13:148 Received ICE candidate from: 7287cab9
+ui.js?v=13:148 Received signaling message: ice Full message: Object
+ui.js?v=13:148 Received ICE candidate from: 7287cab9
+ui.js?v=13:148 Received signaling message: ice Full message: Object
+ui.js?v=13:148 Received ICE candidate from: 7287cab9
+ui.js?v=13:148 Sent answer to peer
+ui.js?v=13:148 Sent ICE candidate to peer
+ui.js?v=13:148 Sent ICE candidate to peer
+ui.js?v=13:148 Received signaling message: ice Full message: Object
+ui.js?v=13:148 Received ICE candidate from: 7287cab9
+ui.js?v=13:148 ICE connection state: checking
+ui.js?v=13:148 Sent ICE candidate to peer
+ui.js?v=13:148 Sent ICE candidate to peer
+ui.js?v=13:148 Received signaling message: ice Full message: Object
+ui.js?v=13:148 Received ICE candidate from: 7287cab9
+ui.js?v=13:148 Received signaling message: ice Full message: Object
+ui.js?v=13:148 Received ICE candidate from: 7287cab9
+ui.js?v=13:148 ICE connection state: connected
+ui.js?v=13:148 Control channel opened
+ui.js?v=13:148 Sent capabilities, max chunk size: 16384
+ui.js?v=13:148 Data channel opened
+ui.js?v=13:148 Test message sent successfully
+ui.js?v=13:148 Received control message: capabilities
+ui.js?v=13:148 Received capabilities from peer, max chunk size: 16384
+ui.js?v=13:148 Sent capabilities acknowledgment, negotiated size: 16384
+ui.js?v=13:148 Negotiated chunk size: 16384
+ui.js?v=13:148 Capabilities exchange completed successfully
+ui.js?v=13:148 Received binary data: 16 bytes
+ui.js?v=13:148 Data appears to be chunk 0 with size 8
+ui.js?v=13:148 Received control message: capabilities-ack
+ui.js?v=13:148 Received capabilities acknowledgment, negotiated size: 16384
+ui.js?v=13:148 Capabilities exchange completed successfully
+ui.js?v=13:148 Received signaling message: ice Full message: Object
+ui.js?v=13:148 Received ICE candidate from: 7287cab9
+ui.js?v=13:148 Received signaling message: ice Full message: Object
+ui.js?v=13:148 Received ICE candidate from: 7287cab9
+ui.js?v=13:148 Received signaling message: ice Full message: Object
+ui.js?v=13:148 Received ICE candidate from: 7287cab9
+ui.js?v=13:148 Disconnecting from signaling server - P2P connection is stable
+ui.js?v=13:148 Successfully disconnected from signaling server
+ui.js?v=13:148 Disconnected from signaling server
+ui.js?v=13:148 Sent chat message: eggs
+ui.js?v=13:148 Received control message: message
+ui.js?v=13:148 Starting file transfer: archlinux-2025.07.01-x86_64.iso (1357545472 bytes)
+ui.js?v=13:148 Using chunk size: 16384 bytes
+ui.js?v=13:148 Total chunks: 82858
+ui.js?v=13:148 Sent file info: Object
+filetransfer.js?v=13:328 Uncaught (in promise) ReferenceError: sequence is not defined
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:328:31)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+ui.js?v=13:148 Starting file transfer: preview-1743328960.jpg (200499 bytes)
+ui.js?v=13:148 Using chunk size: 16384 bytes
+ui.js?v=13:148 Total chunks: 13
+ui.js?v=13:148 Sent file info: Object
+filetransfer.js?v=13:328 Uncaught (in promise) ReferenceError: sequence is not defined
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:328:31)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
