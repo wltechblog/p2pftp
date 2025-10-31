@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>URL Token Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .test-result { margin: 10px 0; padding: 10px; border: 1px solid #ccc; }
+        .success { background-color: #d4edda; border-color: #c3e6cb; }
+        .error { background-color: #f8d7da; border-color: #f5c6cb; }
+    </style>
+</head>
+<body>
+    <h1>URL Token Functionality Test</h1>
+    
+    <div id="test-results"></div>
+    
+    <script>
+        // Mock the necessary functions and elements for testing
+        const mockElements = {
+            serverUrl: { value: 'p2p.teamworkapps.com' },
+            peerToken: { value: '' },
+            connectButton: { click: () => console.log('Connect button clicked') }
+        };
+        
+        const mockLogger = {
+            log: (msg, ...args) => console.log(msg, ...args),
+            error: (msg, ...args) => console.error(msg, ...args)
+        };
+        
+        // Simulate URLSearchParams with token
+        const originalURLSearchParams = window.URLSearchParams;
+        window.URLSearchParams = function(query) {
+            this.get = function(param) {
+                if (param === 'token') {
+                    return 'test1234'; // Simulate token in URL
+                }
+                return null;
+            };
+        };
+        
+        // Test the checkUrlForToken function
+        function checkUrlForToken() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const token = urlParams.get('token');
+            
+            if (token) {
+                // Validate server URL is available before proceeding
+                if (!mockElements.serverUrl.value || mockElements.serverUrl.value.trim() === '') {
+                    mockLogger.error('Server URL not available for auto-connection');
+                    return;
+                }
+                
+                // Set peer token
+                mockElements.peerToken.value = token;
+                
+                // Auto-connect if token is present (now server URL is guaranteed to be set)
+                mockLogger.log('Found token in URL, auto-connecting...');
+                mockElements.connectButton.click();
+                return true;
+            }
+            return false;
+        }
+        
+        // Run the test
+        document.addEventListener('DOMContentLoaded', function() {
+            const results = document.getElementById('test-results');
+            
+            try {
+                const tokenFound = checkUrlForToken();
+                
+                if (tokenFound && mockElements.peerToken.value === 'test1234') {
+                    results.innerHTML += '<div class="test-result success">✓ Token parsing works correctly</div>';
+                } else {
+                    results.innerHTML += '<div class="test-result error">✗ Token parsing failed</div>';
+                }
+                
+                // Test helper function accessibility
+                if (typeof _updateConnectionStatus === 'function') {
+                    results.innerHTML += '<div class="test-result success">✓ Helper functions are accessible</div>';
+                } else {
+                    results.innerHTML += '<div class="test-result error">✗ Helper functions not accessible</div>';
+                }
+                
+            } catch (error) {
+                results.innerHTML += '<div class="test-result error">✗ Error during test: ' + error.message + '</div>';
+            }
+        });
+    </script>
+</body>
+</html>

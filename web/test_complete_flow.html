@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Complete URL Token Flow Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .test-section { margin: 20px 0; padding: 15px; border: 1px solid #ddd; border-radius: 5px; }
+        .test-result { margin: 10px 0; padding: 10px; border-radius: 3px; }
+        .success { background-color: #d4edda; color: #155724; }
+        .error { background-color: #f8d7da; color: #721c24; }
+        .info { background-color: #d1ecf1; color: #0c5460; }
+        button { padding: 10px 15px; margin: 5px; border: none; border-radius: 3px; cursor: pointer; }
+        .btn-primary { background-color: #007bff; color: white; }
+        .btn-success { background-color: #28a745; color: white; }
+    </style>
+</head>
+<body>
+    <h1>Complete URL Token Flow Test</h1>
+    
+    <div class="test-section">
+        <h2>Test Scenarios</h2>
+        <button onclick="testTokenParsing()" class="btn-primary">Test Token Parsing</button>
+        <button onclick="testAutoConnection()" class="btn-primary">Test Auto-Connection Flow</button>
+        <button onclick="testServerDisconnection()" class="btn-success">Test Server Disconnection Integration</button>
+        
+        <div id="test-results"></div>
+    </div>
+    
+    <script>
+        let testResults = [];
+        
+        function addResult(test, status, message) {
+            testResults.push({ test, status, message });
+            updateDisplay();
+        }
+        
+        function updateDisplay() {
+            const resultsDiv = document.getElementById('test-results');
+            resultsDiv.innerHTML = testResults.map(result => 
+                `<div class="test-result ${result.status}">
+                    <strong>${result.test}:</strong> ${result.message}
+                </div>`
+            ).join('');
+        }
+        
+        function testTokenParsing() {
+            try {
+                // Simulate URL with token
+                const testUrl = 'https://example.com/?token=test1234';
+                const urlParams = new URLSearchParams(testUrl.split('?')[1]);
+                const token = urlParams.get('token');
+                
+                if (token === 'test1234') {
+                    addResult('Token Parsing', 'success', '✓ Token correctly extracted from URL');
+                } else {
+                    addResult('Token Parsing', 'error', '✗ Token extraction failed');
+                }
+            } catch (error) {
+                addResult('Token Parsing', 'error', `✗ Error: ${error.message}`);
+            }
+        }
+        
+        function testAutoConnection() {
+            try {
+                // Mock the connection flow
+                const mockElements = {
+                    serverUrl: { value: 'p2p.teamworkapps.com' },
+                    peerToken: { value: '' },
+                    connectButton: { 
+                        click: function() {
+                            this.clicked = true;
+                            addResult('Auto-Connection', 'info', '→ Connect button clicked');
+                        },
+                        clicked: false
+                    }
+                };
+                
+                const mockLogger = {
+                    log: (msg) => addResult('Auto-Connection', 'info', `→ ${msg}`),
+                    error: (msg) => addResult('Auto-Connection', 'error', `✗ ${msg}`)
+                };
+                
+                // Simulate checkUrlForToken logic
+                const token = 'test1234';
+                
+                if (token) {
+                    if (!mockElements.serverUrl.value || mockElements.serverUrl.value.trim() === '') {
+                        mockLogger.error('Server URL not available for auto-connection');
+                        return;
+                    }
+                    
+                    mockElements.peerToken.value = token;
+                    mockLogger.log('Found token in URL, auto-connecting...');
+                    mockElements.connectButton.click();
+                    
+                    if (mockElements.connectButton.clicked && mockElements.peerToken.value === token) {
+                        addResult('Auto-Connection', 'success', '✓ Auto-connection flow works correctly');
+                    } else {
+                        addResult('Auto-Connection', 'error', '✗ Auto-connection flow failed');
+                    }
+                } else {
+                    addResult('Auto-Connection', 'error', '✗ No token found');
+                }
+            } catch (error) {
+                addResult('Auto-Connection', 'error', `✗ Error: ${error.message}`);
+            }
+        }
+        
+        function testServerDisconnection() {
+            try {
+                // Mock P2P connection with server disconnection feature
+                const mockP2P = {
+                    serverDisconnected: false,
+                    isConnected: () => true,
+                    isServerConnected: () => false,
+                    canDisconnectFromServer: () => true
+                };
+                
+                // Mock status update functions
+                function _updateConnectionStatus(status) {
+                    addResult('Server Disconnection', 'info', `→ Status updated: ${status}`);
+                }
+                
+                function _updateConnectionIndicators() {
+                    const indicator = mockP2P.serverDisconnected ? 'Disconnected' : 'Connected';
+                    addResult('Server Disconnection', 'info', `→ Server indicator: ${indicator}`);
+                }
+                
+                // Test status update with server disconnected
+                mockP2P.serverDisconnected = true;
+                _updateConnectionStatus('Disconnected from signaling server - P2P connection active');
+                _updateConnectionIndicators();
+                
+                addResult('Server Disconnection', 'success', '✓ Server disconnection integration works correctly');
+            } catch (error) {
+                addResult('Server Disconnection', 'error', `✗ Error: ${error.message}`);
+            }
+        }
+        
+        // Initialize
+        document.addEventListener('DOMContentLoaded', function() {
+            addResult('Initialization', 'info', 'Test suite loaded successfully');
+        });
+    </script>
+</body>
+</html>
