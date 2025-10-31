@@ -67,6 +67,11 @@ class P2PConnection {
         this.logger = logger || console;
         this.pendingICECandidates = [];
         this.connectionAccepted = false;
+        
+        // Server disconnection state tracking
+        this.serverConnected = false;
+        this.p2pConnected = false;
+        this.serverDisconnected = false;
 
         // Event handlers
         this.onStatusChange = null;
@@ -122,6 +127,7 @@ class P2PConnection {
             // Set up event handlers
             this.signaler.onopen = () => {
                 this.logger.log('Connected to signaling server');
+                this.serverConnected = true;
                 if (this.onStatusChange) {
                     this.onStatusChange('Connected to signaling server');
                 }
@@ -129,6 +135,7 @@ class P2PConnection {
 
             this.signaler.onclose = () => {
                 this.logger.log('Disconnected from signaling server');
+                this.serverConnected = false;
                 if (this.onStatusChange) {
                     this.onStatusChange('Disconnected from signaling server');
                 }
@@ -154,6 +161,7 @@ class P2PConnection {
                 this.signaler.onopen = () => {
                     clearTimeout(timeout);
                     this.logger.log('Connected to signaling server');
+                    this.serverConnected = true;
                     if (this.onStatusChange) {
                         this.onStatusChange('Connected to signaling server');
                     }
@@ -200,13 +208,20 @@ class P2PConnection {
                 }
 
                 // Update connection status
-                if (this.peerConnection.iceConnectionState === 'connected' || 
+                if (this.peerConnection.iceConnectionState === 'connected' ||
                     this.peerConnection.iceConnectionState === 'completed') {
                     this.connected = true;
-                } else if (this.peerConnection.iceConnectionState === 'failed' || 
-                           this.peerConnection.iceConnectionState === 'disconnected' || 
+                    this.p2pConnected = true;
+                } else if (this.peerConnection.iceConnectionState === 'failed' ||
+                           this.peerConnection.iceConnectionState === 'disconnected' ||
                            this.peerConnection.iceConnectionState === 'closed') {
                     this.connected = false;
+                    this.p2pConnected = false;
+                    
+                    // Handle P2P failure after server disconnection
+                    if (this.serverDisconnected) {
+                        this._handleP2PFailureAfterServerDisconnect();
+                    }
                 }
             };
 
@@ -410,11 +425,71 @@ class P2PConnection {
      * @returns {boolean} - True if connected, false otherwise
      */
     isConnected() {
-        return this.connected && 
-               this.controlChannel && 
+        return this.p2pConnected &&
+               this.controlChannel &&
                this.controlChannel.readyState === 'open' &&
-               this.dataChannel && 
+               this.dataChannel &&
                this.dataChannel.readyState === 'open';
+    }
+
+    /**
+     * Check if connected to signaling server
+     * @returns {boolean} - True if connected to server, false otherwise
+     */
+    isServerConnected() {
+        return this.serverConnected &&
+               this.signaler &&
+               this.signaler.readyState === WebSocket.OPEN;
+    }
+
+    /**
+     * Check if can safely disconnect from server
+     * @returns {boolean} - True if can disconnect, false otherwise
+     */
+    canDisconnectFromServer() {
+        return this.isServerConnected() &&
+               this.isConnected() &&
+               this.capabilitiesExchanged &&
+               !this.serverDisconnected;
+    }
+
+    /**
+     * Disconnect from signaling server after P2P connection is established
+     */
+    disconnectFromServer() {
+        // Check preconditions for safe disconnection
+        if (!this.canDisconnectFromServer()) {
+            this.logger.warn('Cannot disconnect from server: conditions not met');
+            return false;
+        }
+
+        try {
+            this.logger.log('Disconnecting from signaling server - P2P connection is stable');
+            
+            // Close WebSocket connection gracefully
+            if (this.signaler && this.signaler.readyState === WebSocket.OPEN) {
+                this.signaler.close(1000, 'P2P connection established');
+            }
+            
+            // Clear server-related state
+            this.signaler = null;
+            this.serverDisconnected = true;
+            this.serverConnected = false;
+            
+            // Update UI with status change
+            if (this.onStatusChange) {
+                this.onStatusChange('Disconnected from signaling server - P2P connection active');
+            }
+            
+            this.logger.log('Successfully disconnected from signaling server');
+            return true;
+        } catch (error) {
+            this.logger.error('Error disconnecting from server:', error);
+            if (this.onError) {
+                this.onError('Error disconnecting from server: ' + error.message);
+            }
+            return false;
+        }
     }
 
     /**
@@ -701,6 +776,9 @@ class P2PConnection {
         if (this.onStatusChange) {
             this.onStatusChange('Negotiated chunk size: ' + negotiatedSize + ' bytes');
         }
+        
+        // Check for P2P stability and trigger disconnection
+        this._checkAndDisconnectFromServer();
     }
 
     /**
@@ -734,6 +812,9 @@ class P2PConnection {
         if (this.onStatusChange) {
             this.onStatusChange('Negotiated chunk size: ' + negotiatedSize + ' bytes');
         }
+        
+        // Check for P2P stability and trigger disconnection
+        this._checkAndDisconnectFromServer();
     }
 
     /**
@@ -742,6 +823,12 @@ class P2PConnection {
      * @private
      */
     _handleICECandidate(candidate) {
+        // Ignore candidates after server disconnection
+        if (this.serverDisconnected) {
+            this.logger.debug('Ignoring ICE candidate - server disconnected');
+            return;
+        }
+        
         // If we don't have a peer token or connection is not accepted, buffer the candidate
         if (!this.peerToken || !this.connectionAccepted) {
             this.logger.log('Buffering ICE candidate until connection is accepted');
@@ -759,6 +846,12 @@ class P2PConnection {
      * @private
      */
     _sendICECandidate(candidate) {
+        // Don't send ICE candidates after server disconnection
+        if (this.serverDisconnected) {
+            this.logger.debug('Not sending ICE candidate - server disconnected');
+            return;
+        }
+        
         if (!this.signaler || this.signaler.readyState !== WebSocket.OPEN) {
             this.logger.warn('Cannot send ICE candidate: not connected to signaling server');
             return;
@@ -913,6 +1006,38 @@ class P2PConnection {
             if (this.onError) {
                 this.onError('Error handling signaling message: ' + error.message);
             }
+        }
+    }
+
+    /**
+     * Check P2P connection stability and disconnect from server if appropriate
+     * @private
+     */
+    _checkAndDisconnectFromServer() {
+        // Check if P2P connection is stable and capabilities are exchanged
+        if (this.canDisconnectFromServer()) {
+            // Use a short delay to ensure P2P connection is fully stable
+            setTimeout(() => {
+                if (this.canDisconnectFromServer()) {
+                    this.disconnectFromServer();
+                }
+            }, 2000); // 2 second delay to ensure stability
+        }
+    }
+
+    /**
+     * Handle P2P connection failure after server disconnection
+     * @private
+     */
+    _handleP2PFailureAfterServerDisconnect() {
+        this.logger.error('P2P connection failed after server disconnection');
+        
+        if (this.onError) {
+            this.onError('P2P connection lost. Please reconnect to the server to establish a new connection.');
+        }
+        
+        if (this.onStatusChange) {
+            this.onStatusChange('P2P connection lost - Server connection unavailable for reconnection');
         }
     }
 

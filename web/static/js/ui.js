@@ -307,7 +307,8 @@ function initUI() {
     
     // Set up event handlers
     p2p.onStatusChange = (status) => {
-        elements.connectionStatus.textContent = status;
+        // Update dual status display
+        _updateConnectionStatus(status);
         
         // Handle capabilities exchange status
         if (status.includes('Negotiated chunk size')) {
@@ -835,6 +836,78 @@ function initUI() {
             // Auto-connect if token is present (now server URL is guaranteed to be set)
             logger.log('Found token in URL, auto-connecting...');
             elements.connectButton.click();
+        }
+    
+        /**
+         * Update connection status display with dual status indicators
+         * @param {string} status - The status message
+         * @private
+         */
+        function _updateConnectionStatus(status) {
+            // Update main status display
+            elements.connectionStatus.textContent = status;
+            
+            // Update connection indicators
+            _updateConnectionIndicators();
+        }
+    
+        /**
+         * Update connection indicators for server and P2P connections
+         * @private
+         */
+        function _updateConnectionIndicators() {
+            const serverIndicator = document.getElementById('server-status-indicator');
+            const p2pIndicator = document.getElementById('p2p-status-indicator');
+            
+            if (!serverIndicator || !p2pIndicator) {
+                return; // Indicators not available yet
+            }
+            
+            // Update server connection indicator
+            if (p2p.isServerConnected()) {
+                serverIndicator.className = 'inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800';
+                serverIndicator.innerHTML = `
+                    <svg class="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
+                        <circle cx="10" cy="10" r="3"></circle>
+                    </svg>
+                    Server: Connected
+                `;
+            } else if (p2p.serverDisconnected) {
+                serverIndicator.className = 'inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-800';
+                serverIndicator.innerHTML = `
+                    <svg class="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
+                        <circle cx="10" cy="10" r="3"></circle>
+                    </svg>
+                    Server: Disconnected
+                `;
+            } else {
+                serverIndicator.className = 'inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800';
+                serverIndicator.innerHTML = `
+                    <svg class="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
+                        <circle cx="10" cy="10" r="3"></circle>
+                    </svg>
+                    Server: Not Connected
+                `;
+            }
+            
+            // Update P2P connection indicator
+            if (p2p.isConnected()) {
+                p2pIndicator.className = 'inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800';
+                p2pIndicator.innerHTML = `
+                    <svg class="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
+                        <circle cx="10" cy="10" r="3"></circle>
+                    </svg>
+                    P2P: Connected
+                `;
+            } else {
+                p2pIndicator.className = 'inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800';
+                p2pIndicator.innerHTML = `
+                    <svg class="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
+                        <circle cx="10" cy="10" r="3"></circle>
+                    </svg>
+                    P2P: Not Connected
+                `;
+            }
         }
     }
     

@@ -64,6 +64,22 @@
                         Not connected
                     </div>
                     
+                    <!-- Connection Status Indicators -->
+                    <div class="flex flex-wrap gap-2 mt-3">
+                        <div id="server-status-indicator" class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                            <svg class="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
+                                <circle cx="10" cy="10" r="3"></circle>
+                            </svg>
+                            Server: Not Connected
+                        </div>
+                        <div id="p2p-status-indicator" class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                            <svg class="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
+                                <circle cx="10" cy="10" r="3"></circle>
+                            </svg>
+                            P2P: Not Connected
+                        </div>
+                    </div>
+                    
                     <div id="capabilities-status" class="text-sm text-gray-600 mt-2 hidden">
                         <span class="inline-flex items-center">
                             <svg class="animate-spin h-4 w-4 mr-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
