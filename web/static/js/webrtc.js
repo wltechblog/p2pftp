@@ -36,7 +36,7 @@ class P2PConnection {
             id: 2,
             label: 'p2pftp-data',
             ordered: true,
-            priority: 'medium'
+            priority: 'high'  // CRITICAL FIX: Use high priority for file transfers
         };
 
         // Buffer size configuration as per protocol
@@ -572,9 +572,9 @@ class P2PConnection {
                 }
             );
             
-            // Set buffer size for data channel (1MB)
+            // Set buffer size for data channel (1MB) with optimized threshold
             if (this.dataChannel.bufferedAmountLowThreshold !== undefined) {
-                this.dataChannel.bufferedAmountLowThreshold = this.DATA_BUFFER_SIZE / 4; // 25% threshold
+                this.dataChannel.bufferedAmountLowThreshold = this.DATA_BUFFER_SIZE / 8; // 12.5% threshold for better flow
             }
             
             this._setupDataChannel(this.dataChannel);

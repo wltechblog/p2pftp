@@ -32,10 +32,10 @@ class FileTransfer {
         this.lastProgressUpdate = 0;
         this.transferCancelled = false;
         
-        // Window control
-        this.windowSize = 64; // Start with 64 chunks in flight
-        this.minWindowSize = 16; // Minimum window size
-        this.maxWindowSize = 256; // Maximum window size
+        // Window control - OPTIMIZED for better performance
+        this.windowSize = 128; // Increased from 64 to 128 chunks for better throughput
+        this.minWindowSize = 32; // Increased minimum window size
+        this.maxWindowSize = 512; // Increased maximum window size
         this.inFlightChunks = 0;
         this.lastAcknowledged = -1;
         
@@ -51,7 +51,7 @@ class FileTransfer {
         // Congestion control
         // CRITICAL FIX: Reduced buffer threshold from 2MB to 512KB for better flow control
         // This triggers buffer management earlier and prevents saturation
-        this.bufferThreshold = this.p2p.DATA_BUFFER_SIZE || (512 * 1024); // Use configured data buffer size, reduced to 512KB
+        this.bufferThreshold = this.p2p.DATA_BUFFER_SIZE || (1024 * 1024); // Use configured data buffer size, increased to 1MB for better throughput
         this.sendPaused = false;
         
         // Speed calculation tracking
@@ -259,40 +259,50 @@ class FileTransfer {
         // Process chunks sequentially for this transfer
         while (transferSequence < transferData.totalChunks && !transferData.transferCancelled) {
             // Check if we need to pause sending due to buffer congestion
-            if (this.p2p.dataChannel.bufferedAmount > this.bufferThreshold) {
+            const currentBufferedAmount = this.p2p.dataChannel ? this.p2p.dataChannel.bufferedAmount : 0;
+            
+            // OPTIMIZATION: Use less conservative buffer management for better throughput
+            if (currentBufferedAmount > this.bufferThreshold) {
                 transferData.sendPaused = true;
-                this.logger.log(`Pausing send due to buffer congestion for transfer ${transferData.id}`);
+                this.logger.log(`Buffer congestion for transfer ${transferData.id} - buffered: ${currentBufferedAmount}, threshold: ${this.bufferThreshold}`);
                 
-                // Wait for buffer to clear
+                // Wait for buffer to clear - use 75% threshold instead of 50% for better flow
                 await new Promise(resolve => {
                     const checkBuffer = () => {
-                        if (this.p2p.dataChannel.bufferedAmount <= this.bufferThreshold / 2) {
+                        const newBufferedAmount = this.p2p.dataChannel ? this.p2p.dataChannel.bufferedAmount : 0;
+                        if (newBufferedAmount <= this.bufferThreshold * 0.75) {
                             transferData.sendPaused = false;
-                            this.logger.log(`Resuming send after buffer cleared for transfer ${transferData.id}`);
+                            this.logger.log(`Resuming send for transfer ${transferData.id} - buffered: ${newBufferedAmount}`);
                             resolve();
                         } else {
-                            setTimeout(checkBuffer, 100);
+                            setTimeout(checkBuffer, 50); // Check more frequently
                         }
                     };
                     
-                    setTimeout(checkBuffer, 100);
+                    setTimeout(checkBuffer, 50);
                 });
             }
             
-            // Check if we need to wait for window space with timeout protection
+            // Check if we need to wait for window space with improved timeout protection
             if (transferData.inFlightChunks >= transferData.windowSize) {
                 const waitStartTime = Date.now();
-                const timeoutMs = 10000; // 10 second timeout
+                const timeoutMs = 5000; // Reduced timeout to 5 seconds for faster recovery
                 
                 await new Promise(resolve => {
                     const checkWindow = () => {
+                        const elapsed = Date.now() - waitStartTime;
+                        
                         if (transferData.inFlightChunks < transferData.windowSize) {
                             resolve();
-                        } else if (Date.now() - waitStartTime > timeoutMs) {
-                            // CRITICAL FIX: Force window reset if deadlock detected
-                            this.logger.warn(`Window wait timeout detected for transfer ${transferData.id}, forcing window reset`);
-                            transferData.inFlightChunks = Math.floor(transferData.windowSize / 2);
-                            transferData.lastAcknowledged = Math.max(0, transferData.lastAcknowledged - Math.floor(transferData.windowSize / 2));
+                        } else if (elapsed > timeoutMs) {
+                            // IMPROVED FIX: More intelligent window recovery
+                            this.logger.warn(`Window wait timeout for transfer ${transferData.id} after ${elapsed}ms, attempting recovery`);
+                            
+                            // Instead of arbitrary reset, try to recover by checking if acknowledgments were missed
+                            const expectedReduction = Math.max(1, Math.floor(transferData.windowSize * 0.25));
+                            transferData.inFlightChunks = Math.max(0, transferData.inFlightChunks - expectedReduction);
+                            
+                            this.logger.log(`Transfer ${transferData.id} recovery - reduced inFlightChunks to ${transferData.inFlightChunks}`);
                             resolve();
                         } else {
                             setTimeout(checkWindow, 50);
@@ -463,7 +473,22 @@ class FileTransfer {
         };
         
         this.p2p.controlChannel.send(JSON.stringify(message));
-        this.logger.log('Sent flow control acknowledgment:', message);
+        this.logger.log('DEBUG: Sent flow control acknowledgment:', message, 'highestSequence:', this.highestSequence);
+    }
+    
+    /**
+     * Send immediate flow control acknowledgment for specific sequence
+     * @param {number} sequence - The sequence number to acknowledge
+     * @private
+     */
+    _sendImmediateFlowControlAck(sequence) {
+        const message = {
+            type: 'flow-control-ack',
+            highestSequence: sequence
+        };
+        
+        this.p2p.controlChannel.send(JSON.stringify(message));
+        this.logger.log('DEBUG: Sent immediate flow control ack for sequence:', sequence);
     }
 
     /**
@@ -476,13 +501,30 @@ class FileTransfer {
             return;
         }
         
-        this.logger.log('Received flow control acknowledgment:', ack);
+        this.logger.log('DEBUG: Received flow control acknowledgment:', ack);
+        this.logger.log('DEBUG: Current legacy state - inFlightChunks:', this.inFlightChunks, 'lastAcknowledged:', this.lastAcknowledged);
         
         // Update window control immediately (unthrottled)
         if (ack.highestSequence > this.lastAcknowledged) {
             const newAcknowledged = ack.highestSequence - this.lastAcknowledged;
             this.inFlightChunks = Math.max(0, this.inFlightChunks - newAcknowledged);
             this.lastAcknowledged = ack.highestSequence;
+            this.logger.log('DEBUG: Updated legacy state - inFlightChunks:', this.inFlightChunks, 'lastAcknowledged:', this.lastAcknowledged);
+        }
+        
+        // CRITICAL FIX: Also update per-transfer state for multiple transfers
+        const sendingTransfers = Array.from(this.activeTransfers.values()).filter(t => t.sending && !t.transferComplete);
+        this.logger.log('DEBUG: Found', sendingTransfers.length, 'active sending transfers');
+        
+        for (const transfer of sendingTransfers) {
+            this.logger.log('DEBUG: Transfer', transfer.id, 'state before update - inFlightChunks:', transfer.inFlightChunks, 'lastAcknowledged:', transfer.lastAcknowledged);
+            
+            if (ack.highestSequence > transfer.lastAcknowledged) {
+                const newAcknowledged = ack.highestSequence - transfer.lastAcknowledged;
+                transfer.inFlightChunks = Math.max(0, transfer.inFlightChunks - newAcknowledged);
+                transfer.lastAcknowledged = ack.highestSequence;
+                this.logger.log('DEBUG: Transfer', transfer.id, 'state after update - inFlightChunks:', transfer.inFlightChunks, 'lastAcknowledged:', transfer.lastAcknowledged);
+            }
         }
     }
 
@@ -754,6 +796,10 @@ class FileTransfer {
         
         // Send progress update
         this._sendProgressUpdate();
+        
+        // CRITICAL FIX: Send immediate flow control acknowledgment for every chunk received
+        // This ensures sender gets timely updates for window management
+        this._sendImmediateFlowControlAck(sequence);
         
         // Update progress
         if (this.onProgress) {
