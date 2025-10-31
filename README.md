@@ -72,8 +72,8 @@ go install github.com/wltechblog/p2pftp@latest
 3. To connect, one user enters the other's token and initiates the connection
 4. The receiving user is notified and can accept or reject the connection
 5. When accepted, WebRTC signaling occurs through the server
-6. After the WebRTC connection is established, all communication happens directly between peers
-7. No file data passes through the server, ensuring privacy and reducing server load
+6. After the WebRTC connection is established, the server connection is dropped and all communication happens directly between peers
+7. No file or chat data passes through the server, ensuring privacy
 
 ## Development
 
