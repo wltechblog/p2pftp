@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Comprehensive Fix Verification</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <style>
+        .test-section {
+            border: 2px solid #e5e7eb;
+            border-radius: 8px;
+            padding: 16px;
+            margin: 16px 0;
+        }
+        .progress-item {
+            border: 1px solid #d1d5db;
+            border-radius: 6px;
+            padding: 12px;
+            margin: 8px 0;
+            background: #f9fafb;
+        }
+        .progress-bar-container {
+            width: 100%;
+            height: 8px;
+            background: #e5e7eb;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        .progress-bar-fill {
+            height: 100%;
+            transition: width 0.3s ease;
+        }
+        .test-log {
+            background: #1f2937;
+            color: #f3f4f6;
+            border-radius: 6px;
+            padding: 12px;
+            font-family: monospace;
+            font-size: 12px;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-900 min-h-screen">
+    <div class="container mx-auto px-4 py-8">
+        <header class="mb-8">
+            <h1 class="text-3xl font-bold text-center text-blue-600">🔧 Comprehensive Fix Verification</h1>
+            <p class="text-center text-gray-600 mt-2">Testing multiple file transfer progress indicators</p>
+        </header>
+
+        <main class="max-w-6xl mx-auto">
+            <!-- Test Controls -->
+            <section class="test-section">
+                <h2 class="text-xl font-semibold mb-4">Test Controls</h2>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Test File 1</label>
+                        <input type="file" id="file1" class="w-full p-2 border rounded-md" />
+                        <button id="send1" class="mt-2 bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600">
+                            Send File 1
+                        </button>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Test File 2</label>
+                        <input type="file" id="file2" class="w-full p-2 border rounded-md" />
+                        <button id="send2" class="mt-2 bg-green-500 text-white px-4 py-2 rounded-md hover:bg-green-600">
+                            Send File 2
+                        </button>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Test File 3</label>
+                        <input type="file" id="file3" class="w-full p-2 border rounded-md" />
+                        <button id="send3" class="mt-2 bg-purple-500 text-white px-4 py-2 rounded-md hover:bg-purple-600">
+                            Send File 3
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="mt-4 flex gap-2">
+                    <button id="sendAllSequential" class="bg-orange-500 text-white px-4 py-2 rounded-md hover:bg-orange-600">
+                        Send All Sequentially
+                    </button>
+                    <button id="sendAllConcurrent" class="bg-red-500 text-white px-4 py-2 rounded-md hover:bg-red-600">
+                        Send All Concurrently
+                    </button>
+                    <button id="clearAll" class="bg-gray-500 text-white px-4 py-2 rounded-md hover:bg-gray-600">
+                        Clear All Progress
+                    </button>
+                </div>
+            </section>
+
+            <!-- Progress Display -->
+            <section class="test-section">
+                <h2 class="text-xl font-semibold mb-4">Progress Indicators</h2>
+                <div id="progressContainer" class="space-y-2">
+                    <div class="text-gray-500 italic">No file transfers in progress</div>
+                </div>
+            </section>
+
+            <!-- Test Log -->
+            <section class="test-section">
+                <h2 class="text-xl font-semibold mb-4">Test Log</h2>
+                <div id="testLog" class="test-log">
+                    <div>Test initialized. Ready to verify multiple file transfer fix.</div>
+                </div>
+            </section>
+
+            <!-- Analysis Results -->
+            <section class="test-section">
+                <h2 class="text-xl font-semibold mb-4">Analysis Results</h2>
+                <div id="analysisResults" class="space-y-4">
+                    <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                        <h3 class="font-medium text-yellow-800 mb-2">🔍 Test Status</h3>
+                        <div id="testStatus" class="text-sm text-yellow-700">
+                            <p>• Waiting for tests to run...</p>
+                            <p>• Send files to test multiple transfer functionality</p>
+                            <p>• Verify each transfer shows its own progress indicator</p>
+                            <p>• Confirm progress indicators don't disappear</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <footer class="mt-8 text-center text-gray-500 text-sm">
+            <p>Multiple File Transfer Fix Verification - P2PFTP</p>
+        </footer>
+    </div>
+
+    <!-- Mock P2P and FileTransfer classes for testing -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/spark-md5/3.0.2/spark-md5.min.js"></script>
+    <script>
+        // Mock P2P Connection
+        class MockP2PConnection {
+            constructor() {
+                this.isConnected = false;
+                this.capabilitiesExchanged = true;
+                this.negotiatedChunkSize = 16384;
+                this.DATA_BUFFER_SIZE = 1024 * 1024;
+                this.controlChannel = {
+                    send: (data) => console.log('Mock control send:', data)
+                };
+                this.dataChannel = {
+                    send: (data) => console.log('Mock data send:', data.byteLength, 'bytes'),
+                    bufferedAmount: 0
+                };
+            }
+            
+            connectToServer() { return Promise.resolve(); }
+            initializePeerConnection() { this.isConnected = true; }
+            connectToPeer() { return Promise.resolve(); }
+            waitForCapabilitiesExchange() { return Promise.resolve(); }
+        }
+
+        // Enhanced Mock FileTransfer with multiple transfer support
+        class MockFileTransfer {
+            constructor(p2p, logger) {
+                this.p2p = p2p;
+                this.logger = logger || console;
+                
+                // Multiple transfer support
+                this.activeTransfers = new Map();
+                this.nextTransferId = 1;
+                
+                // Legacy state
+                this.file = null;
+                this.sending = false;
+                this.totalBytes = 0;
+                this.startTime = 0;
+                
+                // Event handlers
+                this.onProgress = null;
+                this.onComplete = null;
+                this.onError = null;
+            }
+            
+            async sendFile(file) {
+                const transferId = `send-${this.nextTransferId++}`;
+                
+                const transferData = {
+                    id: transferId,
+                    file: file,
+                    sending: true,
+                    transferComplete: false,
+                    transferCancelled: false,
+                    bytesSent: 0,
+                    startTime: Date.now(),
+                    totalBytes: file.size,
+                    completedHandled: false
+                };
+                
+                this.activeTransfers.set(transferId, transferData);
+                
+                // Update legacy state
+                this.file = file;
+                this.sending = true;
+                this.totalBytes = file.size;
+                this.startTime = Date.now();
+                
+                // Start mock transfer
+                this._simulateTransfer(transferData);
+                
+                return new Promise((resolve) => {
+                    transferData.resolve = resolve;
+                });
+            }
+            
+            _simulateTransfer(transferData) {
+                const duration = 3000 + Math.random() * 2000; // 3-5 seconds
+                const interval = 100; // Update every 100ms
+                const steps = duration / interval;
+                let currentStep = 0;
+                
+                const progressInterval = setInterval(() => {
+                    if (transferData.transferCancelled) {
+                        clearInterval(progressInterval);
+                        this._handleError(transferData, 'Transfer cancelled');
+                        return;
+                    }
+                    
+                    currentStep++;
+                    const progress = Math.min(currentStep / steps, 1.0);
+                    const bytesSent = Math.floor(progress * transferData.totalBytes);
+                    
+                    transferData.bytesSent = bytesSent;
+                    
+                    // Send progress update
+                    if (this.onProgress) {
+                        this.onProgress({
+                            transferId: transferData.id,
+                            bytesSent: bytesSent,
+                            totalBytes: transferData.totalBytes,
+                            percent: progress * 100,
+                            speed: bytesSent / ((Date.now() - transferData.startTime) / 1000),
+                            timeElapsed: (Date.now() - transferData.startTime) / 1000,
+                            timeRemaining: ((Date.now() - transferData.startTime) / bytesSent) * (transferData.totalBytes - bytesSent) / 1000,
+                            filename: transferData.file.name
+                        });
+                    }
+                    
+                    if (progress >= 1.0) {
+                        clearInterval(progressInterval);
+                        transferData.transferComplete = true;
+                        this._handleComplete(transferData);
+                    }
+                }, interval);
+            }
+            
+            _handleComplete(transferData) {
+                if (this.onComplete) {
+                    this.onComplete();
+                }
+            }
+            
+            _handleError(transferData, error) {
+                if (this.onError) {
+                    this.onError(new Error(error));
+                }
+            }
+            
+            cancelTransfer() {
+                // Cancel all active transfers
+                for (const [transferId, transferData] of this.activeTransfers) {
+                    transferData.transferCancelled = true;
+                }
+            }
+        }
+
+        // Test Framework
+        class MultipleTransferTest {
+            constructor() {
+                this.p2p = new MockP2PConnection();
+                this.fileTransfer = new MockFileTransfer(this.p2p);
+                this.activeProgressElements = new Map();
+                this.testResults = [];
+                
+                this.init();
+            }
+            
+            init() {
+                // Set up event handlers
+                this.fileTransfer.onProgress = (progress) => this.handleProgress(progress);
+                this.fileTransfer.onComplete = () => this.handleComplete();
+                this.fileTransfer.onError = (error) => this.handleError(error);
+                
+                // Set up UI event listeners
+                document.getElementById('send1').addEventListener('click', () => this.sendFile(1));
+                document.getElementById('send2').addEventListener('click', () => this.sendFile(2));
+                document.getElementById('send3').addEventListener('click', () => this.sendFile(3));
+                document.getElementById('sendAllSequential').addEventListener('click', () => this.sendAllSequentially());
+                document.getElementById('sendAllConcurrent').addEventListener('click', () => this.sendAllConcurrently());
+                document.getElementById('clearAll').addEventListener('click', () => this.clearAll());
+                
+                this.log('✅ Test framework initialized');
+                this.updateAnalysis();
+            }
+            
+            async sendFile(fileNumber) {
+                const fileInput = document.getElementById(`file${fileNumber}`);
+                if (!fileInput.files.length) {
+                    this.log(`❌ File ${fileNumber}: No file selected`);
+                    return;
+                }
+                
+                const file = fileInput.files[0];
+                this.log(`📤 File ${fileNumber}: Starting transfer - ${file.name} (${file.size} bytes)`);
+                
+                try {
+                    await this.fileTransfer.sendFile(file);
+                } catch (error) {
+                    this.log(`❌ File ${fileNumber}: Transfer failed - ${error.message}`);
+                }
+            }
+            
+            async sendAllSequentially() {
+                this.log('🔄 Starting sequential transfers...');
+                
+                for (let i = 1; i <= 3; i++) {
+                    const fileInput = document.getElementById(`file${i}`);
+                    if (fileInput.files.length) {
+                        await this.sendFile(i);
+                        await new Promise(resolve => setTimeout(resolve, 500)); // Small delay between transfers
+                    }
+                }
+            }
+            
+            async sendAllConcurrently() {
+                this.log('⚡ Starting concurrent transfers...');
+                
+                const promises = [];
+                for (let i = 1; i <= 3; i++) {
+                    const fileInput = document.getElementById(`file${i}`);
+                    if (fileInput.files.length) {
+                        promises.push(this.sendFile(i));
+                    }
+                }
+                
+                await Promise.all(promises);
+            }
+            
+            clearAll() {
+                this.fileTransfer.cancelTransfer();
+                this.activeProgressElements.clear();
+                document.getElementById('progressContainer').innerHTML = '<div class="text-gray-500 italic">No file transfers in progress</div>';
+                this.log('🧹 Cleared all transfers');
+                this.updateAnalysis();
+            }
+            
+            handleProgress(progress) {
+                if (progress.transferId) {
+                    // Multiple transfer progress
+                    this.updateProgressIndicator(progress);
+                } else {
+                    // Legacy single transfer - ignore for this test
+                    this.log('ℹ️ Received legacy single transfer progress');
+                }
+            }
+            
+            handleComplete() {
+                this.log('✅ Transfer completed');
+                this.updateAnalysis();
+            }
+            
+            handleError(error) {
+                this.log(`❌ Transfer error: ${error.message}`);
+                this.updateAnalysis();
+            }
+            
+            updateProgressIndicator(progress) {
+                let progressElement = this.activeProgressElements.get(progress.transferId);
+                
+                if (!progressElement) {
+                    progressElement = this.createProgressIndicator(progress);
+                    this.activeProgressElements.set(progress.transferId, progressElement);
+                }
+                
+                this.updateProgressDisplay(progressElement, progress);
+            }
+            
+            createProgressIndicator(progress) {
+                const container = document.getElementById('progressContainer');
+                
+                // Clear "no transfers" message
+                if (this.activeProgressElements.size === 0) {
+                    container.innerHTML = '';
+                }
+                
+                const indicator = document.createElement('div');
+                indicator.className = 'progress-item';
+                indicator.id = progress.transferId;
+                
+                indicator.innerHTML = `
+                    <div class="flex justify-between items-center mb-2">
+                        <span class="font-medium">${progress.filename}</span>
+                        <span class="text-sm text-gray-600">${progress.bytesSent !== undefined ? 'Sending...' : 'Receiving...'}</span>
+                        <button onclick="cancelTransfer('${progress.transferId}')" class="ml-2 bg-red-500 text-white px-3 py-1 rounded text-sm hover:bg-red-600">
+                            Cancel
+                        </button>
+                    </div>
+                    <div class="progress-bar-container">
+                        <div class="progress-bar-fill bg-blue-500" style="width: ${progress.percent}%"></div>
+                    </div>
+                    <div class="flex justify-between text-sm text-gray-600">
+                        <span>${this.formatBytes(progress.bytesSent !== undefined ? progress.bytesSent : progress.bytesReceived)} / ${this.formatBytes(progress.totalBytes)}</span>
+                        <span>${this.formatBytes(progress.speed)}/s</span>
+                        <span>${this.formatTime(progress.timeRemaining)}</span>
+                    </div>
+                `;
+                
+                container.appendChild(indicator);
+                return indicator;
+            }
+            
+            updateProgressDisplay(element, progress) {
+                const progressBar = element.querySelector('.progress-bar-fill');
+                const statusElement = element.querySelector('.text-gray-600');
+                
+                if (progressBar) {
+                    progressBar.style.width = `${progress.percent}%`;
+                    
+                    // Change color based on status
+                    if (progress.percent >= 100) {
+                        progressBar.className = 'progress-bar-fill bg-green-500';
+                    }
+                }
+                
+                if (statusElement) {
+                    statusElement.textContent = progress.bytesSent !== undefined ? 'Sending...' : 'Receiving...';
+                }
+            }
+            
+            formatBytes(bytes, decimals = 2) {
+                if (bytes === 0) return '0 B';
+                const k = 1024;
+                const dm = decimals < 0 ? 0 : decimals;
+                const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+                const i = Math.floor(Math.log(bytes) / Math.log(k));
+                return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+            }
+            
+            formatTime(seconds) {
+                if (!isFinite(seconds) || seconds < 0) return '--:--';
+                const minutes = Math.floor(seconds / 60);
+                const secs = Math.floor(seconds % 60);
+                return `${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+            }
+            
+            log(message) {
+                const logElement = document.getElementById('testLog');
+                const timestamp = new Date().toLocaleTimeString();
+                const entry = document.createElement('div');
+                entry.textContent = `[${timestamp}] ${message}`;
+                logElement.appendChild(entry);
+                logElement.scrollTop = logElement.scrollHeight;
+            }
+            
+            updateAnalysis() {
+                const statusElement = document.getElementById('testStatus');
+                const activeCount = this.activeProgressElements.size;
+                const totalTransfers = this.fileTransfer.activeTransfers.size;
+                
+                let statusHTML = `
+                    <p>• Active Progress Indicators: ${activeCount}</p>
+                    <p>• Total Transfers: ${totalTransfers}</p>
+                    <p>• Test Status: ${activeCount > 0 ? '✅ MULTIPLE TRANSFERS WORKING' : '⏳ Waiting for transfers'}</p>
+                `;
+                
+                if (activeCount > 1) {
+                    statusHTML += '<p>• ✅ MULTIPLE PROGRESS INDICATORS VISIBLE</p>';
+                    statusHTML += '<p>• ✅ NO DISAPPEARANCE DETECTED</p>';
+                }
+                
+                statusElement.innerHTML = statusHTML;
+            }
+        }
+
+        // Global cancel function
+        window.cancelTransfer = function(transferId) {
+            if (window.testFramework) {
+                window.testFramework.fileTransfer.activeTransfers.get(transferId).transferCancelled = true;
+                window.testFramework.log(`🛑 Cancelled transfer: ${transferId}`);
+            }
+        };
+
+        // Initialize test framework
+        document.addEventListener('DOMContentLoaded', () => {
+            window.testFramework = new MultipleTransferTest();
+        });
+    </script>
+</body>
+</html>

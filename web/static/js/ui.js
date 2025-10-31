@@ -167,6 +167,9 @@ function initUI() {
     // Transfer history storage
     let transferHistory = [];
     
+    // Multiple transfer progress tracking
+    let activeProgressIndicators = new Map(); // transferId -> DOM element
+    
     // Add log entry to the log container
     function addLogEntry(level, message) {
         // Check current number of log entries and trim if exceeding 100
@@ -381,6 +384,18 @@ function initUI() {
     
     // File transfer event handlers
     fileTransfer.onProgress = (progress) => {
+        // Check if this is a multi-transfer progress update
+        if (progress.transferId) {
+            // Handle multiple transfer progress
+            updateMultipleTransferProgress(progress);
+        } else {
+            // Handle legacy single transfer progress
+            updateSingleTransferProgress(progress);
+        }
+    };
+    
+    // Update single transfer progress (legacy compatibility)
+    function updateSingleTransferProgress(progress) {
         // Update progress bar
         elements.progressBar.style.width = `${progress.percent}%`;
         
@@ -398,32 +413,189 @@ function initUI() {
         
         // Update time remaining
         elements.timeRemaining.textContent = formatTime(progress.timeRemaining);
+    }
+    
+    // Update multiple transfer progress
+    function updateMultipleTransferProgress(progress) {
+        let progressElement = activeProgressIndicators.get(progress.transferId);
+        
+        if (!progressElement) {
+            // Create new progress indicator for this transfer
+            progressElement = createProgressIndicator(progress);
+            activeProgressIndicators.set(progress.transferId, progressElement);
+        }
+        
+        // Update the progress indicator
+        updateProgressIndicator(progressElement, progress);
+    }
+    
+    // Create a new progress indicator for a transfer
+    function createProgressIndicator(progress) {
+        const container = document.getElementById('transfer-progress-container');
+        
+        // Hide the single transfer progress if visible
+        const singleProgress = document.getElementById('transfer-progress');
+        if (singleProgress) {
+            singleProgress.classList.add('hidden');
+        }
+        
+        const indicator = document.createElement('div');
+        indicator.className = 'border rounded-lg p-4 bg-white shadow-sm';
+        indicator.id = progress.transferId;
+        
+        const isSending = progress.bytesSent !== undefined;
+        const bytesTransferred = isSending ? progress.bytesSent : progress.bytesReceived;
+        
+        indicator.innerHTML = `
+            <div class="mb-2 flex justify-between items-center">
+                <span class="font-medium text-gray-900">${progress.filename || 'Unknown File'}</span>
+                <span class="text-sm text-gray-600">${isSending ? 'Sending...' : 'Receiving...'}</span>
+                <button onclick="cancelTransfer('${progress.transferId}')" class="ml-2 bg-red-500 text-white px-3 py-1 rounded text-sm hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-opacity-50">
+                    Cancel
+                </button>
+            </div>
+            <div class="w-full bg-gray-200 rounded-full h-3 mb-2">
+                <div class="bg-blue-500 h-3 rounded-full transition-all duration-300" style="width: ${progress.percent}%"></div>
+            </div>
+            <div class="flex justify-between text-sm text-gray-600">
+                <span>${formatBytes(bytesTransferred)} / ${formatBytes(progress.totalBytes)}</span>
+                <span>${formatBytes(progress.speed)}/s</span>
+                <span>${formatTime(progress.timeRemaining)}</span>
+            </div>
+        `;
+        
+        container.appendChild(indicator);
+        return indicator;
+    }
+    
+    // Update an existing progress indicator
+    function updateProgressIndicator(indicator, progress) {
+        const progressBar = indicator.querySelector('.bg-blue-500');
+        const statusElement = indicator.querySelector('.text-gray-600');
+        const bytesElement = indicator.querySelector('.text-gray-600').nextElementSibling;
+        const speedElement = bytesElement.nextElementSibling;
+        
+        const isSending = progress.bytesSent !== undefined;
+        const bytesTransferred = isSending ? progress.bytesSent : progress.bytesReceived;
+        
+        // Update progress bar
+        progressBar.style.width = `${progress.percent}%`;
+        
+        // Update status
+        statusElement.textContent = isSending ? 'Sending...' : 'Receiving...';
+        
+        // Update stats
+        bytesElement.textContent = `${formatBytes(bytesTransferred)} / ${formatBytes(progress.totalBytes)}`;
+        speedElement.textContent = `${formatBytes(progress.speed)}/s`;
+        
+        // Update time remaining
+        const timeElement = speedElement.nextElementSibling;
+        if (timeElement) {
+            timeElement.textContent = formatTime(progress.timeRemaining);
+        }
+    }
+    
+    // Remove a progress indicator
+    function removeProgressIndicator(transferId) {
+        const indicator = activeProgressIndicators.get(transferId);
+        if (indicator) {
+            indicator.remove();
+            activeProgressIndicators.delete(transferId);
+        }
+        
+        // Show single transfer progress if no multiple transfers are active
+        if (activeProgressIndicators.size === 0) {
+            const singleProgress = document.getElementById('transfer-progress');
+            if (singleProgress) {
+                singleProgress.classList.remove('hidden');
+            }
+        }
+    }
+    
+    // Cancel a specific transfer
+    window.cancelTransfer = function(transferId) {
+        const transfer = fileTransfer.activeTransfers.get(transferId);
+        if (transfer) {
+            transfer.transferCancelled = true;
+            logger.log(`Cancelled transfer ${transferId}: ${transfer.file.name}`);
+        }
     };
     
     fileTransfer.onComplete = () => {
-        // Update transfer status
-        elements.transferStatus.textContent = 'Complete';
-        elements.progressBar.style.width = '100%';
+        // Handle multiple transfer completion
+        const completedTransfers = Array.from(fileTransfer.activeTransfers.values())
+            .filter(t => t.transferComplete && !t.completedHandled);
         
-        // Hide cancel button
-        elements.cancelTransferButton.classList.add('hidden');
+        for (const transfer of completedTransfers) {
+            transfer.completedHandled = true;
+            
+            // Update progress indicator to show completion
+            const progressElement = activeProgressIndicators.get(transfer.id);
+            if (progressElement) {
+                const progressBar = progressElement.querySelector('.bg-blue-500');
+                const statusElement = progressElement.querySelector('.text-gray-600');
+                
+                progressBar.style.width = '100%';
+                progressBar.className = 'bg-green-500 h-3 rounded-full transition-all duration-300';
+                statusElement.textContent = 'Complete';
+                
+                // Remove cancel button
+                const cancelButton = progressElement.querySelector('button');
+                if (cancelButton) {
+                    cancelButton.remove();
+                }
+                
+                // Remove progress indicator after delay
+                setTimeout(() => {
+                    removeProgressIndicator(transfer.id);
+                }, 3000);
+            }
+        }
         
-        // Calculate final transfer speed
-        const transferTime = (Date.now() - fileTransfer.startTime) / 1000; // seconds
-        const finalSpeed = fileTransfer.totalBytes / transferTime;
+        // Check if all transfers are complete
+        const allTransfersComplete = Array.from(fileTransfer.activeTransfers.values())
+            .every(t => t.transferComplete);
         
-        // Show completion status with speed
-        showTransferComplete(finalSpeed);
+        if (allTransfersComplete) {
+            // Calculate final transfer speed for legacy compatibility
+            const transferTime = (Date.now() - fileTransfer.startTime) / 1000; // seconds
+            const finalSpeed = fileTransfer.totalBytes / transferTime;
+            
+            // Show completion status with speed
+            showTransferComplete(finalSpeed);
+        }
     };
     
     fileTransfer.onError = (error) => {
-        // Update transfer status
-        elements.transferStatus.textContent = `Error: ${error.message}`;
+        // Handle multiple transfer errors - find the transfer that failed
+        const failedTransfer = Array.from(fileTransfer.activeTransfers.values())
+            .find(t => t.transferCancelled || (t.sending && error.message.includes('cancelled')));
         
-        // Hide cancel button
-        elements.cancelTransferButton.classList.add('hidden');
+        if (failedTransfer) {
+            // Update progress indicator to show error
+            const progressElement = activeProgressIndicators.get(failedTransfer.id);
+            if (progressElement) {
+                const progressBar = progressElement.querySelector('.bg-blue-500');
+                const statusElement = progressElement.querySelector('.text-gray-600');
+                
+                progressBar.style.width = '100%';
+                progressBar.className = 'bg-red-500 h-3 rounded-full transition-all duration-300';
+                statusElement.textContent = `Error: ${error.message}`;
+                
+                // Remove cancel button
+                const cancelButton = progressElement.querySelector('button');
+                if (cancelButton) {
+                    cancelButton.remove();
+                }
+                
+                // Remove progress indicator after delay
+                setTimeout(() => {
+                    removeProgressIndicator(failedTransfer.id);
+                }, 3000);
+            }
+        }
         
-        // Show error completion status
+        // Show error completion status for legacy compatibility
         showTransferError(error.message);
     };
     

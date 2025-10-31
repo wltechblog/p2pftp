@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Multiple File Transfer Test</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <style>
+        .test-section {
+            border: 2px solid #e5e7eb;
+            border-radius: 8px;
+            padding: 16px;
+            margin: 16px 0;
+        }
+        .test-result {
+            margin: 8px 0;
+            padding: 8px;
+            border-radius: 4px;
+        }
+        .test-pass {
+            background-color: #d1fae5;
+            color: #065f46;
+        }
+        .test-fail {
+            background-color: #fee2e2;
+            color: #991b1b;
+        }
+        .progress-indicator {
+            border: 1px solid #d1d5db;
+            border-radius: 4px;
+            padding: 8px;
+            margin: 4px 0;
+            background-color: #f9fafb;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-900 min-h-screen">
+    <div class="container mx-auto px-4 py-8">
+        <header class="mb-8">
+            <h1 class="text-3xl font-bold text-center text-blue-600">Multiple File Transfer Test</h1>
+            <p class="text-center text-gray-600 mt-2">Test progress indicators with multiple file transfers</p>
+        </header>
+
+        <main class="max-w-4xl mx-auto">
+            <!-- Test Controls -->
+            <section class="test-section">
+                <h2 class="text-xl font-semibold mb-4">Test Controls</h2>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Test File 1</label>
+                        <input type="file" id="file1" class="w-full p-2 border rounded-md" />
+                        <button id="send-file-1" class="mt-2 bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600">
+                            Send File 1
+                        </button>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Test File 2</label>
+                        <input type="file" id="file2" class="w-full p-2 border rounded-md" />
+                        <button id="send-file-2" class="mt-2 bg-green-500 text-white px-4 py-2 rounded-md hover:bg-green-600">
+                            Send File 2
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="mt-4">
+                    <button id="send-both-files" class="bg-purple-500 text-white px-6 py-2 rounded-md hover:bg-purple-600">
+                        Send Both Files Simultaneously
+                    </button>
+                    <button id="clear-results" class="ml-2 bg-gray-500 text-white px-6 py-2 rounded-md hover:bg-gray-600">
+                        Clear Results
+                    </button>
+                </div>
+            </section>
+
+            <!-- Progress Indicators -->
+            <section class="test-section">
+                <h2 class="text-xl font-semibold mb-4">Progress Indicators</h2>
+                <div id="progress-container">
+                    <div class="text-gray-500 italic">No transfers in progress</div>
+                </div>
+            </section>
+
+            <!-- Test Results -->
+            <section class="test-section">
+                <h2 class="text-xl font-semibold mb-4">Test Results</h2>
+                <div id="test-results">
+                    <div class="text-gray-500 italic">No tests run yet</div>
+                </div>
+            </section>
+
+            <!-- DOM Inspector -->
+            <section class="test-section">
+                <h2 class="text-xl font-semibold mb-4">DOM Inspector</h2>
+                <div id="dom-inspector" class="font-mono text-sm bg-gray-50 p-4 rounded-md overflow-auto max-h-64">
+                    <div class="text-gray-500 italic">DOM inspection results will appear here</div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/spark-md5/3.0.2/spark-md5.min.js"></script>
+    <script src="static/js/webrtc.js"></script>
+    <script src="static/js/filetransfer.js"></script>
+    <script>
+        // Test framework
+        class MultipleFileTest {
+            constructor() {
+                this.logger = {
+                    log: (msg, ...args) => this.addTestResult('info', msg, ...args),
+                    error: (msg, ...args) => this.addTestResult('error', msg, ...args),
+                    warn: (msg, ...args) => this.addTestResult('warning', msg, ...args),
+                    debug: (msg, ...args) => this.addTestResult('debug', msg, ...args)
+                };
+                
+                this.p2p = null;
+                this.fileTransfer = null;
+                this.activeTransfers = new Map();
+                this.testResults = [];
+                
+                this.init();
+            }
+            
+            init() {
+                // Set up event listeners
+                document.getElementById('send-file-1').addEventListener('click', () => this.sendFile(1));
+                document.getElementById('send-file-2').addEventListener('click', () => this.sendFile(2));
+                document.getElementById('send-both-files').addEventListener('click', () => this.sendBothFiles());
+                document.getElementById('clear-results').addEventListener('click', () => this.clearResults());
+                
+                // Initialize P2P connection (mock for testing)
+                this.initializeMockP2P();
+            }
+            
+            initializeMockP2P() {
+                // Create mock P2P connection for testing
+                this.p2p = {
+                    isConnected: () => true,
+                    isServerConnected: () => true,
+                    DEFAULT_CHUNK_SIZE: 16384,
+                    DATA_BUFFER_SIZE: 1024 * 1024,
+                    controlChannel: {
+                        send: (data) => console.log('Mock control send:', data)
+                    },
+                    dataChannel: {
+                        send: (data) => console.log('Mock data send:', data.byteLength, 'bytes')
+                    }
+                };
+                
+                this.fileTransfer = new FileTransfer(this.p2p, this.logger);
+                
+                // Set up file transfer event handlers
+                this.fileTransfer.onProgress = (progress) => this.handleProgress(progress);
+                this.fileTransfer.onComplete = () => this.handleComplete();
+                this.fileTransfer.onError = (error) => this.handleError(error);
+                this.fileTransfer.onFileInfo = (info) => this.handleFileInfo(info);
+            }
+            
+            async sendFile(fileNumber) {
+                const fileInput = document.getElementById(`file${fileNumber}`);
+                if (!fileInput.files.length) {
+                    this.addTestResult('error', `No file selected for File ${fileNumber}`);
+                    return;
+                }
+                
+                const file = fileInput.files[0];
+                const transferId = `transfer-${fileNumber}-${Date.now()}`;
+                
+                this.addTestResult('info', `Starting transfer ${fileNumber}: ${file.name} (${file.size} bytes)`);
+                
+                try {
+                    // Create progress indicator
+                    this.createProgressIndicator(transferId, file.name, fileNumber);
+                    
+                    // Mock the file transfer process
+                    await this.mockFileTransfer(transferId, file);
+                    
+                } catch (error) {
+                    this.addTestResult('error', `Transfer ${fileNumber} failed:`, error.message);
+                    this.removeProgressIndicator(transferId);
+                }
+            }
+            
+            async sendBothFiles() {
+                const file1Input = document.getElementById('file1');
+                const file2Input = document.getElementById('file2');
+                
+                if (!file1Input.files.length || !file2Input.files.length) {
+                    this.addTestResult('error', 'Both files must be selected for simultaneous transfer');
+                    return;
+                }
+                
+                this.addTestResult('info', 'Starting simultaneous file transfers');
+                
+                // Start both transfers with a small delay
+                this.sendFile(1);
+                setTimeout(() => this.sendFile(2), 100);
+            }
+            
+            createProgressIndicator(transferId, fileName, fileNumber) {
+                const container = document.getElementById('progress-container');
+                
+                // Clear "no transfers" message if this is the first transfer
+                if (this.activeTransfers.size === 0) {
+                    container.innerHTML = '';
+                }
+                
+                const indicator = document.createElement('div');
+                indicator.className = 'progress-indicator';
+                indicator.id = transferId;
+                indicator.innerHTML = `
+                    <div class="flex justify-between items-center mb-2">
+                        <span class="font-medium">File ${fileNumber}: ${fileName}</span>
+                        <span class="transfer-status text-sm text-gray-600">Starting...</span>
+                    </div>
+                    <div class="w-full bg-gray-200 rounded-full h-2 mb-2">
+                        <div class="bg-blue-500 h-2 rounded-full transition-all duration-300" style="width: 0%"></div>
+                    </div>
+                    <div class="flex justify-between text-sm text-gray-600">
+                        <span class="bytes-transferred">0 B / 0 B</span>
+                        <span class="transfer-speed">0 B/s</span>
+                        <span class="time-remaining">--:--</span>
+                    </div>
+                `;
+                
+                container.appendChild(indicator);
+                this.activeTransfers.set(transferId, {
+                    fileName,
+                    fileNumber,
+                    startTime: Date.now()
+                });
+                
+                this.inspectDOM();
+            }
+            
+            handleProgress(progress) {
+                // This would normally be called by the FileTransfer class
+                // For testing, we'll simulate progress updates
+                this.addTestResult('debug', 'Progress update received:', progress);
+            }
+            
+            handleComplete() {
+                this.addTestResult('info', 'Transfer completed');
+            }
+            
+            handleError(error) {
+                this.addTestResult('error', 'Transfer error:', error.message);
+            }
+            
+            handleFileInfo(info) {
+                this.addTestResult('info', 'File info received:', info);
+            }
+            
+            removeProgressIndicator(transferId) {
+                const indicator = document.getElementById(transferId);
+                if (indicator) {
+                    indicator.remove();
+                }
+                this.activeTransfers.delete(transferId);
+                
+                // Show "no transfers" message if all transfers are done
+                if (this.activeTransfers.size === 0) {
+                    document.getElementById('progress-container').innerHTML = '<div class="text-gray-500 italic">No transfers in progress</div>';
+                }
+                
+                this.inspectDOM();
+            }
+            
+            async mockFileTransfer(transferId, file) {
+                const transfer = this.activeTransfers.get(transferId);
+                const indicator = document.getElementById(transferId);
+                
+                if (!transfer || !indicator) return;
+                
+                const progressBar = indicator.querySelector('.bg-blue-500');
+                const statusElement = indicator.querySelector('.transfer-status');
+                const bytesElement = indicator.querySelector('.bytes-transferred');
+                const speedElement = indicator.querySelector('.transfer-speed');
+                
+                // Simulate progress updates
+                const totalBytes = file.size;
+                const duration = 3000; // 3 seconds
+                const interval = 100; // Update every 100ms
+                const steps = duration / interval;
+                const bytesPerStep = totalBytes / steps;
+                
+                let bytesTransferred = 0;
+                let step = 0;
+                
+                const progressInterval = setInterval(() => {
+                    step++;
+                    bytesTransferred = Math.min(bytesPerStep * step, totalBytes);
+                    const percent = (bytesTransferred / totalBytes) * 100;
+                    
+                    // Update progress indicator
+                    progressBar.style.width = `${percent}%`;
+                    statusElement.textContent = 'Transferring...';
+                    bytesElement.textContent = `${this.formatBytes(bytesTransferred)} / ${this.formatBytes(totalBytes)}`;
+                    speedElement.textContent = `${this.formatBytes(bytesPerStep * 10)}/s`;
+                    
+                    if (step >= steps) {
+                        clearInterval(progressInterval);
+                        statusElement.textContent = 'Complete';
+                        progressBar.style.width = '100%';
+                        
+                        // Remove after a delay
+                        setTimeout(() => {
+                            this.removeProgressIndicator(transferId);
+                            this.addTestResult('pass', `Transfer ${transfer.fileNumber} completed successfully`);
+                        }, 1000);
+                    }
+                }, interval);
+            }
+            
+            formatBytes(bytes, decimals = 2) {
+                if (bytes === 0) return '0 B';
+                const k = 1024;
+                const dm = decimals < 0 ? 0 : decimals;
+                const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+                const i = Math.floor(Math.log(bytes) / Math.log(k));
+                return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+            }
+            
+            addTestResult(type, message, ...args) {
+                const resultsContainer = document.getElementById('test-results');
+                const timestamp = new Date().toLocaleTimeString();
+                
+                const result = document.createElement('div');
+                result.className = `test-result ${type === 'pass' ? 'test-pass' : type === 'error' ? 'test-fail' : 'bg-gray-100'}`;
+                result.innerHTML = `
+                    <span class="font-medium">[${timestamp}]</span> 
+                    <span class="font-medium">${type.toUpperCase()}:</span> 
+                    ${message} ${args.length > 0 ? args.join(' ') : ''}
+                `;
+                
+                resultsContainer.appendChild(result);
+                this.testResults.push({ type, message, timestamp, args });
+                
+                // Auto-scroll to bottom
+                resultsContainer.scrollTop = resultsContainer.scrollHeight;
+            }
+            
+            inspectDOM() {
+                const inspector = document.getElementById('dom-inspector');
+                const progressContainer = document.getElementById('progress-container');
+                
+                const indicators = progressContainer.querySelectorAll('.progress-indicator');
+                const analysis = {
+                    totalProgressIndicators: indicators.length,
+                    activeTransfers: this.activeTransfers.size,
+                    indicatorIds: Array.from(indicators).map(el => el.id),
+                    duplicateIds: this.findDuplicateIds(indicators)
+                };
+                
+                inspector.innerHTML = `
+                    <div><strong>Progress Indicators:</strong> ${analysis.totalProgressIndicators}</div>
+                    <div><strong>Active Transfers:</strong> ${analysis.activeTransfers}</div>
+                    <div><strong>Indicator IDs:</strong> ${analysis.indicatorIds.join(', ') || 'None'}</div>
+                    <div><strong>Duplicate IDs:</strong> ${analysis.duplicateIds.length > 0 ? analysis.duplicateIds.join(', ') : 'None'}</div>
+                    <div><strong>DOM Structure:</strong></div>
+                    <pre>${progressContainer.innerHTML.substring(0, 500)}${progressContainer.innerHTML.length > 500 ? '...' : ''}</pre>
+                `;
+            }
+            
+            findDuplicateIds(elements) {
+                const ids = Array.from(elements).map(el => el.id);
+                const duplicates = [];
+                const seen = new Set();
+                
+                ids.forEach(id => {
+                    if (seen.has(id)) {
+                        duplicates.push(id);
+                    } else {
+                        seen.add(id);
+                    }
+                });
+                
+                return duplicates;
+            }
+            
+            clearResults() {
+                document.getElementById('test-results').innerHTML = '<div class="text-gray-500 italic">No tests run yet</div>';
+                document.getElementById('progress-container').innerHTML = '<div class="text-gray-500 italic">No transfers in progress</div>';
+                document.getElementById('dom-inspector').innerHTML = '<div class="text-gray-500 italic">DOM inspection results will appear here</div>';
+                this.testResults = [];
+                this.activeTransfers.clear();
+            }
+        }
+        
+        // Initialize test when DOM is ready
+        document.addEventListener('DOMContentLoaded', () => {
+            new MultipleFileTest();
+        });
+    </script>
+</body>
+</html>

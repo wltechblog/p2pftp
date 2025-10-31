@@ -141,22 +141,26 @@
                         </button>
                     </div>
 
-                    <div id="transfer-progress" class="hidden">
-                        <div class="mb-2 flex justify-between">
-                            <span id="transfer-filename" class="font-medium"></span>
-                            <span id="transfer-status">Preparing...</span>
+                    <div id="transfer-progress-container" class="space-y-4">
+                        <!-- Single transfer progress (for backward compatibility) -->
+                        <div id="transfer-progress" class="hidden">
+                            <div class="mb-2 flex justify-between">
+                                <span id="transfer-filename" class="font-medium"></span>
+                                <span id="transfer-status">Preparing...</span>
+                            </div>
+                            <div class="w-full bg-gray-200 rounded-full h-4 mb-2">
+                                <div id="progress-bar" class="bg-blue-500 h-4 rounded-full transition-all duration-300" style="width: 0%"></div>
+                            </div>
+                            <div class="flex justify-between text-sm text-gray-600">
+                                <span id="bytes-transferred">0 B / 0 B</span>
+                                <span id="transfer-speed">0 B/s</span>
+                                <span id="time-remaining">--:--</span>
+                            </div>
+                            <button id="cancel-transfer-button" class="mt-3 bg-red-500 text-white px-4 py-1 rounded-md hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-opacity-50">
+                                Cancel
+                            </button>
                         </div>
-                        <div class="w-full bg-gray-200 rounded-full h-4 mb-2">
-                            <div id="progress-bar" class="bg-blue-500 h-4 rounded-full transition-all duration-300" style="width: 0%"></div>
-                        </div>
-                        <div class="flex justify-between text-sm text-gray-600">
-                            <span id="bytes-transferred">0 B / 0 B</span>
-                            <span id="transfer-speed">0 B/s</span>
-                            <span id="time-remaining">--:--</span>
-                        </div>
-                        <button id="cancel-transfer-button" class="mt-3 bg-red-500 text-white px-4 py-1 rounded-md hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-opacity-50">
-                            Cancel
-                        </button>
+                        <!-- Multiple transfer progress indicators will be added here dynamically -->
                     </div>
 
                     <!-- Transfer Completion Section -->

@@ -8,7 +8,11 @@ class FileTransfer {
         this.p2p = p2pConnection;
         this.logger = logger || console;
         
-        // File transfer state
+        // Multiple transfer support
+        this.activeTransfers = new Map(); // transferId -> transferData
+        this.nextTransferId = 1;
+        
+        // Legacy single transfer state (for backward compatibility)
         this.file = null;
         this.fileInfo = null;
         this.fileData = null;
@@ -87,10 +91,45 @@ class FileTransfer {
             throw new Error('Capabilities exchange failed: ' + error.message);
         }
         
-        if (this.sending || this.receiving) {
-            throw new Error('Transfer already in progress');
-        }
+        // Allow multiple concurrent transfers - remove the single transfer restriction
+        // if (this.sending || this.receiving) {
+        //     throw new Error('Transfer already in progress');
+        // }
         
+        // Generate unique transfer ID
+        const transferId = `send-${this.nextTransferId++}`;
+        
+        // Create transfer data object
+        const transferData = {
+            id: transferId,
+            file: file,
+            sending: true,
+            transferComplete: false,
+            transferCancelled: false,
+            bytesSent: 0,
+            sentChunks: 0,
+            startTime: Date.now(),
+            chunkSize: this.p2p.negotiatedChunkSize,
+            totalBytes: file.size,
+            totalChunks: Math.ceil(file.size / this.chunkSize),
+            inFlightChunks: 0,
+            lastAcknowledged: -1,
+            sendPaused: false,
+            windowSize: this.windowSize,
+            minWindowSize: this.minWindowSize,
+            maxWindowSize: this.maxWindowSize,
+            consecutiveIncreases: 0,
+            consecutiveDecreases: 0,
+            lastWindowAdjustment: Date.now(),
+            speedHistory: [],
+            lastSpeedCalculationTime: 0,
+            lastBytesReceived: 0
+        };
+        
+        // Store transfer data
+        this.activeTransfers.set(transferId, transferData);
+        
+        // Update legacy state for backward compatibility
         this.file = file;
         this.sending = true;
         this.transferComplete = false;
@@ -200,26 +239,36 @@ class FileTransfer {
      * @private
      */
     async _sendChunks() {
-        if (!this.sending || this.transferCancelled) {
+        // Get current sending transfers
+        const sendingTransfers = Array.from(this.activeTransfers.values()).filter(t => t.sending && !t.transferComplete);
+        
+        // Process each sending transfer
+        for (const transfer of sendingTransfers) {
+            await this._sendChunksForTransfer(transfer);
+        }
+    }
+    
+    async _sendChunksForTransfer(transferData) {
+        if (!transferData.sending || transferData.transferCancelled) {
             return;
         }
         
         const reader = new FileReader();
-        let sequence = 0;
+        let transferSequence = 0;
         
-        // Process chunks sequentially
-        while (sequence < this.totalChunks && !this.transferCancelled) {
+        // Process chunks sequentially for this transfer
+        while (transferSequence < transferData.totalChunks && !transferData.transferCancelled) {
             // Check if we need to pause sending due to buffer congestion
             if (this.p2p.dataChannel.bufferedAmount > this.bufferThreshold) {
-                this.sendPaused = true;
-                this.logger.log('Pausing send due to buffer congestion');
+                transferData.sendPaused = true;
+                this.logger.log(`Pausing send due to buffer congestion for transfer ${transferData.id}`);
                 
                 // Wait for buffer to clear
                 await new Promise(resolve => {
                     const checkBuffer = () => {
                         if (this.p2p.dataChannel.bufferedAmount <= this.bufferThreshold / 2) {
-                            this.sendPaused = false;
-                            this.logger.log('Resuming send after buffer cleared');
+                            transferData.sendPaused = false;
+                            this.logger.log(`Resuming send after buffer cleared for transfer ${transferData.id}`);
                             resolve();
                         } else {
                             setTimeout(checkBuffer, 100);
@@ -231,19 +280,19 @@ class FileTransfer {
             }
             
             // Check if we need to wait for window space with timeout protection
-            if (this.inFlightChunks >= this.windowSize) {
+            if (transferData.inFlightChunks >= transferData.windowSize) {
                 const waitStartTime = Date.now();
                 const timeoutMs = 10000; // 10 second timeout
                 
                 await new Promise(resolve => {
                     const checkWindow = () => {
-                        if (this.inFlightChunks < this.windowSize) {
+                        if (transferData.inFlightChunks < transferData.windowSize) {
                             resolve();
                         } else if (Date.now() - waitStartTime > timeoutMs) {
                             // CRITICAL FIX: Force window reset if deadlock detected
-                            this.logger.warn('Window wait timeout detected, forcing window reset');
-                            this.inFlightChunks = Math.floor(this.windowSize / 2);
-                            this.lastAcknowledged = Math.max(0, this.lastAcknowledged - Math.floor(this.windowSize / 2));
+                            this.logger.warn(`Window wait timeout detected for transfer ${transferData.id}, forcing window reset`);
+                            transferData.inFlightChunks = Math.floor(transferData.windowSize / 2);
+                            transferData.lastAcknowledged = Math.max(0, transferData.lastAcknowledged - Math.floor(transferData.windowSize / 2));
                             resolve();
                         } else {
                             setTimeout(checkWindow, 50);
@@ -255,14 +304,14 @@ class FileTransfer {
             }
             
             // Check if transfer was cancelled during wait
-            if (this.transferCancelled) {
+            if (transferData.transferCancelled) {
                 break;
             }
             
             // Calculate chunk boundaries
-            const start = sequence * this.chunkSize;
-            const end = Math.min(start + this.chunkSize, this.file.size);
-            const chunkData = this.file.slice(start, end);
+            const start = transferSequence * transferData.chunkSize;
+            const end = Math.min(start + transferData.chunkSize, transferData.file.size);
+            const chunkData = transferData.file.slice(start, end);
             
             // Read chunk data
             const chunkArrayBuffer = await new Promise((resolve, reject) => {
@@ -287,21 +336,27 @@ class FileTransfer {
             // Send chunk
             try {
                 this.p2p.dataChannel.send(chunk);
-                this.inFlightChunks++;
-                this.bytesSent += chunkArrayBuffer.byteLength;
-                this.sentChunks++;
+                transferData.inFlightChunks++;
+                transferData.bytesSent += chunkArrayBuffer.byteLength;
+                transferData.sentChunks++;
+                
+                // Update legacy state for backward compatibility
+                this.bytesSent = transferData.bytesSent;
+                this.sentChunks = transferData.sentChunks;
                 
                 // Update progress
                 if (this.onProgress) {
                     const progress = {
-                        bytesSent: this.bytesSent,
-                        totalBytes: this.totalBytes,
-                        sentChunks: this.sentChunks,
-                        totalChunks: this.totalChunks,
-                        percent: (this.bytesSent / this.totalBytes) * 100,
-                        speed: this.bytesSent / ((Date.now() - this.startTime) / 1000),
-                        timeElapsed: (Date.now() - this.startTime) / 1000,
-                        timeRemaining: ((Date.now() - this.startTime) / this.bytesSent) * (this.totalBytes - this.bytesSent) / 1000
+                        transferId: transferData.id,
+                        bytesSent: transferData.bytesSent,
+                        totalBytes: transferData.totalBytes,
+                        sentChunks: transferData.sentChunks,
+                        totalChunks: transferData.totalChunks,
+                        percent: (transferData.bytesSent / transferData.totalBytes) * 100,
+                        speed: transferData.bytesSent / ((Date.now() - transferData.startTime) / 1000),
+                        timeElapsed: (Date.now() - transferData.startTime) / 1000,
+                        timeRemaining: ((Date.now() - transferData.startTime) / transferData.bytesSent) * (transferData.totalBytes - transferData.bytesSent) / 1000,
+                        filename: transferData.file.name
                     };
                     
                     this.onProgress(progress);
@@ -309,7 +364,7 @@ class FileTransfer {
                 
                 sequence++;
             } catch (error) {
-                this.logger.error('Error sending chunk:', error);
+                this.logger.error(`Error sending chunk for transfer ${transferData.id}:`, error);
                 
                 // Retry after a short delay
                 await new Promise(resolve => setTimeout(resolve, 100));
@@ -320,9 +375,26 @@ class FileTransfer {
         }
         
         // Send file complete message when all chunks are sent
-        if (!this.transferCancelled) {
-            this._sendFileComplete();
+        if (!transferData.transferCancelled) {
+            this._sendFileCompleteForTransfer(transferData);
         }
+    }
+
+    /**
+     * Send file complete message to the peer
+     * @private
+     */
+    _sendFileCompleteForTransfer(transferData) {
+        const message = {
+            type: 'file-complete'
+        };
+        
+        this.p2p.controlChannel.send(JSON.stringify(message));
+        this.logger.log(`Sent file complete message for transfer ${transferData.id}`);
+        transferData.transferComplete = true;
+        
+        // Update legacy state for backward compatibility
+        this.transferComplete = true;
     }
 
     /**
