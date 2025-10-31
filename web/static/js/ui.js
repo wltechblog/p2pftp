@@ -471,25 +471,37 @@ function initUI() {
     // Update an existing progress indicator
     function updateProgressIndicator(indicator, progress) {
         const progressBar = indicator.querySelector('.bg-blue-500');
-        const statusElement = indicator.querySelector('.text-gray-600');
-        const bytesElement = indicator.querySelector('.text-gray-600').nextElementSibling;
-        const speedElement = bytesElement.nextElementSibling;
+        
+        // Find the status, bytes, speed, and time elements more reliably
+        const flexContainer = indicator.querySelector('.justify-between.text-sm.text-gray-600');
+        const statusElement = indicator.querySelector('.text-gray-600'); // This is the status span in the header
+        
+        // Get the three spans from the flex container
+        const spans = flexContainer ? flexContainer.querySelectorAll('span') : [];
+        const bytesElement = spans[0]; // First span: bytes transferred
+        const speedElement = spans[1]; // Second span: speed
+        const timeElement = spans[2]; // Third span: time remaining
         
         const isSending = progress.bytesSent !== undefined;
         const bytesTransferred = isSending ? progress.bytesSent : progress.bytesReceived;
         
         // Update progress bar
-        progressBar.style.width = `${progress.percent}%`;
+        if (progressBar) {
+            progressBar.style.width = `${progress.percent}%`;
+        }
         
         // Update status
-        statusElement.textContent = isSending ? 'Sending...' : 'Receiving...';
+        if (statusElement) {
+            statusElement.textContent = isSending ? 'Sending...' : 'Receiving...';
+        }
         
-        // Update stats
-        bytesElement.textContent = `${formatBytes(bytesTransferred)} / ${formatBytes(progress.totalBytes)}`;
-        speedElement.textContent = `${formatBytes(progress.speed)}/s`;
-        
-        // Update time remaining
-        const timeElement = speedElement.nextElementSibling;
+        // Update stats with null checks
+        if (bytesElement) {
+            bytesElement.textContent = `${formatBytes(bytesTransferred)} / ${formatBytes(progress.totalBytes)}`;
+        }
+        if (speedElement) {
+            speedElement.textContent = `${formatBytes(progress.speed)}/s`;
+        }
         if (timeElement) {
             timeElement.textContent = formatTime(progress.timeRemaining);
         }

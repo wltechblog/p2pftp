@@ -3,70 +3,1590 @@ ui.js?v=13:148 Data channels created
 ui.js?v=13:148 Peer connection initialized
 ui.js?v=13:148 Connecting to signaling server: wss://p2pftp.wltechblog.com/ws
 ui.js?v=13:148 Connected to signaling server
-ui.js?v=13:148 Received signaling message: token Full message: Object
-ui.js?v=13:148 Assigned token: d8c7ab33
-ui.js?v=13:148 Received signaling message: request Full message: Object
-ui.js?v=13:148 Connection request from: 7287cab9
-ui.js?v=13:148 Accepted connection from peer: 7287cab9
-ui.js?v=13:148 Received signaling message: offer Full message: Object
-ui.js?v=13:148 Received offer from: 7287cab9
-ui.js?v=13:148 Received signaling message: ice Full message: Object
-ui.js?v=13:148 Received ICE candidate from: 7287cab9
-ui.js?v=13:148 Received signaling message: ice Full message: Object
-ui.js?v=13:148 Received ICE candidate from: 7287cab9
-ui.js?v=13:148 Received signaling message: ice Full message: Object
-ui.js?v=13:148 Received ICE candidate from: 7287cab9
-ui.js?v=13:148 Received signaling message: ice Full message: Object
-ui.js?v=13:148 Received ICE candidate from: 7287cab9
+ui.js?v=13:148 Received signaling message: token Full message: {type: 'token', token: '197a176f'}
+ui.js?v=13:148 Assigned token: 197a176f
+ui.js?v=13:148 Received signaling message: request Full message: {type: 'request', token: '747ca250'}
+ui.js?v=13:148 Connection request from: 747ca250
+ui.js?v=13:148 Accepted connection from peer: 747ca250
+ui.js?v=13:148 Received signaling message: offer Full message: {type: 'offer', token: '747ca250', sdp: '{"type":"offer","sdp":"v=0\\r\\no=mozilla...THIS_IS_…-port:5000\\r\\na=max-message-size:1073741823\\r\\n"}'}
+ui.js?v=13:148 Received offer from: 747ca250
+ui.js?v=13:148 Received signaling message: ice Full message: {type: 'ice', token: '747ca250', ice: '{"candidate":"candidate:0 1 UDP 2122187007 f770467…ex":0,"sdpMid":"0","usernameFragment":"28e8d13b"}'}
+ui.js?v=13:148 Received ICE candidate from: 747ca250
+ui.js?v=13:148 Received signaling message: ice Full message: {type: 'ice', token: '747ca250', ice: '{"candidate":"candidate:2 1 UDP 2122252543 ad83b1e…ex":0,"sdpMid":"0","usernameFragment":"28e8d13b"}'}
+ui.js?v=13:148 Received ICE candidate from: 747ca250
+ui.js?v=13:148 Received signaling message: ice Full message: {type: 'ice', token: '747ca250', ice: '{"candidate":"candidate:4 1 TCP 2105458943 f770467…ex":0,"sdpMid":"0","usernameFragment":"28e8d13b"}'}
+ui.js?v=13:148 Received ICE candidate from: 747ca250
+ui.js?v=13:148 Received signaling message: ice Full message: {type: 'ice', token: '747ca250', ice: '{"candidate":"candidate:5 1 TCP 2105524479 ad83b1e…ex":0,"sdpMid":"0","usernameFragment":"28e8d13b"}'}
+ui.js?v=13:148 Received ICE candidate from: 747ca250
 ui.js?v=13:148 Sent answer to peer
 ui.js?v=13:148 Sent ICE candidate to peer
 ui.js?v=13:148 Sent ICE candidate to peer
-ui.js?v=13:148 Received signaling message: ice Full message: Object
-ui.js?v=13:148 Received ICE candidate from: 7287cab9
+ui.js?v=13:148 Sent ICE candidate to peer
+ui.js?v=13:148 Sent ICE candidate to peer
+ui.js?v=13:148 Received signaling message: ice Full message: {type: 'ice', token: '747ca250', ice: '{"candidate":"candidate:1 1 UDP 1685987327 143.105…ex":0,"sdpMid":"0","usernameFragment":"28e8d13b"}'}
+ui.js?v=13:148 Received ICE candidate from: 747ca250
+ui.js?v=13:148 Received signaling message: ice Full message: {type: 'ice', token: '747ca250', ice: '{"candidate":"candidate:3 1 UDP 1686052095 2605:59…ex":0,"sdpMid":"0","usernameFragment":"28e8d13b"}'}
+ui.js?v=13:148 Received ICE candidate from: 747ca250
 ui.js?v=13:148 ICE connection state: checking
-ui.js?v=13:148 Sent ICE candidate to peer
-ui.js?v=13:148 Sent ICE candidate to peer
-ui.js?v=13:148 Received signaling message: ice Full message: Object
-ui.js?v=13:148 Received ICE candidate from: 7287cab9
-ui.js?v=13:148 Received signaling message: ice Full message: Object
-ui.js?v=13:148 Received ICE candidate from: 7287cab9
+ui.js?v=13:148 Received signaling message: ice Full message: {type: 'ice', token: '747ca250', ice: '{"candidate":"candidate:3 1 UDP 1686052607 2605:59…ex":0,"sdpMid":"0","usernameFragment":"28e8d13b"}'}
+ui.js?v=13:148 Received ICE candidate from: 747ca250
 ui.js?v=13:148 ICE connection state: connected
 ui.js?v=13:148 Control channel opened
 ui.js?v=13:148 Sent capabilities, max chunk size: 16384
 ui.js?v=13:148 Data channel opened
 ui.js?v=13:148 Test message sent successfully
+ui.js?v=13:148 Received binary data: 16 bytes
+ui.js?v=13:148 Data appears to be chunk 0 with size 8
 ui.js?v=13:148 Received control message: capabilities
 ui.js?v=13:148 Received capabilities from peer, max chunk size: 16384
 ui.js?v=13:148 Sent capabilities acknowledgment, negotiated size: 16384
 ui.js?v=13:148 Negotiated chunk size: 16384
 ui.js?v=13:148 Capabilities exchange completed successfully
-ui.js?v=13:148 Received binary data: 16 bytes
-ui.js?v=13:148 Data appears to be chunk 0 with size 8
 ui.js?v=13:148 Received control message: capabilities-ack
 ui.js?v=13:148 Received capabilities acknowledgment, negotiated size: 16384
 ui.js?v=13:148 Capabilities exchange completed successfully
-ui.js?v=13:148 Received signaling message: ice Full message: Object
-ui.js?v=13:148 Received ICE candidate from: 7287cab9
-ui.js?v=13:148 Received signaling message: ice Full message: Object
-ui.js?v=13:148 Received ICE candidate from: 7287cab9
-ui.js?v=13:148 Received signaling message: ice Full message: Object
-ui.js?v=13:148 Received ICE candidate from: 7287cab9
+ui.js?v=13:148 Received signaling message: ice Full message: {type: 'ice', token: '747ca250', ice: '{"candidate":"","sdpMLineIndex":0,"sdpMid":"0","usernameFragment":"28e8d13b"}'}
+ui.js?v=13:148 Received ICE candidate from: 747ca250
 ui.js?v=13:148 Disconnecting from signaling server - P2P connection is stable
 ui.js?v=13:148 Successfully disconnected from signaling server
 ui.js?v=13:148 Disconnected from signaling server
 ui.js?v=13:148 Sent chat message: eggs
-ui.js?v=13:148 Received control message: message
-ui.js?v=13:148 Starting file transfer: archlinux-2025.07.01-x86_64.iso (1357545472 bytes)
-ui.js?v=13:148 Using chunk size: 16384 bytes
-ui.js?v=13:148 Total chunks: 82858
-ui.js?v=13:148 Sent file info: Object
-filetransfer.js?v=13:328 Uncaught (in promise) ReferenceError: sequence is not defined
-    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:328:31)
-    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
 ui.js?v=13:148 Starting file transfer: preview-1743328960.jpg (200499 bytes)
 ui.js?v=13:148 Using chunk size: 16384 bytes
 ui.js?v=13:148 Total chunks: 13
-ui.js?v=13:148 Sent file info: Object
-filetransfer.js?v=13:328 Uncaught (in promise) ReferenceError: sequence is not defined
-    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:328:31)
+ui.js?v=13:148 Sent file info: {name: 'preview-1743328960.jpg', size: 200499, md5: 'c0b882bc2595353363935959d3e0e64b'}
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
     at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:148 Received control message: progress-update
+ui.js?v=13:148 Received progress update: {type: 'progress-update', bytesReceived: 16384, highestSequence: 0}
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:148 Received control message: progress-update
+ui.js?v=13:148 Received progress update: {type: 'progress-update', bytesReceived: 16384, highestSequence: 0}
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:148 Received control message: progress-update
+ui.js?v=13:148 Received progress update: {type: 'progress-update', bytesReceived: 16384, highestSequence: 0}
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:148 Received control message: progress-update
+ui.js?v=13:148 Received progress update: {type: 'progress-update', bytesReceived: 16384, highestSequence: 0}
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:148 Received control message: progress-update
+ui.js?v=13:148 Received progress update: {type: 'progress-update', bytesReceived: 16384, highestSequence: 0}
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:148 Received control message: progress-update
+ui.js?v=13:148 Received progress update: {type: 'progress-update', bytesReceived: 16384, highestSequence: 0}
+ui.js?v=13:148 Window size adjusted: 64 -> 62 (avg speed: 0.00 MB/s, buffer: 0.0%)
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:148 Received control message: progress-update
+ui.js?v=13:148 Received progress update: {type: 'progress-update', bytesReceived: 16384, highestSequence: 0}
+ui.js?v=13:148 Window size adjusted: 62 -> 60 (avg speed: 0.00 MB/s, buffer: 0.0%)
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:156 Window wait timeout detected for transfer send-1, forcing window reset
+warn @ ui.js?v=13:156
+checkWindow @ filetransfer.js?v=13:293
+setTimeout
+checkWindow @ filetransfer.js?v=13:298
+setTimeout
+checkWindow @ filetransfer.js?v=13:298
+setTimeout
+checkWindow @ filetransfer.js?v=13:298
+setTimeout
+checkWindow @ filetransfer.js?v=13:298
+setTimeout
+checkWindow @ filetransfer.js?v=13:298
+setTimeout
+checkWindow @ filetransfer.js?v=13:298
+setTimeout
+checkWindow @ filetransfer.js?v=13:298
+setTimeout
+checkWindow @ filetransfer.js?v=13:298
+setTimeout
+checkWindow @ filetransfer.js?v=13:298
+setTimeout
+checkWindow @ filetransfer.js?v=13:298
+setTimeout
+checkWindow @ filetransfer.js?v=13:298
+setTimeout
+checkWindow @ filetransfer.js?v=13:298
+setTimeout
+checkWindow @ filetransfer.js?v=13:298
+setTimeout
+checkWindow @ filetransfer.js?v=13:298
+setTimeout
+checkWindow @ filetransfer.js?v=13:298
+setTimeout
+checkWindow @ filetransfer.js?v=13:298
+setTimeout
+checkWindow @ filetransfer.js?v=13:298
+setTimeout
+checkWindow @ filetransfer.js?v=13:298
+setTimeout
+checkWindow @ filetransfer.js?v=13:298
+setTimeout
+checkWindow @ filetransfer.js?v=13:298
+setTimeout
+checkWindow @ filetransfer.js?v=13:298
+setTimeout
+checkWindow @ filetransfer.js?v=13:298
+setTimeout
+checkWindow @ filetransfer.js?v=13:298
+setTimeout
+checkWindow @ filetransfer.js?v=13:298
+setTimeout
+checkWindow @ filetransfer.js?v=13:298
+setTimeout
+checkWindow @ filetransfer.js?v=13:298
+setTimeout
+checkWindow @ filetransfer.js?v=13:298
+setTimeout
+checkWindow @ filetransfer.js?v=13:298
+setTimeout
+checkWindow @ filetransfer.js?v=13:298
+setTimeout
+checkWindow @ filetransfer.js?v=13:298
+setTimeout
+checkWindow @ filetransfer.js?v=13:298
+setTimeout
+checkWindow @ filetransfer.js?v=13:298
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:148 Received control message: progress-update
+ui.js?v=13:148 Received progress update: {type: 'progress-update', bytesReceived: 16384, highestSequence: 0}
+ui.js?v=13:148 Window size adjusted: 60 -> 58 (avg speed: 0.00 MB/s, buffer: 0.0%)
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:148 Received control message: progress-update
+ui.js?v=13:148 Received progress update: {type: 'progress-update', bytesReceived: 16384, highestSequence: 0}
+ui.js?v=13:148 Window size adjusted: 58 -> 56 (avg speed: 0.00 MB/s, buffer: 0.0%)
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:148 Received control message: progress-update
+ui.js?v=13:148 Received progress update: {type: 'progress-update', bytesReceived: 16384, highestSequence: 0}
+ui.js?v=13:148 Window size adjusted: 56 -> 54 (avg speed: 0.00 MB/s, buffer: 0.0%)
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}
+ui.js?v=13:148 Received control message: progress-update
+ui.js?v=13:148 Received progress update: {type: 'progress-update', bytesReceived: 16384, highestSequence: 0}
+ui.js?v=13:148 Window size adjusted: 54 -> 52 (avg speed: 0.00 MB/s, buffer: 0.0%)
+ui.js?v=13:152 Error sending chunk for transfer send-1: TypeError: Cannot set properties of null (setting 'textContent')
+    at updateProgressIndicator (ui.js?v=13:489:34)
+    at updateMultipleTransferProgress (ui.js?v=13:429:9)
+    at fileTransfer.onProgress (ui.js?v=13:390:13)
+    at FileTransfer._sendChunksForTransfer (filetransfer.js?v=13:362:26)
+    at async FileTransfer._sendChunks (filetransfer.js?v=13:247:13)
+error @ ui.js?v=13:152
+_sendChunksForTransfer @ filetransfer.js?v=13:367
+await in _sendChunksForTransfer
+_sendChunks @ filetransfer.js?v=13:247
+sendFile @ filetransfer.js?v=13:165
+await in sendFile
+(anonymous) @ ui.js?v=13:774
+ui.js?v=13:148 Received control message: flow-control-ack
+ui.js?v=13:148 Received flow control acknowledgment: {type: 'flow-control-ack', highestSequence: 0}

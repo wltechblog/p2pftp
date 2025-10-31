@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simple UI Fix Test</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+</head>
+<body class="bg-gray-100 text-gray-900 min-h-screen p-8">
+    <div class="max-w-4xl mx-auto">
+        <h1 class="text-3xl font-bold text-center mb-8 text-blue-600">Simple UI Fix Test</h1>
+        
+        <div class="bg-white rounded-lg shadow-md p-6">
+            <h2 class="text-xl font-semibold mb-4">Test DOM Traversal Fix</h2>
+            
+            <div class="mb-4">
+                <button id="test-button" class="bg-blue-500 text-white px-6 py-2 rounded-md hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50">
+                    Test Progress Indicator Update
+                </button>
+                
+                <div id="test-results" class="mt-4 p-4 bg-gray-100 rounded">
+                    <div id="test-status" class="font-medium">Ready to test</div>
+                    <div id="test-output" class="text-sm text-gray-600 mt-2"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/spark-md5/3.0.2/spark-md5.min.js"></script>
+    <script src="js/webrtc.js?v=13"></script>
+    <script src="js/filetransfer.js?v=13"></script>
+    <script src="js/ui.js?v=13"></script>
+    
+    <script>
+        document.getElementById('test-button').addEventListener('click', () => {
+            const testOutput = document.getElementById('test-output');
+            const testStatus = document.getElementById('test-status');
+            
+            try {
+                testStatus.textContent = 'Testing DOM traversal fix...';
+                
+                // Create a test progress indicator
+                const container = document.createElement('div');
+                container.className = 'border rounded-lg p-4 bg-white shadow-sm';
+                container.id = 'test-progress-indicator';
+                
+                container.innerHTML = `
+                    <div class="mb-2 flex justify-between items-center">
+                        <span class="font-medium text-gray-900">Test File.jpg</span>
+                        <span class="text-sm text-gray-600">Sending...</span>
+                        <button class="ml-2 bg-red-500 text-white px-3 py-1 rounded text-sm">Cancel</button>
+                    </div>
+                    <div class="w-full bg-gray-200 rounded-full h-3 mb-2">
+                        <div class="bg-blue-500 h-3 rounded-full transition-all duration-300" style="width: 50%"></div>
+                    </div>
+                    <div class="flex justify-between text-sm text-gray-600">
+                        <span>1.5 MB / 3.0 MB</span>
+                        <span>500 KB/s</span>
+                        <span>00:06</span>
+                    </div>
+                `;
+                
+                document.body.appendChild(container);
+                
+                // Test the updateProgressIndicator function
+                const progress = {
+                    transferId: 'test-progress-indicator',
+                    bytesSent: 1572864,
+                    totalBytes: 3145728,
+                    percent: 50,
+                    speed: 512000,
+                    timeRemaining: 6,
+                    filename: 'Test File.jpg'
+                };
+                
+                // This should work without throwing an error
+                if (typeof updateProgressIndicator === 'function') {
+                    updateProgressIndicator(container, progress);
+                    testOutput.innerHTML = '✅ SUCCESS: updateProgressIndicator function found and executed without error';
+                    testStatus.className = 'text-green-600 font-medium';
+                } else {
+                    testOutput.innerHTML = '❌ FAILED: updateProgressIndicator function not found';
+                    testStatus.className = 'text-red-600 font-medium';
+                }
+                
+                // Clean up
+                setTimeout(() => {
+                    if (container && container.parentNode) {
+                        container.parentNode.removeChild(container);
+                    }
+                }, 2000);
+                
+            } catch (error) {
+                testOutput.innerHTML = `❌ ERROR: ${error.message}`;
+                testStatus.className = 'text-red-600 font-medium';
+            }
+        });
+    </script>
+</body>
+</html>

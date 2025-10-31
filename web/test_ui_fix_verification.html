@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UI Fix Verification Test</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+</head>
+<body class="bg-gray-100 text-gray-900 min-h-screen p-8">
+    <div class="max-w-4xl mx-auto">
+        <h1 class="text-3xl font-bold text-center mb-8 text-blue-600">UI Fix Verification Test</h1>
+        
+        <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+            <h2 class="text-xl font-semibold mb-4">Test Results</h2>
+            
+            <div id="test-results" class="space-y-4">
+                <div class="p-4 bg-yellow-50 border border-yellow-200 rounded">
+                    <h3 class="font-semibold text-yellow-800 mb-2">Test Status</h3>
+                    <p id="test-status" class="text-yellow-700">Initializing test...</p>
+                </div>
+                
+                <div id="error-log" class="hidden">
+                    <h3 class="font-semibold text-red-800 mb-2">Error Log</h3>
+                    <pre id="error-details" class="bg-red-50 p-3 rounded text-red-900 text-sm overflow-auto"></pre>
+                </div>
+                
+                <div id="success-log" class="hidden">
+                    <h3 class="font-semibold text-green-800 mb-2">Success Log</h3>
+                    <pre id="success-details" class="bg-green-50 p-3 rounded text-green-900 text-sm overflow-auto"></pre>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/spark-md5/3.0.2/spark-md5.min.js"></script>
+    <script src="js/webrtc.js?v=13"></script>
+    <script src="js/filetransfer.js?v=13"></script>
+    <script src="js/ui.js?v=13"></script>
+    
+    <script>
+        // Test the UI fix by simulating file transfer progress updates
+        let testResults = {
+            status: 'Running tests...',
+            errors: [],
+            successes: []
+        };
+        
+        function updateTestStatus(message, isError = false) {
+            const statusEl = document.getElementById('test-status');
+            const errorLog = document.getElementById('error-log');
+            const successLog = document.getElementById('success-log');
+            const errorDetails = document.getElementById('error-details');
+            const successDetails = document.getElementById('success-details');
+            
+            statusEl.textContent = message;
+            
+            if (isError) {
+                errorLog.classList.remove('hidden');
+                successLog.classList.add('hidden');
+                testResults.errors.push(message);
+            } else {
+                successLog.classList.remove('hidden');
+                errorLog.classList.add('hidden');
+                testResults.successes.push(message);
+            }
+            
+            errorDetails.textContent = testResults.errors.join('\n');
+            successDetails.textContent = testResults.successes.join('\n');
+        }
+        
+        function testProgressIndicator() {
+            try {
+                // Simulate creating a progress indicator
+                const container = document.createElement('div');
+                container.className = 'border rounded-lg p-4 bg-white shadow-sm';
+                container.id = 'test-indicator';
+                
+                // Simulate the HTML structure from createProgressIndicator
+                container.innerHTML = `
+                    <div class="mb-2 flex justify-between items-center">
+                        <span class="font-medium text-gray-900">Test File.jpg</span>
+                        <span class="text-sm text-gray-600">Sending...</span>
+                        <button class="ml-2 bg-red-500 text-white px-3 py-1 rounded text-sm">Cancel</button>
+                    </div>
+                    <div class="w-full bg-gray-200 rounded-full h-3 mb-2">
+                        <div class="bg-blue-500 h-3 rounded-full transition-all duration-300" style="width: 50%"></div>
+                    </div>
+                    <div class="flex justify-between text-sm text-gray-600">
+                        <span>1.5 MB / 3.0 MB</span>
+                        <span>500 KB/s</span>
+                        <span>00:06</span>
+                    </div>
+                `;
+                
+                document.body.appendChild(container);
+                
+                // Test the updateProgressIndicator function
+                const progress = {
+                    transferId: 'test-transfer-1',
+                    bytesSent: 1572864,
+                    totalBytes: 3145728,
+                    percent: 50,
+                    speed: 512000,
+                    timeRemaining: 6,
+                    filename: 'Test File.jpg'
+                };
+                
+                // Call the function that was causing the error
+                if (typeof updateProgressIndicator === 'function') {
+                    updateProgressIndicator(container, progress);
+                    updateTestStatus('✓ updateProgressIndicator function works correctly', false);
+                } else {
+                    updateTestStatus('✗ updateProgressIndicator function not found', true);
+                }
+                
+                // Clean up
+                setTimeout(() => {
+                    document.body.removeChild(container);
+                }, 1000);
+                
+            } catch (error) {
+                updateTestStatus('✗ Error testing progress indicator: ' + error.message, true);
+            }
+        }
+        
+        function testMultipleTransferProgress() {
+            try {
+                // Test the updateMultipleTransferProgress function
+                const progress = {
+                    transferId: 'test-multiple-1',
+                    bytesSent: 1572864,
+                    totalBytes: 3145728,
+                    percent: 50,
+                    speed: 512000,
+                    timeRemaining: 6,
+                    filename: 'Test Multiple File.jpg'
+                };
+                
+                // Call the function that handles multiple transfers
+                if (typeof updateMultipleTransferProgress === 'function') {
+                    updateMultipleTransferProgress(progress);
+                    updateTestStatus('✓ updateMultipleTransferProgress function works correctly', false);
+                } else {
+                    updateTestStatus('✗ updateMultipleTransferProgress function not found', true);
+                }
+                
+            } catch (error) {
+                updateTestStatus('✗ Error testing multiple transfer progress: ' + error.message, true);
+            }
+        }
+        
+        function testCreateProgressIndicator() {
+            try {
+                // Test the createProgressIndicator function
+                const progress = {
+                    transferId: 'test-create-1',
+                    bytesSent: 1048576,
+                    totalBytes: 2097152,
+                    percent: 50,
+                    speed: 256000,
+                    timeRemaining: 4,
+                    filename: 'Test Create File.jpg'
+                };
+                
+                // Call the function that creates progress indicators
+                if (typeof createProgressIndicator === 'function') {
+                    const indicator = createProgressIndicator(progress);
+                    if (indicator && indicator.id === progress.transferId) {
+                        updateTestStatus('✓ createProgressIndicator function works correctly', false);
+                    } else {
+                        updateTestStatus('✗ createProgressIndicator function failed to create indicator with correct ID', true);
+                    }
+                    
+                    // Clean up
+                    setTimeout(() => {
+                        if (indicator && indicator.parentNode) {
+                            indicator.parentNode.removeChild(indicator);
+                        }
+                    }, 1000);
+                } else {
+                    updateTestStatus('✗ createProgressIndicator function not found', true);
+                }
+                
+            } catch (error) {
+                updateTestStatus('✗ Error testing create progress indicator: ' + error.message, true);
+            }
+        }
+        
+        // Run tests when page loads
+        window.addEventListener('load', () => {
+            setTimeout(() => {
+                updateTestStatus('Testing DOM traversal fix for progress indicators...', false);
+                
+                testProgressIndicator();
+                
+                setTimeout(() => {
+                    testMultipleTransferProgress();
+                }, 500);
+                
+                setTimeout(() => {
+                    testCreateProgressIndicator();
+                }, 1000);
+                
+                setTimeout(() => {
+                    const allTestsPassed = testResults.errors.length === 0 && testResults.successes.length > 0;
+                    updateTestStatus(
+                        allTestsPassed ? 
+                            '✅ All tests passed! The DOM traversal fix should resolve the "Cannot set properties of null" error.' : 
+                            '❌ Some tests failed. The fix may not be complete.',
+                        false
+                    );
+                }, 2000);
+            }, 1000);
+        });
+    </script>
+</body>
+</html>
