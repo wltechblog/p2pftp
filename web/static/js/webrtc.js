@@ -895,7 +895,7 @@ class P2PConnection {
     _handleSignalingMessage(data) {
         try {
             const message = JSON.parse(data);
-            this.logger.log('Received signaling message:', message.type);
+            this.logger.log('Received signaling message:', message.type, 'Full message:', message);
             
             switch (message.type) {
                 case 'token':
@@ -916,8 +916,11 @@ class P2PConnection {
                 case 'request':
                     const requestToken = message.token;
                     this.logger.log('Connection request from:', requestToken);
+                    this.logger.debug('Connection request details - onConnectionRequest exists:', !!this.onConnectionRequest);
                     if (this.onConnectionRequest) {
                         this.onConnectionRequest(requestToken);
+                    } else {
+                        this.logger.error('onConnectionRequest handler not set!');
                     }
                     break;
                     
@@ -1133,12 +1136,18 @@ class P2PConnection {
             throw new Error('Invalid URL: URL cannot be empty or whitespace only');
         }
         
+        this.logger.debug('Original server URL:', httpURL);
+        
         // Handle URLs without protocol
         if (!httpURL.includes('://')) {
-            // Extract hostname (remove port if present)
+            // Extract hostname and port if present
             let hostname = httpURL;
+            let port = '443'; // default port
+            
             if (httpURL.includes(':')) {
-                hostname = httpURL.split(':')[0];
+                const parts = httpURL.split(':');
+                hostname = parts[0];
+                port = parts[1] || '443';
             }
             
             // Validate hostname
@@ -1146,14 +1155,21 @@ class P2PConnection {
                 throw new Error(`Invalid hostname: ${hostname}`);
             }
             
-            // Always use wss:// and port 443
-            return `wss://${hostname}:443/ws`;
+            // For localhost, use ws:// instead of wss:// for testing
+            const protocol = (hostname === 'localhost' || hostname === '127.0.0.1') ? 'ws' : 'wss';
+            const wsPort = (hostname === 'localhost' || hostname === '127.0.0.1') ? (port || '8090') : (port || '443');
+            
+            const wsURL = `${protocol}://${hostname}:${wsPort}/ws`;
+            this.logger.debug('Constructed WebSocket URL (no protocol):', wsURL);
+            return wsURL;
         }
         
-        // Convert HTTP/HTTPS to WSS (always secure)
-        let wsURL = httpURL.replace('http:', 'wss:').replace('https:', 'wss:').replace('ws:', 'wss:');
+        // Convert HTTP/HTTPS to WS/WSS
+        let wsURL = httpURL.replace('http:', 'ws:').replace('https:', 'wss:').replace('ws:', 'ws:').replace('wss:', 'wss:');
         
-        // Parse URL to ensure port 443 and path /ws
+        this.logger.debug('Converted WebSocket URL before parsing:', wsURL);
+        
+        // Parse URL to ensure correct port and path
         try {
             const url = new URL(wsURL);
             
@@ -1162,9 +1178,21 @@ class P2PConnection {
                 throw new Error(`Invalid hostname: ${url.hostname}`);
             }
             
-            url.port = '443';
+            // For localhost, keep the original port, otherwise use 443
+            if (url.hostname === 'localhost' || url.hostname === '127.0.0.1') {
+                // Keep existing port for localhost, ensure /ws path
+                if (!url.port) {
+                    url.port = '8090'; // default for localhost testing
+                }
+            } else {
+                // For production, use port 443
+                url.port = '443';
+            }
+            
             url.pathname = '/ws';
-            return url.toString();
+            const finalURL = url.toString();
+            this.logger.debug('Final WebSocket URL:', finalURL);
+            return finalURL;
         } catch (error) {
             this.logger.error('Error parsing URL:', error);
             throw new Error(`Failed to parse URL: ${error.message}`);
