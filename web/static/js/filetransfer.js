@@ -437,6 +437,7 @@ class FileTransfer {
                         speed: transferData.bytesSent / ((Date.now() - transferData.startTime) / 1000),
                         timeElapsed: (Date.now() - transferData.startTime) / 1000,
                         timeRemaining: ((Date.now() - transferData.startTime) / transferData.bytesSent) * (transferData.totalBytes - transferData.bytesSent) / 1000,
+                        complete: transferData.transferComplete, // CRITICAL FIX: Include complete flag for UI synchronization
                         filename: transferData.file.name
                     };
                     
@@ -1358,6 +1359,7 @@ class FileTransfer {
                 percent: (transferData.bytesReceived / transferData.totalBytes) * 100,
                 speed: transferData.bytesReceived / ((Date.now() - transferData.startTime) / 1000),
                 timeElapsed: (Date.now() - transferData.startTime) / 1000,
+                complete: transferData.transferComplete, // CRITICAL FIX: Include complete flag for UI synchronization
                 timeRemaining: ((Date.now() - transferData.startTime) / transferData.bytesReceived) * (transferData.totalBytes - transferData.bytesReceived) / 1000,
                 filename: transferData.file.name
             };

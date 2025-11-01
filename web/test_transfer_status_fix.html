@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Transfer Status Fix Test</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/spark-md5/3.0.2/spark-md5.min.js"></script>
+</head>
+<body class="bg-gray-100 min-h-screen p-4">
+    <div class="max-w-4xl mx-auto">
+        <h1 class="text-2xl font-bold mb-4">Transfer Status Fix Test</h1>
+        
+        <div class="bg-white rounded-lg shadow-md p-6 mb-4">
+            <h2 class="text-lg font-semibold mb-2">Test Instructions</h2>
+            <ol class="list-decimal list-inside space-y-2 text-sm">
+                <li>Open this page in two browser tabs (sender and receiver)</li>
+                <li>Connect the two peers using the tokens</li>
+                <li>Send a file from the sender tab</li>
+                <li>Verify that the receiver shows "Complete" status after transfer finishes</li>
+                <li>Check that progress bar reaches 100% and time remaining shows "00:00"</li>
+            </ol>
+        </div>
+        
+        <div id="app" class="space-y-4">
+            <!-- Connection Panel -->
+            <div id="connection-panel" class="bg-white rounded-lg shadow-md p-6">
+                <h2 class="text-lg font-semibold mb-4">Connection</h2>
+                
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Server URL</label>
+                        <input type="text" id="server-url" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500" value="p2p.teamworkapps.com">
+                    </div>
+                    
+                    <div>
+                        <button id="connect-button" class="bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50">
+                            Connect to Server
+                        </button>
+                    </div>
+                    
+                    <div id="token-display" class="hidden">
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Your Token</label>
+                        <div class="flex space-x-2">
+                            <input type="text" id="my-token" readonly class="flex-1 px-3 py-2 border border-gray-300 rounded-md bg-gray-50">
+                            <input type="text" id="connection-link" readonly class="flex-1 px-3 py-2 border border-gray-300 rounded-md bg-gray-50">
+                            <button id="copy-link" class="bg-gray-500 text-white px-4 py-2 rounded-md hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-opacity-50">
+                                Copy Link
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Peer Token</label>
+                        <div class="flex space-x-2">
+                            <input type="text" id="peer-token" class="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            <button id="connect-peer-button" class="bg-green-500 text-white px-4 py-2 rounded-md hover:bg-green-600 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-opacity-50">
+                                Connect to Peer
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div id="connection-status" class="text-sm text-gray-600">Not connected</div>
+                </div>
+            </div>
+            
+            <!-- File Transfer Panel -->
+            <div id="file-transfer-panel" class="bg-white rounded-lg shadow-md p-6 hidden">
+                <h2 class="text-lg font-semibold mb-4">File Transfer</h2>
+                
+                <div class="space-y-4">
+                    <div>
+                        <input type="file" id="file-input" class="hidden">
+                        <button id="file-select-button" class="bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50">
+                            Select File
+                        </button>
+                        <span id="selected-file-name" class="ml-2 text-sm text-gray-600">No file selected</span>
+                    </div>
+                    
+                    <div>
+                        <button id="send-file-button" class="bg-green-500 text-white px-4 py-2 rounded-md hover:bg-green-600 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-opacity-50" disabled>
+                            Send File
+                        </button>
+                    </div>
+                    
+                    <!-- Transfer Progress -->
+                    <div id="transfer-progress" class="hidden">
+                        <div class="mb-2">
+                            <span id="transfer-filename" class="font-medium"></span>
+                            <span id="transfer-status" class="ml-2 text-sm text-gray-600"></span>
+                        </div>
+                        <div class="w-full bg-gray-200 rounded-full h-3 mb-2">
+                            <div id="progress-bar" class="bg-blue-500 h-3 rounded-full transition-all duration-300" style="width: 0%"></div>
+                        </div>
+                        <div class="flex justify-between text-sm text-gray-600">
+                            <span id="bytes-transferred"></span>
+                            <span id="transfer-speed"></span>
+                            <span id="time-remaining"></span>
+                        </div>
+                        <button id="cancel-transfer-button" class="mt-2 bg-red-500 text-white px-3 py-1 rounded text-sm hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-opacity-50">
+                            Cancel
+                        </button>
+                    </div>
+                    
+                    <!-- Multiple Transfer Progress Container -->
+                    <div id="transfer-progress-container" class="space-y-2"></div>
+                    
+                    <!-- Transfer Completion -->
+                    <div id="transfer-completion" class="hidden">
+                        <div class="mb-2">
+                            <span id="completion-filename" class="font-medium"></span>
+                        </div>
+                        <div class="text-sm text-gray-600">
+                            <div>Size: <span id="completion-filesize"></span></div>
+                            <div>Speed: <span id="completion-speed"></span></div>
+                            <div id="completion-verification" class="font-medium"></div>
+                        </div>
+                        <div id="download-section" class="mt-2 hidden">
+                            <button id="download-button" class="bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50">
+                                Download File
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Status Log -->
+            <div class="bg-white rounded-lg shadow-md p-6">
+                <h2 class="text-lg font-semibold mb-4">Status Log</h2>
+                <div class="mb-2">
+                    <label class="flex items-center">
+                        <input type="checkbox" id="debug-mode" class="mr-2">
+                        <span class="text-sm">Debug Mode</span>
+                    </label>
+                </div>
+                <div id="log-container" class="h-48 overflow-y-auto bg-gray-50 rounded p-2 text-sm font-mono"></div>
+            </div>
+        </div>
+    </div>
+    
+    <script src="static/js/webrtc.js"></script>
+    <script src="static/js/filetransfer.js"></script>
+    <script src="static/js/ui.js"></script>
+</body>
+</html>

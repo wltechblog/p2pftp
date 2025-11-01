@@ -426,6 +426,27 @@ function initUI() {
         }
         
         // Update the progress indicator
+        
+        // CRITICAL FIX: Update receiving side status for multiple transfers
+        // Ensure main transfer status is updated for receiving transfers
+        if (progress.complete || progress.percent === 100) {
+            const isReceiving = progress.bytesReceived !== undefined;
+            if (isReceiving && fileTransfer.receiving) {
+                elements.transferStatus.textContent = 'Complete';
+                elements.progressBar.style.width = '100%';
+                elements.progressBar.className = 'bg-green-500 h-3 rounded-full transition-all duration-300';
+                
+                // Update bytes transferred to show full completion
+                if (elements.bytesTransferred && progress.totalBytes) {
+                    elements.bytesTransferred.textContent = `${formatBytes(progress.totalBytes)} / ${formatBytes(progress.totalBytes)}`;
+                }
+                
+                // Update time remaining to show completion
+                if (elements.timeRemaining) {
+                    elements.timeRemaining.textContent = '00:00';
+                }
+            }
+        }
         updateProgressIndicator(progressElement, progress);
     }
     
@@ -505,6 +526,22 @@ function initUI() {
         if (timeElement) {
             timeElement.textContent = formatTime(progress.timeRemaining);
         }
+        
+        // CRITICAL FIX: Update progress indicator status when complete
+        if (progress.complete || progress.percent === 100) {
+            if (progressBar) {
+                progressBar.style.width = '100%';
+                progressBar.className = 'bg-green-500 h-3 rounded-full transition-all duration-300';
+            }
+            
+            if (statusElement) {
+                statusElement.textContent = 'Complete';
+            }
+            
+            if (timeElement) {
+                timeElement.textContent = '00:00';
+            }
+        }
     }
     
     // Remove a progress indicator
@@ -576,6 +613,24 @@ function initUI() {
             // Show completion status with speed
             showTransferComplete(finalSpeed);
         }
+        
+        // CRITICAL FIX: Update receiving transfer status to show completion
+        // This ensures the receiving side's UI is properly synchronized
+        if (fileTransfer.receiving) {
+            elements.transferStatus.textContent = 'Complete';
+            elements.progressBar.style.width = '100%';
+            elements.progressBar.className = 'bg-green-500 h-3 rounded-full transition-all duration-300';
+            
+            // Update bytes transferred to show full completion
+            if (elements.bytesTransferred && fileTransfer.totalBytes) {
+                elements.bytesTransferred.textContent = `${formatBytes(fileTransfer.totalBytes)} / ${formatBytes(fileTransfer.totalBytes)}`;
+            }
+            
+            // Update time remaining to show completion
+            if (elements.timeRemaining) {
+                elements.timeRemaining.textContent = '00:00';
+            }
+        }
     };
     
     fileTransfer.onError = (error) => {
@@ -629,6 +684,21 @@ function initUI() {
     
     fileTransfer.onVerificationComplete = (blob, fileInfo) => {
         elements.transferStatus.textContent = 'Verified';
+        
+        // CRITICAL FIX: Ensure receiving side shows complete status
+        // Update progress bar to show completion
+        elements.progressBar.style.width = '100%';
+        elements.progressBar.className = 'bg-green-500 h-3 rounded-full transition-all duration-300';
+        
+        // Update bytes transferred to show full completion
+        if (elements.bytesTransferred && fileTransfer.totalBytes) {
+            elements.bytesTransferred.textContent = `${formatBytes(fileTransfer.totalBytes)} / ${formatBytes(fileTransfer.totalBytes)}`;
+        }
+        
+        // Update time remaining to show completion
+        if (elements.timeRemaining) {
+            elements.timeRemaining.textContent = '00:00';
+        }
         
         // Store blob and file info for potential manual download
         window.receivedFileBlob = blob;
