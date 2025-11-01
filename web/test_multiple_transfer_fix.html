@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Multiple Transfer Fix Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+        .status.success { background-color: #d4edda; color: #155724; }
+        .status.error { background-color: #f8d7da; color: #721c24; }
+        .status.info { background-color: #d1ecf1; color: #0c5460; }
+        .status.warning { background-color: #fff3cd; color: #856404; }
+        .transfer-item {
+            border: 1px solid #ddd;
+            margin: 10px 0;
+            padding: 15px;
+            border-radius: 4px;
+            background-color: #f9f9f9;
+        }
+        .transfer-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        .transfer-name {
+            font-weight: bold;
+            color: #333;
+        }
+        .transfer-id {
+            background-color: #007bff;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 12px;
+        }
+        .progress-bar {
+            width: 100%;
+            height: 20px;
+            background-color: #e9ecef;
+            border-radius: 10px;
+            overflow: hidden;
+            margin: 5px 0;
+        }
+        .progress-fill {
+            height: 100%;
+            background-color: #28a745;
+            transition: width 0.3s ease;
+        }
+        .transfer-details {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 10px;
+            margin-top: 10px;
+            font-size: 14px;
+        }
+        .detail-item {
+            display: flex;
+            flex-direction: column;
+        }
+        .detail-label {
+            font-weight: bold;
+            color: #666;
+        }
+        .detail-value {
+            color: #333;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        button:disabled {
+            background-color: #6c757d;
+            cursor: not-allowed;
+        }
+        .file-input {
+            margin: 10px 0;
+        }
+        .test-section {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        .connection-status {
+            display: inline-block;
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-weight: bold;
+            margin: 10px 0;
+        }
+        .connection-status.connected {
+            background-color: #28a745;
+            color: white;
+        }
+        .connection-status.disconnected {
+            background-color: #dc3545;
+            color: white;
+        }
+        .connection-status.connecting {
+            background-color: #ffc107;
+            color: black;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Multiple Transfer Fix Test</h1>
+        <p>This test verifies that multiple concurrent transfers work correctly without confusion between transfers.</p>
+        
+        <div id="connectionStatus" class="connection-status disconnected">Disconnected</div>
+        
+        <div class="test-section">
+            <h3>Connection Test</h3>
+            <button id="connectBtn">Connect to Peer</button>
+            <button id="disconnectBtn" disabled>Disconnect</button>
+        </div>
+        
+        <div class="test-section">
+            <h3>Multiple Transfer Test</h3>
+            <div class="file-input">
+                <label>File 1: <input type="file" id="file1"></label><br>
+                <label>File 2: <input type="file" id="file2"></label><br>
+                <label>File 3: <input type="file" id="file3"></label>
+            </div>
+            <button id="sendMultipleBtn" disabled>Send Multiple Files</button>
+            <button id="sendSequentialBtn" disabled>Send Sequentially</button>
+            <button id="cancelAllBtn" disabled>Cancel All</button>
+        </div>
+        
+        <div class="test-section">
+            <h3>Test Results</h3>
+            <div id="testResults"></div>
+        </div>
+        
+        <div class="test-section">
+            <h3>Active Transfers</h3>
+            <div id="transferList"></div>
+        </div>
+    </div>
+
+    <!-- Include the WebRTC and FileTransfer scripts -->
+    <script src="static/js/webrtc.js"></script>
+    <script src="static/js/filetransfer.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/spark-md5/3.0.2/spark-md5.min.js"></script>
+    
+    <script>
+        class MultipleTransferTest {
+            constructor() {
+                this.p2p = null;
+                this.fileTransfer = null;
+                this.activeTransfers = new Map();
+                this.testResults = [];
+                
+                this.initializeElements();
+                this.bindEvents();
+            }
+            
+            initializeElements() {
+                this.connectBtn = document.getElementById('connectBtn');
+                this.disconnectBtn = document.getElementById('disconnectBtn');
+                this.sendMultipleBtn = document.getElementById('sendMultipleBtn');
+                this.sendSequentialBtn = document.getElementById('sendSequentialBtn');
+                this.cancelAllBtn = document.getElementById('cancelAllBtn');
+                this.file1Input = document.getElementById('file1');
+                this.file2Input = document.getElementById('file2');
+                this.file3Input = document.getElementById('file3');
+                this.connectionStatus = document.getElementById('connectionStatus');
+                this.transferList = document.getElementById('transferList');
+                this.testResults = document.getElementById('testResults');
+            }
+            
+            bindEvents() {
+                this.connectBtn.addEventListener('click', () => this.connect());
+                this.disconnectBtn.addEventListener('click', () => this.disconnect());
+                this.sendMultipleBtn.addEventListener('click', () => this.sendMultipleFiles());
+                this.sendSequentialBtn.addEventListener('click', () => this.sendSequentially());
+                this.cancelAllBtn.addEventListener('click', () => this.cancelAll());
+            }
+            
+            async connect() {
+                try {
+                    this.updateConnectionStatus('connecting', 'Connecting...');
+                    
+                    // Initialize P2P connection
+                    this.p2p = new P2PConnection();
+                    this.fileTransfer = new FileTransfer(this.p2p, console);
+                    
+                    // Set up event handlers
+                    this.p2p.onConnectionStateChange = (state) => {
+                        this.updateConnectionStatus(state);
+                        this.updateButtonStates();
+                    };
+                    
+                    this.fileTransfer.onFileInfo = (info) => {
+                        this.logResult('info', `Received file info: ${info.name} (${info.size} bytes)`);
+                    };
+                    
+                    this.fileTransfer.onProgress = (progress) => {
+                        this.updateTransferProgress(progress);
+                    };
+                    
+                    this.fileTransfer.onComplete = () => {
+                        this.logResult('success', 'Transfer completed successfully');
+                    };
+                    
+                    this.fileTransfer.onError = (error) => {
+                        this.logResult('error', `Transfer error: ${error.message}`);
+                    };
+                    
+                    this.fileTransfer.onVerificationStart = () => {
+                        this.logResult('info', 'File verification started');
+                    };
+                    
+                    this.fileTransfer.onVerificationComplete = (blob, fileInfo) => {
+                        this.logResult('success', `File verified: ${fileInfo.name}`);
+                        this.downloadFile(blob, fileInfo.name);
+                    };
+                    
+                    this.fileTransfer.onVerificationFailed = (reason) => {
+                        this.logResult('error', `File verification failed: ${reason}`);
+                    };
+                    
+                    // Start connection
+                    await this.p2p.connect();
+                    
+                } catch (error) {
+                    this.logResult('error', `Connection failed: ${error.message}`);
+                    this.updateConnectionStatus('disconnected');
+                }
+            }
+            
+            disconnect() {
+                if (this.p2p) {
+                    this.p2p.disconnect();
+                    this.updateConnectionStatus('disconnected');
+                    this.updateButtonStates();
+                }
+            }
+            
+            async sendMultipleFiles() {
+                const files = [
+                    this.file1Input.files[0],
+                    this.file2Input.files[0],
+                    this.file3Input.files[0]
+                ].filter(file => file !== undefined);
+                
+                if (files.length === 0) {
+                    this.logResult('warning', 'Please select at least one file');
+                    return;
+                }
+                
+                this.logResult('info', `Starting concurrent transfer of ${files.length} files`);
+                
+                try {
+                    // Send all files concurrently
+                    const transferPromises = files.map(file => this.sendFile(file));
+                    await Promise.allSettled(transferPromises);
+                    
+                    this.logResult('success', 'All concurrent transfers initiated');
+                } catch (error) {
+                    this.logResult('error', `Concurrent transfer failed: ${error.message}`);
+                }
+            }
+            
+            async sendSequentially() {
+                const files = [
+                    this.file1Input.files[0],
+                    this.file2Input.files[0],
+                    this.file3Input.files[0]
+                ].filter(file => file !== undefined);
+                
+                if (files.length === 0) {
+                    this.logResult('warning', 'Please select at least one file');
+                    return;
+                }
+                
+                this.logResult('info', `Starting sequential transfer of ${files.length} files`);
+                
+                try {
+                    // Send files one by one
+                    for (let i = 0; i < files.length; i++) {
+                        this.logResult('info', `Sending file ${i + 1}/${files.length}: ${files[i].name}`);
+                        await this.sendFile(files[i]);
+                        
+                        // Wait a bit between transfers
+                        await new Promise(resolve => setTimeout(resolve, 1000));
+                    }
+                    
+                    this.logResult('success', 'All sequential transfers completed');
+                } catch (error) {
+                    this.logResult('error', `Sequential transfer failed: ${error.message}`);
+                }
+            }
+            
+            async sendFile(file) {
+                const transferId = `transfer-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+                
+                // Create transfer UI
+                this.createTransferUI(transferId, file);
+                
+                try {
+                    await this.fileTransfer.sendFile(file);
+                    this.logResult('success', `Transfer started: ${file.name} (${file.size} bytes)`);
+                } catch (error) {
+                    this.logResult('error', `Failed to start transfer: ${error.message}`);
+                    this.removeTransferUI(transferId);
+                }
+            }
+            
+            cancelAll() {
+                if (this.fileTransfer) {
+                    this.fileTransfer.cancelTransfer();
+                    this.logResult('info', 'All transfers cancelled');
+                }
+            }
+            
+            updateConnectionStatus(state, message) {
+                const statusElement = this.connectionStatus;
+                statusElement.className = `connection-status ${state}`;
+                
+                switch (state) {
+                    case 'connected':
+                        statusElement.textContent = 'Connected';
+                        break;
+                    case 'connecting':
+                        statusElement.textContent = message || 'Connecting...';
+                        break;
+                    case 'disconnected':
+                        statusElement.textContent = 'Disconnected';
+                        break;
+                    default:
+                        statusElement.textContent = state;
+                }
+            }
+            
+            updateButtonStates() {
+                const isConnected = this.p2p && this.p2p.isConnected();
+                
+                this.connectBtn.disabled = isConnected;
+                this.disconnectBtn.disabled = !isConnected;
+                this.sendMultipleBtn.disabled = !isConnected;
+                this.sendSequentialBtn.disabled = !isConnected;
+                this.cancelAllBtn.disabled = !isConnected;
+            }
+            
+            createTransferUI(transferId, file) {
+                const transferDiv = document.createElement('div');
+                transferDiv.className = 'transfer-item';
+                transferDiv.id = `transfer-${transferId}`;
+                
+                transferDiv.innerHTML = `
+                    <div class="transfer-header">
+                        <span class="transfer-name">${file.name}</span>
+                        <span class="transfer-id">${transferId}</span>
+                    </div>
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="progress-${transferId}" style="width: 0%"></div>
+                    </div>
+                    <div class="transfer-details">
+                        <div class="detail-item">
+                            <span class="detail-label">Size:</span>
+                            <span class="detail-value">${this.formatBytes(file.size)}</span>
+                        </div>
+                        <div class="detail-item">
+                            <span class="detail-label">Progress:</span>
+                            <span class="detail-value" id="progress-text-${transferId}">0%</span>
+                        </div>
+                        <div class="detail-item">
+                            <span class="detail-label">Speed:</span>
+                            <span class="detail-value" id="speed-${transferId}">0 B/s</span>
+                        </div>
+                        <div class="detail-item">
+                            <span class="detail-label">Status:</span>
+                            <span class="detail-value" id="status-${transferId}">Starting...</span>
+                        </div>
+                    </div>
+                `;
+                
+                this.transferList.appendChild(transferDiv);
+                this.activeTransfers.set(transferId, { file, element: transferDiv });
+            }
+            
+            updateTransferProgress(progress) {
+                const transferId = progress.transferId || 'unknown';
+                const progressBar = document.getElementById(`progress-${transferId}`);
+                const progressText = document.getElementById(`progress-text-${transferId}`);
+                const speedElement = document.getElementById(`speed-${transferId}`);
+                const statusElement = document.getElementById(`status-${transferId}`);
+                
+                if (progressBar) {
+                    progressBar.style.width = `${progress.percent || 0}%`;
+                }
+                
+                if (progressText) {
+                    progressText.textContent = `${Math.round(progress.percent || 0)}%`;
+                }
+                
+                if (speedElement) {
+                    speedElement.textContent = this.formatBytes(progress.speed || 0) + '/s';
+                }
+                
+                if (statusElement) {
+                    if (progress.complete) {
+                        statusElement.textContent = 'Complete';
+                        statusElement.style.color = '#28a745';
+                    } else {
+                        statusElement.textContent = 'Transferring...';
+                        statusElement.style.color = '#007bff';
+                    }
+                }
+            }
+            
+            removeTransferUI(transferId) {
+                const transferElement = document.getElementById(`transfer-${transferId}`);
+                if (transferElement) {
+                    transferElement.remove();
+                }
+                this.activeTransfers.delete(transferId);
+            }
+            
+            downloadFile(blob, filename) {
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = filename;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                
+                this.logResult('success', `File downloaded: ${filename}`);
+            }
+            
+            logResult(type, message) {
+                const resultDiv = document.createElement('div');
+                resultDiv.className = `status ${type}`;
+                resultDiv.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+                
+                this.testResults.appendChild(resultDiv);
+                this.testResults.scrollTop = this.testResults.scrollHeight;
+                
+                // Keep only last 20 results
+                while (this.testResults.children.length > 20) {
+                    this.testResults.removeChild(this.testResults.firstChild);
+                }
+            }
+            
+            formatBytes(bytes) {
+                if (bytes === 0) return '0 Bytes';
+                const k = 1024;
+                const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+                const i = Math.floor(Math.log(bytes) / Math.log(k));
+                return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+            }
+        }
+        
+        // Initialize the test when the page loads
+        document.addEventListener('DOMContentLoaded', () => {
+            window.testApp = new MultipleTransferTest();
+        });
+    </script>
+</body>
+</html>

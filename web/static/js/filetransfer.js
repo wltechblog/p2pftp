@@ -91,11 +91,6 @@ class FileTransfer {
             throw new Error('Capabilities exchange failed: ' + error.message);
         }
         
-        // Allow multiple concurrent transfers - remove the single transfer restriction
-        // if (this.sending || this.receiving) {
-        //     throw new Error('Transfer already in progress');
-        // }
-        
         // Generate unique transfer ID
         const transferId = `send-${this.nextTransferId++}`;
         
@@ -152,14 +147,15 @@ class FileTransfer {
             // Calculate MD5 hash
             const md5Hash = await this._calculateMD5(file);
             
-            // Send file info
+            // Send file info with transfer ID
             this.fileInfo = {
                 name: file.name,
                 size: file.size,
-                md5: md5Hash
+                md5: md5Hash,
+                transferId: transferId
             };
             
-            this._sendFileInfo(this.fileInfo);
+            this._sendFileInfoForTransfer(this.fileInfo, transferId);
             
             // Start sending chunks
             this._sendChunks();
@@ -196,25 +192,67 @@ class FileTransfer {
     /**
      * Cancel the current transfer
      */
-    cancelTransfer() {
-        if (this.sending || this.receiving) {
-            this.logger.log('Cancelling transfer');
-            this.transferCancelled = true;
-            
-            if (this.sending) {
-                this.sending = false;
+    cancelTransfer(transferId = null) {
+        if (transferId) {
+            // Cancel specific transfer
+            const transferData = this.activeTransfers.get(transferId);
+            if (transferData) {
+                this.logger.log('Cancelling transfer:', transferId);
+                transferData.transferCancelled = true;
+                
+                if (transferData.sending) {
+                    transferData.sending = false;
+                }
+                
+                if (transferData.receiving) {
+                    transferData.receiving = false;
+                    transferData.fileData = null;
+                }
+                
+                // Notify peer about cancellation
+                this._sendCancellationForTransfer(transferId);
+                
+                // Remove from active transfers
+                this.activeTransfers.delete(transferId);
+                
+                if (this.onError) {
+                    this.onError(new Error(`Transfer ${transferId} cancelled by user`));
+                }
             }
-            
-            if (this.receiving) {
-                this.receiving = false;
-                this.fileData = null;
-            }
-            
-            // Notify peer about cancellation
-            this._sendCancellation();
-            
-            if (this.onError) {
-                this.onError(new Error('Transfer cancelled by user'));
+        } else {
+            // Legacy cancel all transfers
+            if (this.sending || this.receiving) {
+                this.logger.log('Cancelling all transfers');
+                this.transferCancelled = true;
+                
+                // Cancel all active transfers
+                for (const [tid, tdata] of this.activeTransfers.entries()) {
+                    tdata.transferCancelled = true;
+                    if (tdata.sending) {
+                        tdata.sending = false;
+                    }
+                    if (tdata.receiving) {
+                        tdata.receiving = false;
+                        tdata.fileData = null;
+                    }
+                    this._sendCancellationForTransfer(tid);
+                }
+                
+                if (this.sending) {
+                    this.sending = false;
+                }
+                
+                if (this.receiving) {
+                    this.receiving = false;
+                    this.fileData = null;
+                }
+                
+                // Notify peer about cancellation
+                this._sendCancellation();
+                
+                if (this.onError) {
+                    this.onError(new Error('Transfer cancelled by user'));
+                }
             }
         }
     }
@@ -232,6 +270,23 @@ class FileTransfer {
         
         this.p2p.controlChannel.send(JSON.stringify(message));
         this.logger.log('Sent file info:', fileInfo);
+    }
+    
+    /**
+     * Send file info to peer with transfer ID
+     * @param {Object} fileInfo - The file info object
+     * @param {string} transferId - The transfer ID
+     * @private
+     */
+    _sendFileInfoForTransfer(fileInfo, transferId) {
+        const message = {
+            type: 'file-info',
+            transferId: transferId,
+            info: fileInfo
+        };
+        
+        this.p2p.controlChannel.send(JSON.stringify(message));
+        this.logger.log('Sent file info for transfer:', transferId, fileInfo);
     }
 
     /**
@@ -330,18 +385,22 @@ class FileTransfer {
                 reader.readAsArrayBuffer(chunkData);
             });
             
-            // Create chunk with header
-            const chunk = new ArrayBuffer(8 + chunkArrayBuffer.byteLength);
+            // Create chunk with header including transfer ID
+            const chunk = new ArrayBuffer(12 + chunkArrayBuffer.byteLength);
             const view = new DataView(chunk);
             
+            // Write transfer ID (4 bytes) - CRITICAL FIX for multiple transfers
+            const transferIdNum = parseInt(transferData.id.replace(/[^0-9]/g, '0')) || 0;
+            view.setUint32(0, transferIdNum);
+            
             // Write sequence number (4 bytes)
-            view.setUint32(0, transferSequence);
+            view.setUint32(4, transferSequence);
             
             // Write chunk size (4 bytes)
-            view.setUint32(4, chunkArrayBuffer.byteLength);
+            view.setUint32(8, chunkArrayBuffer.byteLength);
             
-            // Copy chunk data
-            new Uint8Array(chunk, 8).set(new Uint8Array(chunkArrayBuffer));
+            // Copy chunk data (skip 12-byte header: 4 bytes transfer ID + 4 bytes sequence + 4 bytes chunk size)
+            new Uint8Array(chunk, 12).set(new Uint8Array(chunkArrayBuffer));
             
             // Send chunk
             try {
@@ -396,7 +455,8 @@ class FileTransfer {
      */
     _sendFileCompleteForTransfer(transferData) {
         const message = {
-            type: 'file-complete'
+            type: 'file-complete',
+            transferId: transferData.id
         };
         
         this.p2p.controlChannel.send(JSON.stringify(message));
@@ -433,6 +493,21 @@ class FileTransfer {
         this.p2p.controlChannel.send(JSON.stringify(message));
         this.logger.log('Sent transfer cancellation message');
     }
+    
+    /**
+     * Send cancellation message for specific transfer
+     * @param {string} transferId - The transfer ID
+     * @private
+     */
+    _sendCancellationForTransfer(transferId) {
+        const message = {
+            type: 'transfer-cancelled',
+            transferId: transferId
+        };
+        
+        this.p2p.controlChannel.send(JSON.stringify(message));
+        this.logger.log('Sent transfer cancellation message for transfer:', transferId);
+    }
 
     /**
      * Send progress update to the peer
@@ -460,6 +535,183 @@ class FileTransfer {
         
         this.p2p.controlChannel.send(JSON.stringify(message));
         this.logger.log('Sent progress update:', message);
+    }
+    
+    /**
+     * Send progress update for specific transfer
+     * @param {string} transferId - The transfer ID
+     * @param {Object} transferData - The transfer data
+     * @private
+     */
+    _sendProgressUpdateForTransfer(transferId, transferData) {
+        const now = Date.now();
+        
+        // Send transfer-specific flow control acknowledgment (unthrottled)
+        this._sendFlowControlAckForTransfer(transferId, transferData.highestSequence);
+        
+        // Send throttled progress updates only for user feedback
+        if (now - transferData.lastProgressUpdate < 1000) {
+            return;
+        }
+        
+        transferData.lastProgressUpdate = now;
+        
+        const message = {
+            type: 'progress-update',
+            transferId: transferId,
+            bytesReceived: transferData.bytesReceived,
+            highestSequence: transferData.highestSequence
+        };
+        
+        this.p2p.controlChannel.send(JSON.stringify(message));
+        this.logger.log('Sent progress update for transfer:', transferId, message);
+    }
+    
+    /**
+     * Send flow control acknowledgment for specific transfer
+     * @param {string} transferId - The transfer ID
+     * @param {number} highestSequence - The highest sequence number
+     * @private
+     */
+    _sendFlowControlAckForTransfer(transferId, highestSequence) {
+        const message = {
+            type: 'flow-control-ack',
+            transferId: transferId,
+            highestSequence: highestSequence
+        };
+        
+        this.p2p.controlChannel.send(JSON.stringify(message));
+        this.logger.log('DEBUG: Sent flow control acknowledgment for transfer:', transferId, 'sequence:', highestSequence);
+    }
+
+    /**
+     * Handle file complete message for specific transfer
+     * @param {string} transferId - The transfer ID
+     * @private
+     */
+    _handleFileCompleteForTransfer(transferId) {
+        this.logger.log(`Received file complete message for transfer: ${transferId}`);
+        
+        // Get transfer data
+        const transferData = this.activeTransfers.get(transferId);
+        if (!transferData) {
+            this.logger.warn(`Received file complete for unknown transfer: ${transferId}`);
+            return;
+        }
+        
+        transferData.transferComplete = true;
+        
+        // Check if we've received all data
+        if (transferData.bytesReceived >= transferData.file.size) {
+            // We have all data, proceed with verification
+            this._verifyReceivedFileForTransfer(transferId, transferData);
+        } else {
+            this.logger.log(`Received file-complete but only have ${transferData.bytesReceived}/${transferData.file.size} bytes for transfer ${transferId}. Waiting for remaining chunks...`);
+            
+            // Set a timeout to handle missing chunks
+            transferData.completionTimeout = setTimeout(() => {
+                if (transferData.receiving && transferData.transferComplete) {
+                    this.logger.log(`Completion timeout reached for transfer ${transferId} with ${transferData.bytesReceived}/${transferData.file.size} bytes. Proceeding with verification...`);
+                    this._verifyReceivedFileForTransfer(transferId, transferData);
+                }
+            }, 5000); // 5 second timeout
+        }
+        
+        // Update legacy state for backward compatibility
+        this.transferComplete = true;
+    }
+    
+    /**
+     * Handle file verified message for specific transfer
+     * @param {string} transferId - The transfer ID
+     * @private
+     */
+    _handleFileVerifiedForTransfer(transferId) {
+        this.logger.log(`File verified by peer for transfer: ${transferId}`);
+        
+        // Get transfer data
+        const transferData = this.activeTransfers.get(transferId);
+        if (!transferData) {
+            this.logger.warn(`Received file verified for unknown transfer: ${transferId}`);
+            return;
+        }
+        
+        // Complete transfer
+        transferData.sending = false;
+        
+        // Update legacy state for backward compatibility
+        this.sending = false;
+        
+        if (this.onComplete) {
+            this.onComplete();
+        }
+    }
+    
+    /**
+     * Handle file failed message for specific transfer
+     * @param {string} transferId - The transfer ID
+     * @param {string} reason - The failure reason
+     * @private
+     */
+    _handleFileFailedForTransfer(transferId, reason) {
+        this.logger.error(`File verification failed for transfer ${transferId}:`, reason);
+        
+        // Get transfer data
+        const transferData = this.activeTransfers.get(transferId);
+        if (!transferData) {
+            this.logger.warn(`Received file failed for unknown transfer: ${transferId}`);
+            return;
+        }
+        
+        // Complete transfer with error
+        transferData.sending = false;
+        
+        // Update legacy state for backward compatibility
+        this.sending = false;
+        
+        if (this.onError) {
+            this.onError(new Error(`File verification failed: ${reason}`));
+        }
+    }
+    
+    /**
+     * Handle transfer cancelled message for specific transfer
+     * @param {string} transferId - The transfer ID
+     * @private
+     */
+    _handleTransferCancelledForTransfer(transferId) {
+        this.logger.log(`Transfer cancelled by peer for transfer: ${transferId}`);
+        
+        // Get transfer data
+        const transferData = this.activeTransfers.get(transferId);
+        if (!transferData) {
+            this.logger.warn(`Received transfer cancelled for unknown transfer: ${transferId}`);
+            return;
+        }
+        
+        // Reset transfer state
+        if (transferData.sending) {
+            transferData.sending = false;
+        }
+        
+        if (transferData.receiving) {
+            transferData.receiving = false;
+            transferData.fileData = null;
+        }
+        
+        // Update legacy state for backward compatibility
+        if (this.sending) {
+            this.sending = false;
+        }
+        
+        if (this.receiving) {
+            this.receiving = false;
+            this.fileData = null;
+        }
+        
+        if (this.onError) {
+            this.onError(new Error('Transfer cancelled by peer'));
+        }
     }
 
     /**
@@ -548,6 +800,45 @@ class FileTransfer {
             return;
         }
         
+        // CRITICAL FIX: Route messages with transfer IDs to transfer-specific handlers
+        if (message.transferId) {
+            switch (message.type) {
+                case 'file-info':
+                    this._handleFileInfoForTransfer(message.info, message.transferId);
+                    break;
+                    
+                case 'progress-update':
+                    this._handleProgressUpdateForTransfer(message);
+                    break;
+                    
+                case 'flow-control-ack':
+                    this._handleFlowControlAckForTransfer(message);
+                    break;
+                    
+                case 'file-complete':
+                    this._handleFileCompleteForTransfer(message.transferId);
+                    break;
+                    
+                case 'file-verified':
+                    this._handleFileVerifiedForTransfer(message.transferId);
+                    break;
+                    
+                case 'file-failed':
+                    this._handleFileFailedForTransfer(message.transferId, message.reason);
+                    break;
+                    
+                case 'transfer-cancelled':
+                    this._handleTransferCancelledForTransfer(message.transferId);
+                    break;
+                    
+                default:
+                    this.logger.warn('Unknown control message type with transfer ID:', message.type, message);
+                    break;
+            }
+            return;
+        }
+        
+        // Legacy handlers for messages without transfer IDs
         switch (message.type) {
             case 'file-info':
                 this._handleFileInfo(message.info);
@@ -609,6 +900,234 @@ class FileTransfer {
         // Notify about file info
         if (this.onFileInfo) {
             this.onFileInfo(info);
+        }
+    }
+    
+    /**
+     * Handle file info message for specific transfer
+     * @param {Object} info - The file info
+     * @param {string} transferId - The transfer ID
+     * @private
+     */
+    _handleFileInfoForTransfer(info, transferId) {
+        this.logger.log('Received file info for transfer:', transferId, info);
+        
+        // Create transfer data object for receiving
+        const transferData = {
+            id: transferId,
+            file: info,
+            receiving: true,
+            transferComplete: false,
+            transferCancelled: false,
+            bytesReceived: 0,
+            receivedChunks: 0,
+            startTime: Date.now(),
+            chunkSize: this.p2p.negotiatedChunkSize,
+            totalBytes: info.size,
+            totalChunks: Math.ceil(info.size / this.chunkSize),
+            chunks: new Array(Math.ceil(info.size / this.chunkSize)).fill(false),
+            highestSequence: 0,
+            fileData: new Uint8Array(info.size),
+            lastProgressUpdate: 0
+        };
+        
+        // Store transfer data
+        this.activeTransfers.set(transferId, transferData);
+        
+        // Update legacy state for backward compatibility (for first transfer)
+        if (this.activeTransfers.size === 1) {
+            this.fileInfo = info;
+            this.fileData = transferData.fileData;
+            this.receiving = true;
+            this.transferComplete = false;
+            this.transferCancelled = false;
+            this.bytesReceived = 0;
+            this.highestSequence = 0;
+            this.receivedChunks = 0;
+            this.startTime = Date.now();
+            this.chunkSize = this.p2p.negotiatedChunkSize;
+            this.totalBytes = info.size;
+            this.totalChunks = Math.ceil(info.size / this.chunkSize);
+            this.chunks = transferData.chunks;
+        }
+        
+        this.logger.log(`Starting file reception for transfer ${transferId}: ${info.name} (${info.size} bytes)`);
+        this.logger.log(`Using chunk size: ${this.chunkSize} bytes`);
+        this.logger.log(`Total chunks: ${this.totalChunks}`);
+        
+        // Notify about file info
+        if (this.onFileInfo) {
+            this.onFileInfo(info);
+        }
+    }
+    
+    /**
+     * Handle progress update message for specific transfer
+     * @param {Object} update - The progress update
+     * @private
+     */
+    _handleProgressUpdateForTransfer(update) {
+        // Get transfer data
+        const transferData = this.activeTransfers.get(update.transferId);
+        if (!transferData || !transferData.sending) {
+            return;
+        }
+        
+        this.logger.log('Received progress update for transfer:', update.transferId, update);
+        
+        // Calculate current transfer speed using rolling average
+        const currentTime = Date.now();
+        let currentSpeed;
+        
+        if (transferData.lastSpeedCalculationTime === 0) {
+            // First calculation - initialize
+            transferData.lastSpeedCalculationTime = currentTime;
+            transferData.lastBytesReceived = update.bytesReceived;
+            currentSpeed = 0;
+        } else {
+            // Calculate speed based on time delta
+            const timeDelta = (currentTime - transferData.lastSpeedCalculationTime) / 1000; // seconds
+            const bytesDelta = update.bytesReceived - transferData.lastBytesReceived;
+            
+            if (timeDelta > 0) {
+                currentSpeed = bytesDelta / timeDelta;
+            } else {
+                currentSpeed = 0;
+            }
+            
+            // Update tracking variables
+            transferData.lastSpeedCalculationTime = currentTime;
+            transferData.lastBytesReceived = update.bytesReceived;
+        }
+        
+        // Track speed history
+        transferData.speedHistory.push(currentSpeed);
+        if (transferData.speedHistory.length > this.maxSpeedHistory) {
+            transferData.speedHistory.shift();
+        }
+        
+        // Adjust window size based on network conditions
+        this._adjustWindowSizeForTransfer(transferData, currentSpeed);
+    }
+    
+    /**
+     * Handle flow control acknowledgment for specific transfer
+     * @param {Object} ack - The flow control acknowledgment
+     * @private
+     */
+    _handleFlowControlAckForTransfer(ack) {
+        // Get transfer data
+        const transferData = this.activeTransfers.get(ack.transferId);
+        if (!transferData || !transferData.sending) {
+            return;
+        }
+        
+        this.logger.log('DEBUG: Received flow control acknowledgment for transfer:', ack.transferId, ack);
+        this.logger.log('DEBUG: Transfer', transferData.id, 'state before update - inFlightChunks:', transferData.inFlightChunks, 'lastAcknowledged:', transferData.lastAcknowledged);
+        
+        // Update window control immediately (unthrottled)
+        if (ack.highestSequence > transferData.lastAcknowledged) {
+            const newAcknowledged = ack.highestSequence - transferData.lastAcknowledged;
+            transferData.inFlightChunks = Math.max(0, transferData.inFlightChunks - newAcknowledged);
+            transferData.lastAcknowledged = ack.highestSequence;
+            this.logger.log('DEBUG: Transfer', transferData.id, 'state after update - inFlightChunks:', transferData.inFlightChunks, 'lastAcknowledged:', transferData.lastAcknowledged);
+        }
+        
+        // Update legacy state for backward compatibility
+        if (this.sending) {
+            if (ack.highestSequence > this.lastAcknowledged) {
+                const newAcknowledged = ack.highestSequence - this.lastAcknowledged;
+                this.inFlightChunks = Math.max(0, this.inFlightChunks - newAcknowledged);
+                this.lastAcknowledged = ack.highestSequence;
+            }
+        }
+    }
+    
+    /**
+     * Adjust window size for specific transfer based on network conditions
+     * @param {Object} transferData - The transfer data
+     * @param {number} currentSpeed - Current transfer speed in bytes per second
+     * @private
+     */
+    _adjustWindowSizeForTransfer(transferData, currentSpeed) {
+        const now = Date.now();
+        
+        // Only adjust window at specified intervals
+        if (now - transferData.lastWindowAdjustment < this.windowAdjustmentInterval) {
+            return;
+        }
+        
+        // Add minimum transfer protection - prevent window adjustments in first 5 seconds
+        const elapsedSeconds = (now - transferData.startTime) / 1000;
+        if (elapsedSeconds < 5) {
+            return;
+        }
+        
+        transferData.lastWindowAdjustment = now;
+        
+        // Calculate average speed from history
+        let avgSpeed = 0;
+        if (transferData.speedHistory.length > 0) {
+            avgSpeed = transferData.speedHistory.reduce((sum, speed) => sum + speed, 0) / transferData.speedHistory.length;
+        }
+        
+        // Calculate speed trend
+        let speedTrend = 0;
+        if (transferData.speedHistory.length >= 3) {
+            const recent = transferData.speedHistory.slice(-3);
+            const older = transferData.speedHistory.slice(-6, -3);
+            if (older.length > 0) {
+                const recentAvg = recent.reduce((sum, speed) => sum + speed, 0) / recent.length;
+                const olderAvg = older.reduce((sum, speed) => sum + speed, 0) / older.length;
+                speedTrend = (recentAvg - olderAvg) / olderAvg;
+            }
+        }
+        
+        // Calculate buffer utilization
+        const bufferUtilization = this.p2p.dataChannel ?
+            this.p2p.dataChannel.bufferedAmount / this.bufferThreshold : 0;
+        
+        let newWindowSize = transferData.windowSize;
+        
+        // Less aggressive adaptive window sizing algorithm
+        if (bufferUtilization > 0.9) {
+            // Buffer is congested, reduce window size (less aggressive)
+            newWindowSize = Math.max(transferData.minWindowSize, Math.floor(transferData.windowSize * 0.9));
+            transferData.consecutiveDecreases++;
+            transferData.consecutiveIncreases = 0;
+            this.logger.log(`Buffer congestion detected for transfer ${transferData.id} (${(bufferUtilization * 100).toFixed(1)}%), reducing window to ${newWindowSize}`);
+        } else if (bufferUtilization < 0.3 && speedTrend > 0.15) {
+            // Network is performing well, increase window size (more conservative)
+            newWindowSize = Math.min(transferData.maxWindowSize, Math.floor(transferData.windowSize * 1.15));
+            transferData.consecutiveIncreases++;
+            transferData.consecutiveDecreases = 0;
+            this.logger.log(`Good network conditions for transfer ${transferData.id} (speed trend: ${(speedTrend * 100).toFixed(1)}%), increasing window to ${newWindowSize}`);
+        } else if (avgSpeed > 15 * 1024 * 1024) { // > 15 MB/s (higher threshold)
+            // High speed, can increase window (more conservative)
+            if (transferData.consecutiveDecreases === 0) {
+                newWindowSize = Math.min(transferData.maxWindowSize, transferData.windowSize + 4);
+                transferData.consecutiveIncreases++;
+            }
+        } else if (avgSpeed < 500 * 1024) { // < 0.5 MB/s (lower threshold)
+            // Low speed, reduce window (more conservative)
+            if (transferData.consecutiveIncreases === 0) {
+                newWindowSize = Math.max(transferData.minWindowSize, transferData.windowSize - 2);
+                transferData.consecutiveDecreases++;
+            }
+        }
+        
+        // Apply new window size if changed
+        if (newWindowSize !== transferData.windowSize) {
+            this.logger.log(`Window size adjusted for transfer ${transferData.id}: ${transferData.windowSize} -> ${newWindowSize} (avg speed: ${(avgSpeed / 1024 / 1024).toFixed(2)} MB/s, buffer: ${(bufferUtilization * 100).toFixed(1)}%)`);
+            transferData.windowSize = newWindowSize;
+        }
+        
+        // Reset counters if we've had consecutive changes in same direction
+        if (transferData.consecutiveIncreases >= 3) {
+            transferData.consecutiveIncreases = 0;
+        }
+        if (transferData.consecutiveDecreases >= 3) {
+            transferData.consecutiveDecreases = 0;
         }
     }
 
@@ -694,7 +1213,7 @@ class FileTransfer {
     _handleFileVerified() {
         this.logger.log('File verified by peer');
         
-        // Complete the transfer
+        // Complete transfer
         this.sending = false;
         
         if (this.onComplete) {
@@ -710,7 +1229,7 @@ class FileTransfer {
     _handleFileFailed(reason) {
         this.logger.error('File verification failed:', reason);
         
-        // Complete the transfer with error
+        // Complete transfer with error
         this.sending = false;
         
         if (this.onError) {
@@ -746,27 +1265,129 @@ class FileTransfer {
      * @private
      */
     _handleDataMessage(data) {
-        if (!this.receiving || !this.fileInfo || !this.fileData) {
-            return;
-        }
-        
-        // Check if we have enough data for the header (8 bytes)
-        if (data.byteLength < 8) {
+        // Check if we have enough data for the header (12 bytes with transfer ID)
+        if (data.byteLength < 12) {
             this.logger.warn(`Received invalid chunk: too short (${data.byteLength} bytes)`);
             return;
         }
         
-        // Extract header information
+        // CRITICAL FIX: Extract transfer ID from header
         const view = new DataView(data);
-        const sequence = view.getUint32(0);
-        const chunkSize = view.getUint32(4);
+        const transferIdNum = view.getUint32(0);
+        const sequence = view.getUint32(4);
+        const chunkSize = view.getUint32(8);
         
         // Validate chunk size
-        if (data.byteLength !== 8 + chunkSize) {
-            this.logger.warn(`Chunk size mismatch: expected ${8 + chunkSize}, got ${data.byteLength}`);
+        if (data.byteLength !== 12 + chunkSize) {
+            this.logger.warn(`Chunk size mismatch: expected ${12 + chunkSize}, got ${data.byteLength}`);
             return;
         }
         
+        // Find transfer by ID
+        let transferId = null;
+        let transferData = null;
+        
+        for (const [tid, tdata] of this.activeTransfers.entries()) {
+            const tidNum = parseInt(tid.replace(/[^0-9]/g, '0')) || 0;
+            if (tidNum === transferIdNum) {
+                transferId = tid;
+                transferData = tdata;
+                break;
+            }
+        }
+        
+        if (!transferData || !transferData.receiving) {
+            // Fallback to legacy handling for single transfers
+            if (this.receiving && this.fileInfo && this.fileData) {
+                this._handleLegacyDataMessage(data, view, sequence, chunkSize);
+                return;
+            }
+            
+            this.logger.warn(`Received chunk for unknown or inactive transfer ID: ${transferIdNum}`);
+            return;
+        }
+        
+        // CRITICAL FIX: Handle data for specific transfer
+        this._handleDataMessageForTransfer(transferId, transferData, data, view, sequence, chunkSize);
+    }
+    
+    /**
+     * Handle data message for specific transfer
+     * @param {string} transferId - The transfer ID
+     * @param {Object} transferData - The transfer data
+     * @param {ArrayBuffer} data - The data message
+     * @param {DataView} view - The data view
+     * @param {number} sequence - The sequence number
+     * @param {number} chunkSize - The chunk size
+     * @private
+     */
+    _handleDataMessageForTransfer(transferId, transferData, data, view, sequence, chunkSize) {
+        // Calculate offset in file
+        const offset = sequence * transferData.chunkSize;
+        
+        // Validate offset
+        if (offset + chunkSize > transferData.file.size) {
+            this.logger.warn(`Invalid chunk offset: ${offset + chunkSize} exceeds file size ${transferData.file.size} for transfer ${transferId}`);
+            return;
+        }
+        
+        // Extract chunk data
+        const chunkData = new Uint8Array(data, 12, chunkSize);
+        
+        // Write chunk to transfer-specific file data
+        transferData.fileData.set(chunkData, offset);
+        
+        // Mark chunk as received
+        if (!transferData.chunks[sequence]) {
+            transferData.chunks[sequence] = true;
+            transferData.receivedChunks++;
+            transferData.bytesReceived += chunkSize;
+            
+            // Update highest sequence
+            if (sequence > transferData.highestSequence) {
+                transferData.highestSequence = sequence;
+            }
+        }
+        
+        // Send transfer-specific progress update
+        this._sendProgressUpdateForTransfer(transferId, transferData);
+        
+        // CRITICAL FIX: Send transfer-specific flow control acknowledgment
+        this._sendFlowControlAckForTransfer(transferId, transferData.highestSequence);
+        
+        // Update progress
+        if (this.onProgress) {
+            const progress = {
+                transferId: transferId,
+                bytesReceived: transferData.bytesReceived,
+                totalBytes: transferData.totalBytes,
+                receivedChunks: transferData.receivedChunks,
+                totalChunks: transferData.totalChunks,
+                percent: (transferData.bytesReceived / transferData.totalBytes) * 100,
+                speed: transferData.bytesReceived / ((Date.now() - transferData.startTime) / 1000),
+                timeElapsed: (Date.now() - transferData.startTime) / 1000,
+                timeRemaining: ((Date.now() - transferData.startTime) / transferData.bytesReceived) * (transferData.totalBytes - transferData.bytesReceived) / 1000,
+                filename: transferData.file.name
+            };
+            
+            this.onProgress(progress);
+        }
+        
+        // Check if we've received all chunks and transfer is complete
+        if (transferData.bytesReceived >= transferData.totalBytes && transferData.transferComplete) {
+            this._verifyReceivedFileForTransfer(transferId, transferData);
+        }
+    }
+    
+    /**
+     * Handle legacy data message (for backward compatibility)
+     * @param {ArrayBuffer} data - The data message
+     * @param {DataView} view - The data view
+     * @param {number} sequence - The sequence number
+     * @param {number} chunkSize - The chunk size
+     * @private
+     */
+    _handleLegacyDataMessage(data, view, sequence, chunkSize) {
         // Calculate offset in file
         const offset = sequence * this.chunkSize;
         
@@ -797,8 +1418,7 @@ class FileTransfer {
         // Send progress update
         this._sendProgressUpdate();
         
-        // CRITICAL FIX: Send immediate flow control acknowledgment for every chunk received
-        // This ensures sender gets timely updates for window management
+        // Send immediate flow control acknowledgment
         this._sendImmediateFlowControlAck(sequence);
         
         // Update progress
@@ -824,7 +1444,122 @@ class FileTransfer {
     }
 
     /**
-     * Verify the received file
+     * Verify received file for specific transfer
+     * @param {string} transferId - The transfer ID
+     * @param {Object} transferData - The transfer data
+     * @private
+     */
+    async _verifyReceivedFileForTransfer(transferId, transferData) {
+        // Clear any completion timeout
+        if (transferData.completionTimeout) {
+            clearTimeout(transferData.completionTimeout);
+            transferData.completionTimeout = null;
+        }
+        
+        if (this.onVerificationStart) {
+            this.onVerificationStart();
+        }
+        
+        this.logger.log('Verifying file for transfer:', transferId);
+        
+        try {
+            // Create a blob from transfer-specific file data
+            const blob = new Blob([transferData.fileData], { type: 'application/octet-stream' });
+            
+            // Calculate MD5 hash
+            const md5Hash = await this._calculateMD5(blob);
+            
+            // Get file info from transfer data
+            const fileInfo = {
+                name: transferData.file.name,
+                size: transferData.file.size,
+                md5: transferData.file.md5
+            };
+            
+            // Compare with expected hash
+            if (md5Hash === fileInfo.md5) {
+                this.logger.log('File verification successful for transfer:', transferId);
+                
+                // Send verification success
+                const message = {
+                    type: 'file-verified',
+                    transferId: transferId
+                };
+                
+                this.p2p.controlChannel.send(JSON.stringify(message));
+                
+                // Complete transfer
+                transferData.receiving = false;
+                
+                // Send final progress update to ensure UI is synchronized
+                if (this.onProgress) {
+                    const progress = {
+                        transferId: transferId,
+                        bytesReceived: transferData.file.size,
+                        totalBytes: transferData.file.size,
+                        receivedChunks: transferData.receivedChunks,
+                        totalChunks: transferData.totalChunks,
+                        percent: 100,
+                        speed: transferData.bytesReceived / ((Date.now() - transferData.startTime) / 1000),
+                        timeElapsed: (Date.now() - transferData.startTime) / 1000,
+                        timeRemaining: 0,
+                        complete: true,
+                        filename: transferData.file.name
+                    };
+                    
+                    this.onProgress(progress);
+                }
+                
+                if (this.onVerificationComplete) {
+                    this.onVerificationComplete(blob, fileInfo);
+                }
+                
+                // Trigger receiver completion callback for UI synchronization
+                if (this.onComplete) {
+                    this.onComplete();
+                }
+            } else {
+                this.logger.error(`File verification failed for transfer ${transferId}: MD5 mismatch (expected ${fileInfo.md5}, got ${md5Hash})`);
+                
+                // Send verification failure
+                const message = {
+                    type: 'file-failed',
+                    transferId: transferId,
+                    reason: 'MD5 hash mismatch'
+                };
+                
+                this.p2p.controlChannel.send(JSON.stringify(message));
+                
+                // Complete transfer with error
+                transferData.receiving = false;
+                
+                if (this.onVerificationFailed) {
+                    this.onVerificationFailed('MD5 hash mismatch');
+                }
+            }
+        } catch (error) {
+            this.logger.error('Error verifying file for transfer:', transferId, error);
+            
+            // Send verification failure
+            const message = {
+                type: 'file-failed',
+                transferId: transferId,
+                reason: error.message
+            };
+            
+            this.p2p.controlChannel.send(JSON.stringify(message));
+            
+            // Complete transfer with error
+            transferData.receiving = false;
+            
+            if (this.onVerificationFailed) {
+                this.onVerificationFailed(error.message);
+            }
+        }
+    }
+
+    /**
+     * Verify received file
      * @private
      */
     async _verifyReceivedFile() {
@@ -858,7 +1593,7 @@ class FileTransfer {
                 
                 this.p2p.controlChannel.send(JSON.stringify(message));
                 
-                // Complete the transfer
+                // Complete transfer
                 this.receiving = false;
                 
                 // Send final progress update to ensure UI is synchronized
@@ -897,7 +1632,7 @@ class FileTransfer {
                 
                 this.p2p.controlChannel.send(JSON.stringify(message));
                 
-                // Complete the transfer with error
+                // Complete transfer with error
                 this.receiving = false;
                 
                 if (this.onVerificationFailed) {
@@ -915,7 +1650,7 @@ class FileTransfer {
             
             this.p2p.controlChannel.send(JSON.stringify(message));
             
-            // Complete the transfer with error
+            // Complete transfer with error
             this.receiving = false;
             
             if (this.onVerificationFailed) {
