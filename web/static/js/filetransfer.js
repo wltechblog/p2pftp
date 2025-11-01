@@ -32,12 +32,13 @@ class FileTransfer {
         this.lastProgressUpdate = 0;
         this.transferCancelled = false;
         
-        // Window control - OPTIMIZED for better performance
-        this.windowSize = 128; // Increased from 64 to 128 chunks for better throughput
-        this.minWindowSize = 32; // Increased minimum window size
-        this.maxWindowSize = 512; // Increased maximum window size
-        this.inFlightChunks = 0;
-        this.lastAcknowledged = -1;
+        // Legacy window control - REMOVED for multiple transfer support
+        // Per-transfer flow control is now handled in transferData objects
+        this.windowSize = 128; // Default values for new transfers
+        this.minWindowSize = 32;
+        this.maxWindowSize = 512;
+        // this.inFlightChunks = 0; // REMOVED - now per-transfer
+        // this.lastAcknowledged = -1; // REMOVED - now per-transfer
         
         // Adaptive window control
         this.lastWindowAdjustment = Date.now();
@@ -51,7 +52,7 @@ class FileTransfer {
         // Congestion control
         // CRITICAL FIX: Reduced buffer threshold from 2MB to 512KB for better flow control
         // This triggers buffer management earlier and prevents saturation
-        this.bufferThreshold = this.p2p.DATA_BUFFER_SIZE || (1024 * 1024); // Use configured data buffer size, increased to 1MB for better throughput
+        this.bufferThreshold = this.p2p.DATA_BUFFER_SIZE || (512 * 1024); // Use configured data buffer size, reduced to 512KB for better flow control
         this.sendPaused = false;
         
         // Speed calculation tracking
@@ -72,6 +73,21 @@ class FileTransfer {
         
         // Set up data message handler
         this.p2p.onDataMessage = (data) => this._handleDataMessage(data);
+    }
+
+    /**
+     * Extract numeric ID from transfer ID string
+     * @param {string} transferId - The transfer ID string (e.g., "send-1")
+     * @returns {number} - The numeric ID
+     * @private
+     */
+    _extractTransferIdNumber(transferId) {
+        // Extract the numeric part from transfer ID (e.g., "send-1" -> 1)
+        const parts = transferId.split('-');
+        if (parts.length >= 2) {
+            return parseInt(parts[1]) || 0;
+        }
+        return 0;
     }
 
     /**
@@ -135,8 +151,8 @@ class FileTransfer {
         this.chunkSize = this.p2p.negotiatedChunkSize;
         this.totalBytes = file.size;
         this.totalChunks = Math.ceil(file.size / this.chunkSize);
-        this.inFlightChunks = 0;
-        this.lastAcknowledged = -1;
+        // this.inFlightChunks = 0; // REMOVED - now per-transfer
+        // this.lastAcknowledged = -1; // REMOVED - now per-transfer
         this.sendPaused = false;
         
         this.logger.log(`Starting file transfer: ${file.name} (${file.size} bytes)`);
@@ -338,10 +354,10 @@ class FileTransfer {
                 });
             }
             
-            // Check if we need to wait for window space with improved timeout protection
+            // Check if we need to wait for window space - CRITICAL FIX: No recovery mechanism
             if (transferData.inFlightChunks >= transferData.windowSize) {
                 const waitStartTime = Date.now();
-                const timeoutMs = 5000; // Reduced timeout to 5 seconds for faster recovery
+                const timeoutMs = 10000; // Increased timeout to 10 seconds for stability
                 
                 await new Promise(resolve => {
                     const checkWindow = () => {
@@ -350,15 +366,10 @@ class FileTransfer {
                         if (transferData.inFlightChunks < transferData.windowSize) {
                             resolve();
                         } else if (elapsed > timeoutMs) {
-                            // IMPROVED FIX: More intelligent window recovery
-                            this.logger.warn(`Window wait timeout for transfer ${transferData.id} after ${elapsed}ms, attempting recovery`);
-                            
-                            // Instead of arbitrary reset, try to recover by checking if acknowledgments were missed
-                            const expectedReduction = Math.max(1, Math.floor(transferData.windowSize * 0.25));
-                            transferData.inFlightChunks = Math.max(0, transferData.inFlightChunks - expectedReduction);
-                            
-                            this.logger.log(`Transfer ${transferData.id} recovery - reduced inFlightChunks to ${transferData.inFlightChunks}`);
-                            resolve();
+                            // CRITICAL FIX: Remove recovery mechanism that reduces in-flight chunks
+                            // This was causing conflicts between multiple transfers
+                            this.logger.error(`Window wait timeout for transfer ${transferData.id} after ${elapsed}ms - this should not happen`);
+                            resolve(); // Continue anyway to avoid deadlock
                         } else {
                             setTimeout(checkWindow, 50);
                         }
@@ -390,7 +401,8 @@ class FileTransfer {
             const view = new DataView(chunk);
             
             // Write transfer ID (4 bytes) - CRITICAL FIX for multiple transfers
-            const transferIdNum = parseInt(transferData.id.replace(/[^0-9]/g, '0')) || 0;
+            // Use direct string-to-number conversion instead of regex
+            const transferIdNum = this._extractTransferIdNumber(transferData.id);
             view.setUint32(0, transferIdNum);
             
             // Write sequence number (4 bytes)
@@ -749,33 +761,18 @@ class FileTransfer {
      * @private
      */
     _handleFlowControlAck(ack) {
-        if (!this.sending) {
-            return;
-        }
+        // CRITICAL FIX: Legacy flow control removed - only handle per-transfer flow control
+        // This method is kept for backward compatibility but should not be used for multiple transfers
         
-        this.logger.log('DEBUG: Received flow control acknowledgment:', ack);
-        this.logger.log('DEBUG: Current legacy state - inFlightChunks:', this.inFlightChunks, 'lastAcknowledged:', this.lastAcknowledged);
-        
-        // Update window control immediately (unthrottled)
-        if (ack.highestSequence > this.lastAcknowledged) {
-            const newAcknowledged = ack.highestSequence - this.lastAcknowledged;
-            this.inFlightChunks = Math.max(0, this.inFlightChunks - newAcknowledged);
-            this.lastAcknowledged = ack.highestSequence;
-            this.logger.log('DEBUG: Updated legacy state - inFlightChunks:', this.inFlightChunks, 'lastAcknowledged:', this.lastAcknowledged);
-        }
-        
-        // CRITICAL FIX: Also update per-transfer state for multiple transfers
+        // Only handle per-transfer flow control - ignore global state
         const sendingTransfers = Array.from(this.activeTransfers.values()).filter(t => t.sending && !t.transferComplete);
-        this.logger.log('DEBUG: Found', sendingTransfers.length, 'active sending transfers');
         
         for (const transfer of sendingTransfers) {
-            this.logger.log('DEBUG: Transfer', transfer.id, 'state before update - inFlightChunks:', transfer.inFlightChunks, 'lastAcknowledged:', transfer.lastAcknowledged);
-            
             if (ack.highestSequence > transfer.lastAcknowledged) {
                 const newAcknowledged = ack.highestSequence - transfer.lastAcknowledged;
                 transfer.inFlightChunks = Math.max(0, transfer.inFlightChunks - newAcknowledged);
                 transfer.lastAcknowledged = ack.highestSequence;
-                this.logger.log('DEBUG: Transfer', transfer.id, 'state after update - inFlightChunks:', transfer.inFlightChunks, 'lastAcknowledged:', transfer.lastAcknowledged);
+                this.logger.log('DEBUG: Transfer', transfer.id, 'updated - inFlightChunks:', transfer.inFlightChunks, 'lastAcknowledged:', transfer.lastAcknowledged);
             }
         }
     }
@@ -1033,14 +1030,9 @@ class FileTransfer {
             this.logger.log('DEBUG: Transfer', transferData.id, 'state after update - inFlightChunks:', transferData.inFlightChunks, 'lastAcknowledged:', transferData.lastAcknowledged);
         }
         
-        // Update legacy state for backward compatibility
-        if (this.sending) {
-            if (ack.highestSequence > this.lastAcknowledged) {
-                const newAcknowledged = ack.highestSequence - this.lastAcknowledged;
-                this.inFlightChunks = Math.max(0, this.inFlightChunks - newAcknowledged);
-                this.lastAcknowledged = ack.highestSequence;
-            }
-        }
+        // CRITICAL FIX: Remove legacy state updates to prevent conflicts
+        // Only per-transfer state is now maintained
+        // Legacy state updates removed to prevent dual flow control conflicts
     }
     
     /**
@@ -1283,12 +1275,12 @@ class FileTransfer {
             return;
         }
         
-        // Find transfer by ID
+        // CRITICAL FIX: Find transfer by ID using direct comparison instead of regex
         let transferId = null;
         let transferData = null;
         
         for (const [tid, tdata] of this.activeTransfers.entries()) {
-            const tidNum = parseInt(tid.replace(/[^0-9]/g, '0')) || 0;
+            const tidNum = this._extractTransferIdNumber(tid);
             if (tidNum === transferIdNum) {
                 transferId = tid;
                 transferData = tdata;
@@ -1397,7 +1389,7 @@ class FileTransfer {
             return;
         }
         
-        // Extract chunk data
+        // Extract chunk data (skip 8-byte header for legacy format: 4 bytes sequence + 4 bytes chunk size)
         const chunkData = new Uint8Array(data, 8, chunkSize);
         
         // Write chunk to file data
