@@ -1,0 +1,126 @@
+/* Additional styles beyond Tailwind */
+
+/* Log entries styling */
+.log-entry {
+    margin-bottom: 0.25rem;
+    line-height: 1.4;
+    word-break: break-word;
+}
+
+.log-entry.debug {
+    color: #6b7280;
+}
+
+.log-entry.info {
+    color: #1e40af;
+}
+
+.log-entry.warning {
+    color: #b45309;
+}
+
+.log-entry.error {
+    color: #b91c1c;
+}
+
+/* Animations */
+@keyframes pulse {
+    0%, 100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.5;
+    }
+}
+
+.animate-pulse {
+    animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* Accessibility improvements */
+:focus {
+    outline: 2px solid #3b82f6;
+    outline-offset: 2px;
+}
+
+/* File input button styling */
+#file-select-button:focus {
+    outline: 2px solid #3b82f6;
+    outline-offset: 2px;
+}
+
+/* Chat message styling */
+.message {
+    padding: 0.5rem 0.75rem;
+    margin-bottom: 0.5rem;
+    border-radius: 0.375rem;
+    max-width: 80%;
+    word-break: break-word;
+}
+
+.message.sent {
+    background-color: #dbeafe;
+    margin-left: auto;
+    border-bottom-right-radius: 0;
+}
+
+.message.received {
+    background-color: #f3f4f6;
+    margin-right: auto;
+    border-bottom-left-radius: 0;
+}
+
+/* Responsive adjustments */
+@media (max-width: 640px) {
+    .message {
+        max-width: 90%;
+    }
+}
+
+/* Dark mode support (if user prefers dark mode) */
+@media (prefers-color-scheme: dark) {
+    .dark-mode-support {
+        /* Dark mode styles can be added here if needed */
+    }
+}
+
+/* Collapsible panel styles */
+.panel-header {
+    user-select: none;
+}
+
+.panel-content {
+    transition: all 0.3s ease;
+    overflow: hidden;
+}
+
+.panel-content.collapsed {
+    max-height: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+    opacity: 0;
+}
+
+.panel-content.expanded {
+    max-height: 2000px;
+    opacity: 1;
+}
+
+.panel-toggle svg {
+    transition: transform 0.3s ease;
+}
+
+.panel-toggle svg.rotate-180 {
+    transform: rotate(180deg);
+}
+
+/* Ensure proper spacing when panels are collapsed */
+section .panel-header {
+    border-bottom: 1px solid transparent;
+    transition: border-color 0.3s ease;
+}
+
+section.collapsed .panel-header {
+    border-bottom-color: #e5e7eb;
+    padding-bottom: 1.5rem;
+}

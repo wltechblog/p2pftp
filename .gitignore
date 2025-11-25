@@ -1,0 +1,29 @@
+# Binaries
+p2pftp
+p2pftp-server
+p2pftp-cli
+bin/
+client/client
+client/p2pftp-cli
+
+# Downloaded files
+downloads/*
+!downloads/.gitkeep
+
+# Debugging
+__debug*
+*.log
+
+# Dependencies
+vendor/
+
+# IDE settings
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Memory bank
+memory-bank/error.txt

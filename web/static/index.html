@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>P2PFTP - Peer-to-Peer File Transfer</title>
+    <meta name="description" content="Secure peer-to-peer file transfer using WebRTC">
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="css/styles.css">
+</head>
+<body class="bg-gray-100 text-gray-900 min-h-screen">
+    <div class="container mx-auto px-4 py-8">
+        <header class="mb-12">
+            <h1 class="text-3xl md:text-4xl font-bold text-center text-blue-600">P2PFTP</h1>
+            <p class="text-center text-gray-600 mt-3">Secure Peer-to-Peer File Transfer</p>
+        </header>
+
+        <main class="max-w-4xl mx-auto space-y-8">
+            <!-- Connection Panel -->
+            <section id="connection-panel" class="bg-white rounded-lg shadow-md">
+                <div class="panel-header p-6 pb-0 flex justify-between items-center cursor-pointer" onclick="togglePanel('connection-panel')">
+                    <h2 class="text-xl font-semibold">Connection</h2>
+                    <button class="panel-toggle text-gray-500 hover:text-gray-700 focus:outline-none">
+                        <svg id="connection-panel-toggle-icon" class="w-5 h-5 transform transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                        </svg>
+                    </button>
+                </div>
+                <div id="connection-panel-content" class="panel-content p-6 space-y-4">
+                    <div id="token-display" class="hidden mb-4 p-4 bg-blue-50 rounded-md">
+                        <p>Your token: <span id="my-token" class="font-mono font-bold"></span></p>
+                        <div id="share-link-section">
+                            <p class="mt-2">Share this link with your peer:</p>
+                            <div class="flex items-center mt-1">
+                                <input id="connection-link" type="text" readonly class="flex-grow p-2 border rounded-l-md font-mono text-sm" />
+                                <button id="copy-link" class="bg-blue-500 text-white px-4 py-2 rounded-r-md hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50" aria-label="Copy link">
+                                    Copy
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="connect-form" class="mb-4">
+                        <div class="flex flex-col md:flex-row gap-4">
+                            <div class="flex-grow">
+                                <label for="server-url" class="block text-sm font-medium text-gray-700 mb-1">Server URL</label>
+                                <input type="text" id="server-url" class="w-full p-2 border rounded-md" placeholder="e.g., p2p.teamworkapps.com" />
+                            </div>
+                            <div class="md:w-1/3">
+                                <label for="peer-token" class="block text-sm font-medium text-gray-700 mb-1">Peer Token (optional)</label>
+                                <input type="text" id="peer-token" class="w-full p-2 border rounded-md" placeholder="e.g., abcd1234" />
+                            </div>
+                        </div>
+                        
+                        <div class="mt-4 flex justify-between">
+                            <button id="connect-button" class="bg-blue-500 text-white px-6 py-2 rounded-md hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50">
+                                Connect to Server
+                            </button>
+                            <button id="connect-peer-button" class="bg-green-500 text-white px-6 py-2 rounded-md hover:bg-green-600 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-opacity-50 disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+                                Connect to Peer
+                            </button>
+                        </div>
+                    </div>
+
+                    <div id="connection-status" class="text-sm text-gray-600 mt-2">
+                        Not connected
+                    </div>
+                    
+                    <!-- Connection Status Indicators -->
+                    <div class="flex flex-wrap gap-2 mt-3">
+                        <div id="server-status-indicator" class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                            <svg class="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
+                                <circle cx="10" cy="10" r="3"></circle>
+                            </svg>
+                            Server: Not Connected
+                        </div>
+                        <div id="p2p-status-indicator" class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                            <svg class="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
+                                <circle cx="10" cy="10" r="3"></circle>
+                            </svg>
+                            P2P: Not Connected
+                        </div>
+                    </div>
+                    
+                    <div id="capabilities-status" class="text-sm text-gray-600 mt-2 hidden">
+                        <span class="inline-flex items-center">
+                            <svg class="animate-spin h-4 w-4 mr-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                            <span id="capabilities-text">Exchanging capabilities...</span>
+                        </span>
+                    </div>
+                    
+                    <div id="peer-connection-status" class="text-sm text-gray-600 mt-2 hidden">
+                        <span class="inline-flex items-center">
+                            <svg class="animate-spin h-4 w-4 mr-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                            <span id="peer-connection-text">Waiting for peer to accept...</span>
+                        </span>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Chat Panel -->
+            <section id="chat-panel" class="bg-white rounded-lg shadow-md hidden">
+                <div class="panel-header p-6 pb-0 flex justify-between items-center cursor-pointer" onclick="togglePanel('chat-panel')">
+                    <h2 class="text-xl font-semibold">Chat</h2>
+                    <button class="panel-toggle text-gray-500 hover:text-gray-700 focus:outline-none">
+                        <svg id="chat-panel-toggle-icon" class="w-5 h-5 transform transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                        </svg>
+                    </button>
+                </div>
+                <div id="chat-panel-content" class="panel-content p-6">
+                    <div id="chat-messages" class="h-64 overflow-y-auto p-3 border rounded-md mb-4 bg-gray-50">
+                        <div class="text-gray-400 text-center text-sm">Messages will appear here</div>
+                    </div>
+                    
+                    <div class="flex">
+                        <input type="text" id="chat-input" class="flex-grow p-2 border rounded-l-md" placeholder="Type a message..." />
+                        <button id="send-message-button" class="bg-blue-500 text-white px-4 py-2 rounded-r-md hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50">
+                            Send
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- File Transfer Panel -->
+            <section id="file-transfer-panel" class="bg-white rounded-lg shadow-md hidden">
+                <div class="panel-header p-6 pb-0 flex justify-between items-center cursor-pointer" onclick="togglePanel('file-transfer-panel')">
+                    <h2 class="text-xl font-semibold">File Transfer</h2>
+                    <button class="panel-toggle text-gray-500 hover:text-gray-700 focus:outline-none">
+                        <svg id="file-transfer-panel-toggle-icon" class="w-5 h-5 transform transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                        </svg>
+                    </button>
+                </div>
+                <div id="file-transfer-panel-content" class="panel-content p-6 space-y-6">
+                    <div id="file-select">
+                        <label for="file-input" class="block text-sm font-medium text-gray-700 mb-2">Select a file to send</label>
+                        <div class="flex items-center">
+                            <input type="file" id="file-input" class="hidden" />
+                            <button id="file-select-button" class="bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50">
+                                Choose File
+                            </button>
+                            <span id="selected-file-name" class="ml-3 text-gray-600">No file selected</span>
+                        </div>
+                        <button id="send-file-button" class="mt-3 bg-green-500 text-white px-6 py-2 rounded-md hover:bg-green-600 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-opacity-50 disabled:opacity-50 disabled:cursor-not-allowed" disabled>
+                            Send File
+                        </button>
+                    </div>
+
+                    <div id="transfer-progress-container" class="space-y-6">
+                        <!-- Single transfer progress (for backward compatibility) -->
+                        <div id="transfer-progress" class="hidden">
+                            <div class="mb-2 flex justify-between">
+                                <span id="transfer-filename" class="font-medium"></span>
+                                <span id="transfer-status">Preparing...</span>
+                            </div>
+                            <div class="w-full bg-gray-200 rounded-full h-4 mb-2">
+                                <div id="progress-bar" class="bg-blue-500 h-4 rounded-full transition-all duration-300" style="width: 0%"></div>
+                            </div>
+                            <div class="flex justify-between text-sm text-gray-600">
+                                <span id="bytes-transferred">0 B / 0 B</span>
+                                <span id="transfer-speed">0 B/s</span>
+                                <span id="time-remaining">--:--</span>
+                            </div>
+                            <button id="cancel-transfer-button" class="mt-3 bg-red-500 text-white px-4 py-1 rounded-md hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-opacity-50">
+                                Cancel
+                            </button>
+                        </div>
+                        <!-- Multiple transfer progress indicators will be added here dynamically -->
+                    </div>
+
+                    <!-- Transfer Completion Section -->
+                    <div id="transfer-completion" class="hidden">
+                        <div class="p-4 bg-green-50 border border-green-200 rounded-md">
+                            <div class="flex items-center mb-3">
+                                <svg class="w-6 h-6 text-green-600 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                </svg>
+                                <h3 class="text-lg font-semibold text-green-800">Transfer Complete</h3>
+                            </div>
+                            <div class="mb-3 text-sm text-gray-700">
+                                <p><strong>File:</strong> <span id="completion-filename"></span></p>
+                                <p><strong>Size:</strong> <span id="completion-filesize"></span></p>
+                                <p><strong>Speed:</strong> <span id="completion-speed" class="text-blue-600 font-medium"></span></p>
+                                <p><strong>Status:</strong> <span id="completion-verification" class="text-green-600 font-medium">✓ Verified</span></p>
+                            </div>
+                            <div id="download-section" class="hidden">
+                                <p class="text-sm text-amber-700 mb-2">File didn't save automatically. Click below to download:</p>
+                                <button id="download-button" class="bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50 flex items-center">
+                                    <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path>
+                                    </svg>
+                                    Download File
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Transfer History Section -->
+                    <div id="transfer-history">
+                        <h3 class="text-lg font-semibold mb-3 flex items-center">
+                            <svg class="w-5 h-5 mr-2 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                            </svg>
+                            Transfer History
+                        </h3>
+                        <div id="transfer-history-list" class="space-y-2">
+                            <div class="text-sm text-gray-500 italic">No transfers completed yet</div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Status Log -->
+            <section id="status-log-panel" class="bg-white rounded-lg shadow-md">
+                <div class="panel-header p-6 pb-0 flex justify-between items-center cursor-pointer" onclick="togglePanel('status-log-panel')">
+                    <div class="flex items-center">
+                        <h2 class="text-xl font-semibold">Status Log</h2>
+                        <label class="inline-flex items-center ml-4">
+                            <input type="checkbox" id="debug-mode" class="rounded text-blue-500 focus:ring-blue-500">
+                            <span class="ml-2 text-sm text-gray-700">Debug Mode</span>
+                        </label>
+                    </div>
+                    <button class="panel-toggle text-gray-500 hover:text-gray-700 focus:outline-none">
+                        <svg id="status-log-panel-toggle-icon" class="w-5 h-5 transform transition-transform rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                        </svg>
+                    </button>
+                </div>
+                <div id="status-log-panel-content" class="panel-content p-6 hidden">
+                    <div id="log-container" class="h-48 overflow-y-auto p-3 border rounded-md font-mono text-sm bg-gray-50">
+                        <div class="log-entry">System initialized</div>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <footer class="mt-12 text-center text-gray-500 text-sm border-t border-gray-300 pt-6">
+            <p>P2PFTP &copy; 2025 Josh at WLTechBlog - Secure peer-to-peer file transfers</p>
+            <p class="mt-2">Licensed under <a href="https://www.gnu.org/licenses/old-licenses/gpl-2.0.html" target="_blank" rel="noopener noreferrer" class="text-blue-500 hover:text-blue-700 underline">GPL v2</a></p>
+            <p class="mt-2">
+                <a href="https://github.com/wltechblog/p2pftp" target="_blank" rel="noopener noreferrer" class="text-blue-500 hover:text-blue-700 underline">
+                    <svg class="w-4 h-4 inline mr-1" fill="currentColor" viewBox="0 0 20 20">
+                        <path fill-rule="evenodd" d="M10 0C4.477 0 0 4.484 0 10.017c0 4.425 2.865 8.18 6.839 9.49.5.092.682-.217.682-.482 0-.237-.008-.866-.013-1.7-2.782.603-3.369-1.343-3.369-1.343-.454-1.156-1.11-1.463-1.11-1.463-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.544 2.914 1.186.092-.921.35-1.545.636-1.9-2.22-.253-4.555-1.112-4.555-4.943 0-1.091.39-1.984 1.029-2.683-.103-.253-.446-1.27.098-2.647 0 0 .84-.269 2.75 1.025A9.578 9.578 0 0110 4.817c.85.004 1.705.114 2.504.336 1.909-1.294 2.747-1.025 2.747-1.025.546 1.377.203 2.394.1 2.647.64.699 1.028 1.592 1.028 2.683 0 3.842-2.339 4.687-4.566 4.935.359.309.678.919.678 1.852 0 1.336-.012 2.415-.012 2.743 0 .267.18.578.688.48C17.138 18.192 20 14.435 20 10.017 20 4.484 15.522 0 10 0z" clip-rule="evenodd"></path>
+                    </svg>
+                    GitHub
+                </a>
+            </p>
+        </footer>
+    </div>
+
+    <!-- Modal for peer disconnection -->
+    <div id="disconnection-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center hidden z-50">
+        <div class="bg-white rounded-lg p-8 max-w-lg w-full mx-4 text-center">
+            <div class="mb-6">
+                <svg class="w-20 h-20 mx-auto text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+                </svg>
+            </div>
+            <h3 class="text-2xl font-bold mb-4 text-gray-900">Peer Connection Closed</h3>
+            <p class="text-gray-600 mb-8 text-lg">The peer connection has been closed. You need to start a new session to continue.</p>
+            <button id="reload-page" class="bg-blue-500 text-white px-8 py-3 rounded-md text-lg font-semibold hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50">
+                Start New Session
+            </button>
+        </div>
+    </div>
+
+    <!-- Modal for connecting to peer -->
+    <div id="connecting-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center hidden z-50">
+        <div class="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+            <h3 class="text-xl font-semibold mb-4">Connecting to Peer</h3>
+            <div class="flex items-center mb-4">
+                <svg class="animate-spin h-8 w-8 mr-3 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <p>Attempting to connect to peer: <span id="connecting-peer-token" class="font-mono font-bold"></span></p>
+            </div>
+            <button id="cancel-connecting" class="bg-gray-300 text-gray-800 px-4 py-2 rounded-md hover:bg-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-opacity-50">
+                Cancel
+            </button>
+        </div>
+    </div>
+
+    <!-- Modal for connection requests -->
+    <div id="connection-request-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center hidden z-50">
+        <div class="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+            <h3 class="text-xl font-semibold mb-4">Connection Request</h3>
+            <p class="mb-4">You have received a connection request from peer: <span id="request-peer-token" class="font-mono font-bold"></span></p>
+            <div class="flex justify-end space-x-4">
+                <button id="reject-connection" class="bg-gray-300 text-gray-800 px-4 py-2 rounded-md hover:bg-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-opacity-50">
+                    Reject
+                </button>
+                <button id="accept-connection" class="bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-50">
+                    Accept
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/spark-md5/3.0.2/spark-md5.min.js"></script>
+    <script src="js/webrtc.js?v=13"></script>
+    <script src="js/filetransfer.js?v=13"></script>
+    <script src="js/ui.js?v=13"></script>
+</body>
+</html>
