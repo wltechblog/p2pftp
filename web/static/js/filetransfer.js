@@ -149,7 +149,8 @@ class FileTransfer {
             lastWindowAdjustment: Date.now(),
             speedHistory: [],
             lastSpeedCalculationTime: 0,
-            lastBytesReceived: 0
+            lastBytesReceived: 0,
+            sendLoopPromise: null
         };
         
         // Store transfer data
@@ -189,7 +190,7 @@ class FileTransfer {
             this._sendFileInfoForTransfer(this.fileInfo, transferId);
             
             // Start sending chunks
-            this._sendChunks();
+            this._startTransferSendLoop(transferData);
             
             return new Promise((resolve, reject) => {
                 // Set up completion handler
@@ -320,18 +321,22 @@ class FileTransfer {
         this.logger.log('Sent file info for transfer:', transferId, fileInfo);
     }
 
-    /**
-     * Send file chunks to the peer
-     * @private
-     */
-    async _sendChunks() {
-        // Get current sending transfers
-        const sendingTransfers = Array.from(this.activeTransfers.values()).filter(t => t.sending && !t.transferComplete);
-        
-        // Process each sending transfer
-        for (const transfer of sendingTransfers) {
-            await this._sendChunksForTransfer(transfer);
+    _startTransferSendLoop(transferData) {
+        if (!transferData || transferData.sendLoopPromise) {
+            return;
         }
+        transferData.sendLoopPromise = (async () => {
+            try {
+                await this._sendChunksForTransfer(transferData);
+            } catch (error) {
+                this.logger.error(`Error sending data for transfer ${transferData.id}:`, error);
+                if (this.onError) {
+                    this.onError(error);
+                }
+            } finally {
+                transferData.sendLoopPromise = null;
+            }
+        })();
     }
     
     async _sendChunksForTransfer(transferData) {

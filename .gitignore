@@ -26,4 +26,8 @@ vendor/
 Thumbs.db
 
 # Memory bank
-memory-bank/error.txt
+memory-bank
+.zencoder/
+.vscode/
+logs/
+security/
